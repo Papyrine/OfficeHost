@@ -82,7 +82,7 @@ sealed class TestServerHost : IAsyncDisposable
                 Storage = storage,
                 Time = time,
                 LogWriter = TextWriter.Synchronized(Log),
-                BridgeHandler = router,
+                HttpHandler = router,
                 ConfigureBuilder = _ => _.WebHost.UseTestServer()
             });
         await app.StartAsync();

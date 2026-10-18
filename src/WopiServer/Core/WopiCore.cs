@@ -116,7 +116,11 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
         {
             var url = $"{downloadUrl}?access_token={AccessTokenArg(context)}";
             fmd["DownloadUrl"] = url;
-            fmd["FileUrl"] = url;
+            // a WOPI client fetches FileUrl instead of calling GetFile, which would bypass a required proof
+            if (state.ProofKeys is not { Required: true })
+            {
+                fmd["FileUrl"] = url;
+            }
         }
 
         // these are strings in [MS-WOPI] 3.3.5.1.2.2: unlike the Python implementation, do not send them as null

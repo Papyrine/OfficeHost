@@ -443,7 +443,7 @@ class WopiEndpoints(WopiState state, WopiUtils utils, WopiCore core, Bridge brid
     /// </summary>
     async Task<IResult> CheckFileInfo(HttpContext context, string fileid)
     {
-        var (acctok, error) = utils.ValidateAndLogHeaders(context, "CheckFileInfo");
+        var (acctok, error) = await utils.ValidateAndLogHeaders(context, "CheckFileInfo");
         if (error != null)
         {
             return error;
@@ -457,7 +457,7 @@ class WopiEndpoints(WopiState state, WopiUtils utils, WopiCore core, Bridge brid
     /// </summary>
     async Task<IResult> GetFile(HttpContext context, string fileid)
     {
-        var (acctok, error) = utils.ValidateAndLogHeaders(context, "GetFile");
+        var (acctok, error) = await utils.ValidateAndLogHeaders(context, "GetFile");
         if (error != null)
         {
             return error;
@@ -480,7 +480,7 @@ class WopiEndpoints(WopiState state, WopiUtils utils, WopiCore core, Bridge brid
             return WopiResult.Text("Missing argument", StatusCodes.Status400BadRequest);
         }
 
-        var (acctok, error) = utils.ValidateAndLogHeaders(context, operation);
+        var (acctok, error) = await utils.ValidateAndLogHeaders(context, operation);
         if (error != null)
         {
             return error;
@@ -526,7 +526,7 @@ class WopiEndpoints(WopiState state, WopiUtils utils, WopiCore core, Bridge brid
     /// </summary>
     async Task<IResult> PutFile(HttpContext context, string fileid)
     {
-        var (acctok, error) = utils.ValidateAndLogHeaders(context, "PutFile");
+        var (acctok, error) = await utils.ValidateAndLogHeaders(context, "PutFile");
         if (error != null)
         {
             return error;

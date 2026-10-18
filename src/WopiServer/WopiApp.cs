@@ -18,9 +18,10 @@ public class WopiAppOptions
     public TextWriter? LogWriter { get; init; }
 
     /// <summary>
-    /// The handler of the requests issued by the bridge, to the bridged apps and back to this server.
+    /// The handler of the outgoing requests: of the bridge, to the bridged apps and back to this server, and of the
+    /// proof keys validation, to the discovery of the WOPI clients.
     /// </summary>
-    public HttpMessageHandler? BridgeHandler { get; init; }
+    public HttpMessageHandler? HttpHandler { get; init; }
 
     public Action<WebApplicationBuilder>? ConfigureBuilder { get; init; }
 }
@@ -124,11 +125,12 @@ public static class WopiApp
                 ProxiedAppName = proxiedAppName,
                 NonOfficeTypes = Split(config.Get("apps", "nonofficetypes", "")),
                 CodeTypes = Split(config.Get("apps", "codeofficetypes", ".odt .ods .odp")),
-                EnableRename = config.IsTrueOrYes("general", "enablerename", false)
+                EnableRename = config.IsTrueOrYes("general", "enablerename", false),
+                ProofKeys = new(config, ProofKeysClient(options.HttpHandler), time, loggers.CreateLogger("proofkeys"))
             };
 
             // initialize the bridge
-            bridge = new(state, new(state, loggers.CreateLogger("wopiutils")), BridgeHttp(config, options.BridgeHandler), loggers);
+            bridge = new(state, new(state, loggers.CreateLogger("wopiutils")), BridgeHttp(config, options.HttpHandler), loggers);
             await bridge.Init();
         }
         catch (Exception exception) when (exception is ConfigException or IOException or UnauthorizedAccessException or CryptographicException or UnsupportedAppException)
@@ -176,6 +178,14 @@ public static class WopiApp
         else
         {
             log.LogInformation("WOPI Server starting in unsecure/embedded mode {port} {wopiurl} {version}", state.Port, state.WopiUrl, WopiState.Version);
+        }
+
+        if (state.ProofKeys!.Enabled)
+        {
+            log.LogInformation(
+                "Validating X-WOPI-Proof against the proof keys of the WOPI clients {discoveryurls} {required}",
+                string.Join(' ', state.ProofKeys.DiscoveryUrls),
+                state.ProofKeys.Required);
         }
 
         return app;
@@ -227,6 +237,19 @@ public static class WopiApp
 
         var sslVerify = config.IsTrueOrYes("bridge", "sslverify", true);
         return new(Client(sslVerify, true), Client(sslVerify, false));
+    }
+
+    /// <summary>
+    /// The discovery of the WOPI clients is fetched with full certificate validation: the keys are what is trusted.
+    /// </summary>
+    static HttpClient ProofKeysClient(HttpMessageHandler? handler)
+    {
+        if (handler != null)
+        {
+            return new(handler, false);
+        }
+
+        return Client(true, true);
     }
 
     static HttpClient Client(bool sslVerify, bool allowRedirect)

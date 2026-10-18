@@ -26,7 +26,7 @@ class WopiUtils(WopiState state, ILogger log)
     /// <summary>
     /// Validates the access_token, and logs some additional headers of the request.
     /// </summary>
-    public (AccessToken? Token, WopiResult? Error) ValidateAndLogHeaders(HttpContext context, string operation)
+    public async Task<(AccessToken? Token, WopiResult? Error)> ValidateAndLogHeaders(HttpContext context, string operation)
     {
         var request = context.Request;
         AccessToken acctok;
@@ -73,6 +73,20 @@ class WopiUtils(WopiState state, ILogger log)
             wopiTimestamp = (ticks / 10000000.0).ToString(CultureInfo.InvariantCulture);
         }
 
+        var proofError = await ValidateProof(context, acctok);
+        if (proofError != null)
+        {
+            log.LogWarning(
+                "{operation}: invalid proof {reason} {user} {token} {client}",
+                operation,
+                proofError,
+                acctok.UserId.Short(),
+                context.TokenForLog(),
+                context.Client());
+            // as for the timestamp, the ProofKeys part of the MS test suite requires a 500
+            return (null, WopiResult.Text("Invalid or missing X-WOPI-Proof header", StatusCodes.Status500InternalServerError));
+        }
+
         // log all relevant headers to help debugging
         var session = request.Header("X-WOPI-SessionId");
         log.LogInformation(
@@ -102,6 +116,41 @@ class WopiUtils(WopiState state, ILogger log)
         }
 
         return (acctok, null);
+    }
+
+    /// <summary>
+    /// Validates X-WOPI-Proof when proof keys are configured. Returns the reason a request is refused, or null.
+    /// </summary>
+    async Task<string?> ValidateProof(HttpContext context, AccessToken acctok)
+    {
+        var proofKeys = state.ProofKeys;
+        if (proofKeys is not { Enabled: true })
+        {
+            return null;
+        }
+
+        if (string.IsNullOrEmpty(context.Request.Header("X-WOPI-Proof")))
+        {
+            if (proofKeys.Required)
+            {
+                return "Missing X-WOPI-Proof";
+            }
+
+            return null;
+        }
+
+        if (state.WopiProxy.Length > 0 &&
+            acctok.AppName == state.ProxiedAppName)
+        {
+            // the app calls the WOPI proxy, so the signed URL is not ours to check
+            log.LogDebug("Skipping the proof validation of a proxied app {app}", acctok.AppName);
+            return null;
+        }
+
+        // the URL the client called: the configured wopiurl takes care of reverse proxies in front of this server
+        var request = context.Request;
+        var url = $"{state.WopiUrl}{request.Path}{request.QueryString}";
+        return await proofKeys.Validate(request, request.Arg("access_token") ?? "", url);
     }
 
     /// <summary>

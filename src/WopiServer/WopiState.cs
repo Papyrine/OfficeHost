@@ -24,6 +24,11 @@ public class WopiState
     public required IReadOnlyList<string> CodeTypes { get; init; }
     public required bool EnableRename { get; init; }
 
+    /// <summary>
+    /// The validation of X-WOPI-Proof, when configured.
+    /// </summary>
+    internal ProofKeys? ProofKeys { get; init; }
+
     public long Now => Time.GetUtcNow().ToUnixTimeSeconds();
 
     readonly Lock sync = new();

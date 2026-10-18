@@ -89,6 +89,13 @@ Following the Microsoft WOPI documentation, from edge cases ported from [WopiHos
   targets and rename names are a 400, with `X-WOPI-ValidRelativeTarget` for PutRelativeFile. On Windows, `a:b.docx`
   used to be written to an NTFS alternate data stream of a file `a`.
 
+Not in the Python implementation:
+
+* Proof keys: with `[security] proofkeydiscoveryurls`, the `X-WOPI-Proof`/`X-WOPI-ProofOld` signatures of WOPI requests
+  are checked against the keys the WOPI clients publish in their discovery, including key rotation
+  (`ProofKeyTests.cs`). Signed requests that do not match are refused; with `proofkeyrequired = True`, so are unsigned
+  ones, which rules out the bridge. See `wopiserver.defaults.conf`.
+
 Two spec requirements are not met, and their tests are skipped with the reason:
 
 * CheckFileInfo omits the CSPP+ properties the spec lists as required (`OfficeCollaborationServiceEndpointUrl`,
