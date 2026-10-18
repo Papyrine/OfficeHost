@@ -26,14 +26,15 @@ sealed class TestServerHost : IAsyncDisposable
     /// <param name="multiUser">
     /// Whether each TokenHeader is a distinct user, as with a CS3 storage. The local storage maps all users to root.
     /// </param>
-    public static async Task<TestServerHost> Start(string extraConfig = "", TimeProvider? time = null, bool multiUser = false)
+    /// <param name="wrapStorage">Decorates the local storage, to simulate storage behaviours.</param>
+    public static async Task<TestServerHost> Start(string extraConfig = "", TimeProvider? time = null, bool multiUser = false, Func<IStorage, IStorage>? wrapStorage = null)
     {
         var host = new TestServerHost();
-        await host.Init(extraConfig, time ?? TimeProvider.System, multiUser);
+        await host.Init(extraConfig, time ?? TimeProvider.System, multiUser, wrapStorage);
         return host;
     }
 
-    async Task Init(string extraConfig, TimeProvider time, bool multiUser)
+    async Task Init(string extraConfig, TimeProvider time, bool multiUser, Func<IStorage, IStorage>? wrapStorage)
     {
         Directory.CreateDirectory(StoragePath);
         await File.WriteAllTextAsync(folder.Combine("wopisecret"), $"{WopiSecret}\n");
@@ -59,9 +60,19 @@ sealed class TestServerHost : IAsyncDisposable
              """);
         var router = new Router(this);
         IStorage? storage = null;
-        if (multiUser)
+        if (multiUser ||
+            wrapStorage != null)
         {
-            storage = new MultiUserStorage(new LocalStorage(new(config), NullLogger.Instance, time));
+            storage = new LocalStorage(new(config), NullLogger.Instance, time);
+            if (multiUser)
+            {
+                storage = new MultiUserStorage(storage);
+            }
+
+            if (wrapStorage != null)
+            {
+                storage = wrapStorage(storage);
+            }
         }
 
         app = await WopiApp.Build(

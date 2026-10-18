@@ -77,6 +77,18 @@ Changes for conformance to [MS-WOPI] (see `SpecTests.cs`, where each test cites 
 * PutFile with a read-only token is a 401: the Python server let it create a file in place of an empty one.
 * The local storage keeps file versions from repeating when two saves fall within the file system clock resolution.
 
+Following the Microsoft WOPI documentation, from edge cases ported from [WopiHost](https://github.com/petrsvihlik/WopiHost)
+(`EdgeCaseTests.cs`):
+
+* Lock, RefreshLock and UnlockAndRelock with a missing, empty or longer than 1024 characters `X-WOPI-Lock` are a 400.
+* PutFile without `X-WOPI-Lock` on a locked file is a 409 giving the lock, even for an empty file; PutFile on a file
+  deleted behind the server's back is a 404 instead of recreating it.
+* GetFile returns 412 when the file is larger than `X-WOPI-MaxExpectedSize`.
+* PutUserInfo rejects more than 1024 characters (400), and an unknown file is a 404.
+* File names cannot hold `<>:"|?*` or end with a dot or a space, whatever the OS: suggested names are scrubbed, relative
+  targets and rename names are a 400, with `X-WOPI-ValidRelativeTarget` for PutRelativeFile. On Windows, `a:b.docx`
+  used to be written to an NTFS alternate data stream of a file `a`.
+
 Two spec requirements are not met, and their tests are skipped with the reason:
 
 * CheckFileInfo omits the CSPP+ properties the spec lists as required (`OfficeCollaborationServiceEndpointUrl`,
@@ -95,7 +107,8 @@ dotnet run --project src/WopiServer -- --config /path/to/wopiserver.conf
 ```
 
 The tests include a port of the Python storage interface test suite (`test/test_storageiface.py`), unit tests of the
-helpers, a conformance suite for the server side of [MS-WOPI] (`SpecTests.cs`), end-to-end tests of the WOPI protocol on
+helpers, a conformance suite for the server side of [MS-WOPI] (`SpecTests.cs`), edge cases ported from WopiHost
+(`EdgeCaseTests.cs`), end-to-end tests of the WOPI protocol on
 an in-memory test server, and a CodiMD bridge round trip against a stub app.
 
 To run the server for development, write the two secret files and a configuration like the following, where the

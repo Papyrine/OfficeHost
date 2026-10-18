@@ -256,6 +256,13 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
             // the lock must be fetched prior to the following call in order to access the file.
             // stat the file to get the current version
             var statInfo = await Storage.StatX(acctok.Endpoint, acctok.FileName, acctok.UserId);
+            // the client tells the largest file it expects, cf. the WOPI documentation of GetFile
+            if (long.TryParse(context.Request.Header("X-WOPI-MaxExpectedSize"), CultureInfo.InvariantCulture, out var maxExpectedSize) &&
+                statInfo.Size > maxExpectedSize)
+            {
+                return WopiResult.Message($"The file is larger than X-WOPI-MaxExpectedSize ({maxExpectedSize} bytes)", StatusCodes.Status412PreconditionFailed);
+            }
+
             // stream file from storage to client
             var stream = await Storage.ReadFile(acctok.Endpoint, acctok.FileName, acctok.UserId, null);
             var response = new WopiResult(StatusCodes.Status200OK)
@@ -302,6 +309,11 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
         var oldLock = request.Header("X-WOPI-OldLock");
         var validateTarget = request.Header("X-WOPI-Validate-Target");
         var filename = acctok.FileName;
+        if (InvalidLockId(requestedLock) is { } invalid)
+        {
+            return invalid;
+        }
+
         var (retrievedLock, lockHolder) = await utils.RetrieveWopiLock(fileId, operation, requestedLock, acctok.Endpoint, filename, acctok.UserId, token);
         string? saveTime = null;
 
@@ -462,6 +474,35 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
             log.LogError("Unable to store WOPI lock {lockop} {filename} {token} {lock} {error}", operation.Title(), filename, token, requestedLock, exception.Message);
             return WopiResult.Message(ioError, StatusCodes.Status500InternalServerError);
         }
+    }
+
+    /// <summary>
+    /// The longest lock id, as advertised by SupportsExtendedLockLength.
+    /// </summary>
+    const int maxLockLength = 1024;
+
+    /// <summary>
+    /// A 400 when the X-WOPI-Lock of a Lock, RefreshLock or UnlockAndRelock is missing or too long.
+    /// </summary>
+    static WopiResult? InvalidLockId(string requestedLock)
+    {
+        string reason;
+        if (requestedLock.Length == 0)
+        {
+            reason = "Missing X-WOPI-Lock";
+        }
+        else if (requestedLock.Length > maxLockLength)
+        {
+            reason = $"X-WOPI-Lock is longer than {maxLockLength} characters";
+        }
+        else
+        {
+            return null;
+        }
+
+        var response = WopiResult.Message(reason, StatusCodes.Status400BadRequest);
+        response.Headers["X-WOPI-LockFailureReason"] = reason;
+        return response;
     }
 
     static bool IsValidSaveTime(string? saveTime, long mtime) =>
@@ -689,8 +730,15 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
             var relativeName = PyStrings.DecodeUtf7(relativeTarget!);
             if (!IsLegalName(relativeName))
             {
-                // the name must not be modified, so an illegal one fails the request
-                return WopiResult.Message("Specified name is illegal", StatusCodes.Status400BadRequest);
+                // the name must not be modified, so an illegal one fails the request, suggesting a legal one
+                var illegal = WopiResult.Message("Specified name is illegal", StatusCodes.Status400BadRequest);
+                var validTarget = await FreeName(acctok, PosixPath.Join(folder, LegalName(relativeName)), token);
+                if (validTarget != null)
+                {
+                    illegal.Headers["X-WOPI-ValidRelativeTarget"] = PyStrings.EncodeUtf7(PosixPath.BaseName(validTarget));
+                }
+
+                return illegal;
             }
 
             targetName = PosixPath.Join(folder, relativeName);
@@ -850,21 +898,31 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
     }
 
     /// <summary>
-    /// Whether a file name given by a WOPI client designates a file in the current folder.
+    /// The characters a file name cannot hold: the path separators, and those Windows forbids, as a storage may be
+    /// accessed from any OS (on NTFS, `a:b` would even name the alternate data stream `b` of the file `a`).
+    /// </summary>
+    static readonly SearchValues<char> forbiddenNameChars = SearchValues.Create("/\\<>:\"|?*");
+
+    /// <summary>
+    /// Whether a file name given by a WOPI client designates a file in the current folder. Trailing dots and spaces
+    /// are illegal too, as Windows drops them.
     /// </summary>
     static bool IsLegalName(string name) =>
         name.Length > 0 &&
         name is not ("." or "..") &&
-        name.IndexOfAny(['/', '\\']) < 0 &&
-        !name.Any(char.IsControl);
+        !name.AsSpan().ContainsAny(forbiddenNameChars) &&
+        !name.Any(char.IsControl) &&
+        !name.EndsWith('.') &&
+        !name.EndsWith(' ');
 
     /// <summary>
     /// The name with the characters that would make it illegal replaced.
     /// </summary>
     static string LegalName(string name)
     {
-        var legal = new string(name.Select(_ => _ is '/' or '\\' || char.IsControl(_) ? '_' : _).ToArray());
-        if (legal is "" or "." or "..")
+        var legal = new string(name.Select(_ => forbiddenNameChars.Contains(_) || char.IsControl(_) ? '_' : _).ToArray())
+            .TrimEnd('.', ' ');
+        if (legal.Length == 0)
         {
             return "_";
         }
@@ -1063,13 +1121,26 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
     public async Task<WopiResult> PutFile(HttpContext context, string fileId, AccessToken acctok)
     {
         var requestedLock = context.Request.Header("X-WOPI-Lock");
+        var token = context.TokenForLog();
         if (requestedLock == null)
         {
-            // no lock given: assume we are in creation mode (cf. editnew WOPI action)
+            // no lock given: assume we are in creation mode (cf. editnew WOPI action), which a lock held by
+            // another session forbids, even on an empty file
+            var (currentLock, _) = await utils.RetrieveWopiLock(fileId, "PUTFILE", null, acctok.Endpoint, acctok.FileName, acctok.UserId, token);
+            if (!string.IsNullOrEmpty(currentLock))
+            {
+                return utils.MakeConflictResponse(context, "PUTFILE", acctok.UserId, currentLock, null, "NA", acctok.FileName, "Cannot overwrite a locked file without its lock");
+            }
+
             return await CreateNewFile(context, fileId, acctok);
         }
 
-        var token = context.TokenForLog();
+        if (!await Exists(acctok, acctok.FileName))
+        {
+            // the file was removed behind our back: do not recreate it
+            return WopiResult.Message("File not found", StatusCodes.Status404NotFound);
+        }
+
         // otherwise, check that the caller holds the current lock on the file
         var (retrievedLock, lockHolder) = await utils.RetrieveWopiLock(fileId, "PUTFILE", requestedLock, acctok.Endpoint, acctok.FileName, acctok.UserId, token);
         if (retrievedLock == null)
@@ -1171,6 +1242,17 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
         {
             using var reader = new StreamReader(context.Request.Body, Encoding.UTF8);
             var userInfo = await reader.ReadToEndAsync();
+            // the WOPI documentation of PutUserInfo caps the user info to 1024 characters
+            if (userInfo.Length > 1024)
+            {
+                return WopiResult.Message("The user info is longer than 1024 characters", StatusCodes.Status400BadRequest);
+            }
+
+            if (!await Exists(acctok, acctok.FileName))
+            {
+                return WopiResult.Message("File not found", StatusCodes.Status404NotFound);
+            }
+
             var storageLock = await Storage.GetLock(acctok.Endpoint, acctok.FileName, acctok.UserId);
             LockMetadata? lockMetadata = null;
             if (storageLock != null)
