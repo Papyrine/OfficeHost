@@ -80,7 +80,12 @@ public class BridgeFlowTests
 
     static async Task<Context> Start(Func<HttpRequestMessage, Task<HttpResponseMessage>> apps, string extraConfig = "")
     {
-        var time = new ManualTime();
+        // ahead of the file system clock: the server's save times must not be older than the files the tests write,
+        // or the saves would detect an external modification
+        var time = new ManualTime
+        {
+            Now = DateTimeOffset.UtcNow.AddMinutes(1)
+        };
         var host = await TestServerHost.Start(extraConfig, time, apps: apps);
         return new(host, time);
     }
