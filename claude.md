@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 A C# port of the Python CS3 WOPI server (https://github.com/cs3org/wopiserver, checked out at
-`C:\Code\PythonWopiServer` on the author's machine). `readme.md` lists what is and is not ported, and the
+`C:\Code\PythonWopiServer` on the author's machine). `docs/porting.md` lists what is and is not ported, and the
 deliberate behaviour differences. When changing WOPI logic, compare with the Python source: the port follows it
 function by function, keeping its comments and log messages.
 

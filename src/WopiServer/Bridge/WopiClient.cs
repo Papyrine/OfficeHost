@@ -110,7 +110,7 @@ class WopiClient(HttpClient http, bool sslVerify, ILogger log)
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or IOException)
         {
-            log.LogError("Unable to contact WOPI {wopiurl} {acctok} {response}", wopiUrl, acctok, exception.Message);
+            log.LogError("Unable to contact WOPI {wopiurl} {acctok} {response}", wopiUrl, acctok.Short(), exception.Message);
             return new(StatusCodes.Status500InternalServerError, [], []);
         }
     }

@@ -476,7 +476,7 @@ class WopiEndpoints(WopiState state, WopiUtils utils, WopiCore core, Bridge brid
         var operation = request.Header("X-WOPI-Override");
         if (operation == null)
         {
-            log.LogWarning("Missing argument {client} {requestedUrl} {error} {token}", context.Client(), request.BaseUrl(), "'X-WOPI-Override'", request.Arg("access_token") ?? "None");
+            log.LogWarning("Missing argument {client} {requestedUrl} {error} {token}", context.Client(), request.BaseUrl(), "'X-WOPI-Override'", context.TokenForLog());
             return WopiResult.Text("Missing argument", StatusCodes.Status400BadRequest);
         }
 
@@ -562,7 +562,7 @@ class WopiEndpoints(WopiState state, WopiUtils utils, WopiCore core, Bridge brid
         if (acctok == null ||
             wopiSrc == null)
         {
-            log.LogInformation("Bridge: expired or malformed token {client} {requestedUrl} {error} {token}", context.RemoteAddress(), context.Request.BaseUrl(), acctok == null ? error : "'WOPISrc'", context.Request.Arg("access_token") ?? "N/A");
+            log.LogInformation("Bridge: expired or malformed token {client} {requestedUrl} {error} {token}", context.RemoteAddress(), context.Request.BaseUrl(), acctok == null ? error : "'WOPISrc'", acctok == null ? context.Request.Arg("access_token") ?? "N/A" : context.TokenForLog());
             return WopiResult.Text("Missing or invalid access token", StatusCodes.Status401Unauthorized);
         }
 
