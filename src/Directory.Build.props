@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <PropertyGroup>
+    <NoWarn>CS1591;NU1608;NU1109;NU1901;IDE0005</NoWarn>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <SuppressNETCoreSdkPreviewMessage>true</SuppressNETCoreSdkPreviewMessage>
+    <!--
+    This repo ships an application, not a library: no nupkg and no strong name.
+    Both have to be set here rather than in the projects, as ProjectDefaults evaluates them before the project body.
+    -->
+    <IsPackageProject>false</IsPackageProject>
+    <SignAssembly>false</SignAssembly>
+    <Verify_SponsorshipExemption>OpenSource</Verify_SponsorshipExemption>
+    <Verify_SponsorshipExemptionUntil>2027-08</Verify_SponsorshipExemptionUntil>
+  </PropertyGroup>
+</Project>

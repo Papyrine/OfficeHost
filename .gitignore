@@ -1,0 +1,26 @@
+## Build output
+[Bb]in/
+[Oo]bj/
+artifacts/
+nugets/
+
+## Test output
+TestResults/
+
+## Verify
+*.received.*
+*.received/
+
+## Rider / VS / VS Code
+.vs/
+.idea/
+*.user
+*.suo
+.vscode/
+
+## OS
+.DS_Store
+Thumbs.db
+
+.claude/settings.local.json
+*.lnk
