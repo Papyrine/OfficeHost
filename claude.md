@@ -15,6 +15,8 @@ function by function, keeping its comments and log messages.
 - Tests: `dotnet run --project src/WopiServer.Tests --no-build` (TUnit, do not use `dotnet test`).
   One test: `... -- --treenode-filter '/*/*/WopiTests/Lock_Lifecycle'`.
 - Run: `dotnet run --project src/WopiServer -- --config <wopiserver.conf>`.
+- CI: `.github/workflows/build.yml` runs the Release build and the tests on Ubuntu and Windows, uploading the TRX
+  results, and the `.received` snapshots on failure.
 
 ## Layout
 
