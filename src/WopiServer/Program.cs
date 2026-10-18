@@ -1,48 +1,83 @@
-// The WOPI server. Usage: wopiserver [--config <path>] [--defaults <path>]
-//   --config    the main configuration file, watched for changes (default /etc/wopi/wopiserver.conf)
-//   --defaults  a system-wide defaults file, loaded over the shipped wopiserver.defaults.conf
-//               (default /etc/wopi/wopiserver.defaults.conf, when present)
+return await WopiProgram.Run(args, Console.Error);
 
-var configPath = "/etc/wopi/wopiserver.conf";
-string? defaultsPath = null;
-if (File.Exists("/etc/wopi/wopiserver.defaults.conf"))
+/// <summary>
+/// The command line of the server: wopiserver [--config &lt;path&gt;] [--defaults &lt;path&gt;]
+/// <list type="bullet">
+/// <item>--config: the main configuration file, watched for changes (default /etc/wopi/wopiserver.conf)</item>
+/// <item>--defaults: a system-wide defaults file, loaded over the shipped wopiserver.defaults.conf
+/// (default /etc/wopi/wopiserver.defaults.conf, when present)</item>
+/// </list>
+/// </summary>
+static class WopiProgram
 {
-    defaultsPath = "/etc/wopi/wopiserver.defaults.conf";
-}
+    public const string Usage = "Usage: wopiserver [--config <path>] [--defaults <path>]";
 
-for (var index = 0; index < args.Length; index++)
-{
-    var arg = args[index];
-    if (index + 1 < args.Length &&
-        arg is "--config" or "--defaults")
+    /// <summary>
+    /// The configuration files given by the arguments, or the unknown argument.
+    /// </summary>
+    public static (string? DefaultsPath, string ConfigPath, string? Unknown) ParseArgs(string[] args, Func<string, bool> fileExists)
     {
-        index++;
-        if (arg == "--config")
+        var configPath = "/etc/wopi/wopiserver.conf";
+        string? defaultsPath = null;
+        if (fileExists("/etc/wopi/wopiserver.defaults.conf"))
         {
-            configPath = args[index];
-        }
-        else
-        {
-            defaultsPath = args[index];
+            defaultsPath = "/etc/wopi/wopiserver.defaults.conf";
         }
 
-        continue;
+        for (var index = 0; index < args.Length; index++)
+        {
+            var arg = args[index];
+            if (index + 1 < args.Length &&
+                arg is "--config" or "--defaults")
+            {
+                index++;
+                if (arg == "--config")
+                {
+                    configPath = args[index];
+                }
+                else
+                {
+                    defaultsPath = args[index];
+                }
+
+                continue;
+            }
+
+            return (defaultsPath, configPath, arg);
+        }
+
+        return (defaultsPath, configPath, null);
     }
 
-    await Console.Error.WriteLineAsync($"Unknown argument {arg}. Usage: wopiserver [--config <path>] [--defaults <path>]");
-    return 2;
-}
+    /// <summary>
+    /// Runs the server until it is stopped. Returns 2 for invalid arguments, 1 when the configuration is invalid.
+    /// </summary>
+    public static async Task<int> Run(string[] args, TextWriter error, Action<WebApplicationBuilder>? configureBuilder = null)
+    {
+        var (defaultsPath, configPath, unknown) = ParseArgs(args, File.Exists);
+        if (unknown != null)
+        {
+            await error.WriteLineAsync($"Unknown argument {unknown}. {Usage}");
+            return 2;
+        }
 
-WebApplication app;
-try
-{
-    app = await WopiApp.Build(WopiConfig.Load(defaultsPath, configPath));
-}
-catch (Exception exception) when (exception is ConfigException or IOException or UnauthorizedAccessException or CryptographicException or FormatException or UnsupportedAppException)
-{
-    await Console.Error.WriteLineAsync($"Failed to initialize the service: {exception.Message}");
-    return 1;
-}
+        WebApplication app;
+        try
+        {
+            app = await WopiApp.Build(
+                WopiConfig.Load(defaultsPath, configPath),
+                new()
+                {
+                    ConfigureBuilder = configureBuilder
+                });
+        }
+        catch (Exception exception) when (exception is ConfigException or IOException or UnauthorizedAccessException or CryptographicException or FormatException or UnsupportedAppException)
+        {
+            await error.WriteLineAsync($"Failed to initialize the service: {exception.Message}");
+            return 1;
+        }
 
-await app.RunAsync();
-return 0;
+        await app.RunAsync();
+        return 0;
+    }
+}

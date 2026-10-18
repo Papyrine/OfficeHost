@@ -52,6 +52,8 @@ Not ported:
   open request with a mixed case app name.
 * `Content-Disposition` used `+` for spaces; it is now RFC 5987 percent-encoded.
 * The local storage rejects paths escaping the storage root.
+* The server recognized its own LibreOffice-compatible lock files by `WOPIServer`, while writing `wopiserver` in them,
+  so a left over one of its own blocked the next lock.
 
 
 ## Changes for conformance to [MS-WOPI]

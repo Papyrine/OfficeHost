@@ -213,15 +213,26 @@ The test project is a TUnit executable: run it, rather than `dotnet test`. It ho
 * `SpecTests`: conformance to the server side of [MS-WOPI], each test citing its section.
 * `EdgeCaseTests`: protocol edge cases ported from [WopiHost](https://github.com/petrsvihlik/WopiHost).
 * `ProofKeyTests`: the proof key validation, including key rotation.
-* `WopiTests`, `BridgeTests`, `UtilsTests`: the protocol end to end, the bridge against a stubbed CodiMD, and the
-  helpers.
+* `FailureTests`: storage failures, desktop locks and fallbacks, through a storage that fails on demand.
+* `BridgeFlowTests`, `BridgeTests`: the bridge against stubbed CodiMD and Etherpad, including the save loop's
+  retries, relocks, recovery and idle unlocks.
+* `StartupTests`: configuration errors, HTTPS, the log destinations, the WOPI proxy and the command line.
+* `WopiTests`, `UtilsTests`: the protocol end to end, and the helpers.
+
+Code coverage of the server, with a per-file table:
+
+```pwsh
+dotnet run --project src/WopiServer.Tests -- --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml --coverage-settings $PWD/src/coverage.config --results-directory $PWD/TestResults
+pwsh src/coverage-summary.ps1 TestResults/coverage.cobertura.xml
+```
 
 Microsoft's [WOPI validator](https://github.com/microsoft/wopi-validator-core) runs against the running server with
 `pwsh src/wopi-validator.ps1` (after a Release build, or with `-Configuration Debug`). It builds the validator, starts
 the server over a temporary storage, and runs each test group. The ProofKeys group is left out: the validator's command
 line sends no proofs, so `ProofKeyTests` covers them instead.
 
-CI builds and runs the tests on Linux and Windows, and the WOPI validator on Linux.
+CI builds and runs the tests on Linux and Windows, with the coverage in the job summary, and the WOPI validator on
+Linux.
 
 
 ## Credits and license

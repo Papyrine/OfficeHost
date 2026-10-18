@@ -18,6 +18,7 @@
     <Using Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="TUnit" />
     <PackageReference Include="Verify.TUnit" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
     <PackageReference Include="ProjectDefaults" PrivateAssets="all" />
     <ProjectReference Include="..\WopiServer\WopiServer.csproj" />

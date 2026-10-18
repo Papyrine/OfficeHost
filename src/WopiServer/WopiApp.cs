@@ -191,7 +191,7 @@ public static class WopiApp
         return app;
     }
 
-    static TextWriter LogWriter(WopiConfig config)
+    internal static TextWriter LogWriter(WopiConfig config)
     {
         if (string.Equals(config.Get("general", "loghandler", "file"), "stream", StringComparison.OrdinalIgnoreCase))
         {

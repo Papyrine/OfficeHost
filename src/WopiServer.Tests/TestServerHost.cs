@@ -27,9 +27,13 @@ sealed class TestServerHost : IAsyncDisposable
     /// Whether each TokenHeader is a distinct user, as with a CS3 storage. The local storage maps all users to root.
     /// </param>
     /// <param name="wrapStorage">Decorates the local storage, to simulate storage behaviours.</param>
-    public static async Task<TestServerHost> Start(string extraConfig = "", TimeProvider? time = null, bool multiUser = false, Func<IStorage, IStorage>? wrapStorage = null)
+    /// <param name="apps">The bridged apps, from the startup on: see <see cref="Apps"/>.</param>
+    public static async Task<TestServerHost> Start(string extraConfig = "", TimeProvider? time = null, bool multiUser = false, Func<IStorage, IStorage>? wrapStorage = null, Func<HttpRequestMessage, Task<HttpResponseMessage>>? apps = null)
     {
-        var host = new TestServerHost();
+        var host = new TestServerHost
+        {
+            Apps = apps
+        };
         await host.Init(extraConfig, time ?? TimeProvider.System, multiUser, wrapStorage);
         return host;
     }
@@ -45,7 +49,7 @@ sealed class TestServerHost : IAsyncDisposable
              storagetype = local
              port = 8880
              wopiurl = http://localhost/
-             loglevel = Debug
+             {(extraConfig.Contains("loglevel") ? "" : "loglevel = Debug")}
              homepath = /home/username
              {extraConfig}
              [security]
@@ -107,13 +111,18 @@ sealed class TestServerHost : IAsyncDisposable
     /// <summary>
     /// Opens a file through /wopi/iop/openinapp, returning the response.
     /// </summary>
-    public async Task<HttpResponseMessage> OpenInApp(string fileId, string viewMode = "VIEW_MODE_READ_WRITE", string appName = "MSOffice", string appUrl = "https://office/edit", string userName = "Alice", string userType = "regular", string userId = "alice")
+    public async Task<HttpResponseMessage> OpenInApp(string fileId, string viewMode = "VIEW_MODE_READ_WRITE", string appName = "MSOffice", string appUrl = "https://office/edit", string userName = "Alice", string userType = "regular", string userId = "alice", string? apiKey = null)
     {
         var query = $"fileid={Uri.EscapeDataString(fileId)}&viewmode={viewMode}&appname={appName}&appurl={Uri.EscapeDataString(appUrl)}" +
                     $"&appviewurl={Uri.EscapeDataString("https://office/view")}&username={userName}&userid={userId}&usertype={userType}&folderurl={Uri.EscapeDataString("https://efss/files/home")}";
         using var request = new HttpRequestMessage(HttpMethod.Get, $"/wopi/iop/openinapp?{query}");
         request.Headers.Add("Authorization", $"Bearer {IopSecret}");
         request.Headers.Add("TokenHeader", userId);
+        if (apiKey != null)
+        {
+            request.Headers.Add("ApiKey", apiKey);
+        }
+
         return await Client.SendAsync(request);
     }
 

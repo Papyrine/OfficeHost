@@ -49,7 +49,15 @@ jobs:
 
       # TUnit runs on Microsoft.Testing.Platform: run the test executable rather than `dotnet test`.
       - name: Test
-        run: dotnet run --project src/WopiServer.Tests --configuration Release --no-build -- --report-trx --results-directory ${{ github.workspace }}/TestResults
+        run: >-
+          dotnet run --project src/WopiServer.Tests --configuration Release --no-build --
+          --report-trx --results-directory ${{ github.workspace }}/TestResults
+          --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml
+          --coverage-settings ${{ github.workspace }}/src/coverage.config
+
+      - name: Coverage
+        shell: pwsh
+        run: ./src/coverage-summary.ps1 TestResults/coverage.cobertura.xml -Summary $env:GITHUB_STEP_SUMMARY
 
       - name: Upload test results
         if: always()

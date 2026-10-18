@@ -577,7 +577,8 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
                 retrievedLoLock = "WOPIServer";
             }
 
-            if (retrievedLoLock.Contains("WOPIServer"))
+            // the server marks its lock files with "wopiserver": the Python implementation looked for "WOPIServer"
+            if (retrievedLoLock.Contains("WOPIServer", StringComparison.OrdinalIgnoreCase))
             {
                 // it's our previous lock or it had expired: all right, move on
                 return null;
