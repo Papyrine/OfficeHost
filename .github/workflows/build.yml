@@ -67,3 +67,30 @@ jobs:
           name: received-snapshots-${{ matrix.os }}
           path: '**/*.received.*'
           if-no-files-found: ignore
+
+  # Microsoft's WOPI validator against the running server, see src/wopi-validator.ps1.
+  wopi-validator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Build
+        run: dotnet build src/WopiServer --configuration Release
+
+      - name: WOPI validator
+        shell: pwsh
+        run: ./src/wopi-validator.ps1 -Configuration Release

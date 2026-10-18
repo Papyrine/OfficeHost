@@ -198,9 +198,7 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
             fmd["FileGeoLocationCode"] = complianceDomain ?? "euc";
             fmd["RealTimeChannelEndpointUrl"] = "";
             fmd["OfficeCollaborationServiceEndpointUrl"] = "";
-            var colon = statInfo.Etag.IndexOf(':');
-            if (colon >= 0 &&
-                long.TryParse(statInfo.Etag.AsSpan(0, colon), CultureInfo.InvariantCulture, out var sequenceNumber))
+            if (SequenceNumber(statInfo.Etag) is { } sequenceNumber)
             {
                 fmd["SequenceNumber"] = sequenceNumber;
             }
@@ -247,6 +245,32 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
 
         log.LogInformation("File metadata response {token} {metadata}", token, fmd.ToJsonString(Json.Options));
         return response;
+    }
+
+    /// <summary>
+    /// The CSPP+ SequenceNumber, which must increase with each version of the file: the version part of an EOS etag
+    /// (`version:checksum`), or else the digits of an etag that is a modification time (`seconds.fraction`, as the local
+    /// storage gives, which keeps them increasing). The Python implementation only handled the former.
+    /// </summary>
+    static long? SequenceNumber(string etag)
+    {
+        var colon = etag.IndexOf(':');
+        if (colon >= 0)
+        {
+            if (long.TryParse(etag.AsSpan(0, colon), NumberStyles.None, CultureInfo.InvariantCulture, out var version))
+            {
+                return version;
+            }
+
+            return null;
+        }
+
+        if (long.TryParse(etag.Replace(".", ""), NumberStyles.None, CultureInfo.InvariantCulture, out var time))
+        {
+            return time;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -708,15 +732,15 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
         {
             // the suggested target is a UTF7-encoded (!) filename that can be changed to avoid collisions
             // and, as [MS-WOPI] 3.3.5.1.15 requires, to be legally named
-            suggestedTarget = LegalName(PyStrings.DecodeUtf7(suggestedTarget));
-            if (suggestedTarget[0] == '.')
+            suggestedTarget = PyStrings.DecodeUtf7(suggestedTarget);
+            if (suggestedTarget.StartsWith('.'))
             {
                 // we just have the extension here
-                targetName = PosixPath.Join(folder, $"{PosixPath.BaseName(PosixPath.SplitExt(acctok.FileName).Root)}{suggestedTarget}");
+                targetName = PosixPath.Join(folder, LegalName($"{PosixPath.BaseName(PosixPath.SplitExt(acctok.FileName).Root)}{suggestedTarget}"));
             }
             else
             {
-                targetName = PosixPath.Join(folder, suggestedTarget);
+                targetName = PosixPath.Join(folder, LegalName(suggestedTarget));
             }
 
             // check for existence of the target file and adjust until a non-existing one is obtained
@@ -917,21 +941,60 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
         !name.AsSpan().ContainsAny(forbiddenNameChars) &&
         !name.Any(char.IsControl) &&
         !name.EndsWith('.') &&
-        !name.EndsWith(' ');
+        !name.EndsWith(' ') &&
+        Encoding.UTF8.GetByteCount(name) <= maxNameBytes;
 
     /// <summary>
-    /// The name with the characters that would make it illegal replaced.
+    /// The longest file name, in UTF-8 bytes: [MS-WOPI] 3.3.5.1.2.2 defaults FileNameMaxLength to 250, which also fits
+    /// the 255 bytes of the common Linux file systems.
+    /// </summary>
+    const int maxNameBytes = 250;
+
+    /// <summary>
+    /// The name with the characters that would make it illegal replaced, and shortened to fit, keeping its extension.
     /// </summary>
     static string LegalName(string name)
     {
         var legal = new string(name.Select(_ => forbiddenNameChars.Contains(_) || char.IsControl(_) ? '_' : _).ToArray())
             .TrimEnd('.', ' ');
+        if (Encoding.UTF8.GetByteCount(legal) > maxNameBytes)
+        {
+            var (root, extension) = PosixPath.SplitExt(legal);
+            if (Encoding.UTF8.GetByteCount(extension) > maxNameBytes / 2)
+            {
+                (root, extension) = (legal, "");
+            }
+
+            legal = $"{Truncate(root, maxNameBytes - Encoding.UTF8.GetByteCount(extension)).TrimEnd('.', ' ')}{extension}";
+        }
+
         if (legal.Length == 0)
         {
             return "_";
         }
 
         return legal;
+    }
+
+    /// <summary>
+    /// The longest start of the value that fits in the given number of UTF-8 bytes, without splitting a character.
+    /// </summary>
+    static string Truncate(string value, int maxBytes)
+    {
+        var length = 0;
+        var bytes = 0;
+        foreach (var rune in value.EnumerateRunes())
+        {
+            bytes += rune.Utf8SequenceLength;
+            if (bytes > maxBytes)
+            {
+                break;
+            }
+
+            length += rune.Utf16SequenceLength;
+        }
+
+        return value[..length];
     }
 
     /// <summary>
@@ -1008,6 +1071,11 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
             if (!PosixPath.BaseName(targetName).Contains('.'))
             {
                 targetName += PosixPath.Extension(acctok.FileName);
+            }
+
+            if (Encoding.UTF8.GetByteCount(PosixPath.BaseName(targetName)) > maxNameBytes)
+            {
+                return InvalidFileName("The name is too long once the extension is added");
             }
 
             log.LogInformation("RenameFile {user} {filename} {token} {targetname}", acctok.UserId.Short(), acctok.FileName, context.TokenForLog(), targetName);

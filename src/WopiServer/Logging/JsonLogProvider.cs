@@ -70,8 +70,7 @@ sealed class JsonLogProvider(TextWriter writer, bool ownsWriter, string host, Fu
             }
             else
             {
-                var brace = format.IndexOf('{');
-                json.WriteString("msg", (brace < 0 ? format : format[..brace]).Trim());
+                json.WriteString("msg", Message(format, values!));
                 foreach (var (key, value) in values!)
                 {
                     if (key == "{OriginalFormat}" ||
@@ -98,6 +97,41 @@ sealed class JsonLogProvider(TextWriter writer, bool ownsWriter, string host, Fu
             writer.WriteLine(line);
             writer.Flush();
         }
+    }
+
+    /// <summary>
+    /// The literal text of the template up to its first placeholder. Placeholders leading the template are rendered,
+    /// so `{operation}: client context {trace}` gives `Checkfileinfo: client context`.
+    /// </summary>
+    static string Message(string format, IReadOnlyList<KeyValuePair<string, object?>> values)
+    {
+        var builder = new StringBuilder();
+        var hasText = false;
+        var index = 0;
+        while (index < format.Length)
+        {
+            var c = format[index];
+            if (c == '{')
+            {
+                var end = format.IndexOf('}', index);
+                if (hasText ||
+                    end < 0)
+                {
+                    break;
+                }
+
+                var name = format[(index + 1)..end].Split(':', ',')[0];
+                builder.Append(Format(values.FirstOrDefault(_ => _.Key == name).Value));
+                index = end + 1;
+                continue;
+            }
+
+            builder.Append(c);
+            hasText |= !char.IsWhiteSpace(c);
+            index++;
+        }
+
+        return builder.ToString().Trim();
     }
 
     static string Format(object? value) =>

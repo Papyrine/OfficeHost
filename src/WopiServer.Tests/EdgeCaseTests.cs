@@ -328,6 +328,63 @@ public class EdgeCaseTests
         await Assert.That(File.Exists(host.PathOf($"/{name}"))).IsTrue();
     }
 
+    static readonly string longName = string.Concat(Enumerable.Repeat("longwopitestfilename", 26));
+
+    /// <summary>
+    /// WOPI validator PutRelativeFile.FileNameLongerThan512Chars: a host supports long names or returns a 400. Names
+    /// are capped to 250 UTF-8 bytes, the default FileNameMaxLength of [MS-WOPI].
+    /// </summary>
+    [Test]
+    [Arguments("X-WOPI-RelativeTarget", ".wopitest", HttpStatusCode.BadRequest)]
+    [Arguments("X-WOPI-SuggestedTarget", ".wopitest", HttpStatusCode.OK)]
+    [Arguments("X-WOPI-SuggestedTarget", ".txt", HttpStatusCode.OK)]
+    public async Task PutRelativeFile_LongName(string header, string extension, HttpStatusCode expected)
+    {
+        var (host, fileId, token) = await Open();
+        await using var _ = host;
+        using var response = await PutRelative(host, fileId, token, header, $"{longName}{extension}");
+        await Assert.That(response.StatusCode).IsEqualTo(expected);
+        string name;
+        if (expected == HttpStatusCode.OK)
+        {
+            name = (string) JsonNode.Parse(await response.Content.ReadAsStringAsync())!["Name"]!;
+            await Assert.That(File.Exists(host.PathOf($"/{name}"))).IsTrue();
+        }
+        else
+        {
+            name = PyStrings.DecodeUtf7(Header(response, "X-WOPI-ValidRelativeTarget")!);
+        }
+
+        await Assert.That(Encoding.UTF8.GetByteCount(name)).IsLessThanOrEqualTo(250);
+        await Assert.That(name).EndsWith(extension);
+        await Assert.That(name).StartsWith("longwopitestfilename");
+    }
+
+    /// <summary>
+    /// Names are truncated by UTF-8 bytes, without splitting a character.
+    /// </summary>
+    [Test]
+    public async Task PutRelativeFile_LongMultiByteName()
+    {
+        var (host, fileId, token) = await Open();
+        await using var _ = host;
+        using var response = await PutRelative(host, fileId, token, "X-WOPI-SuggestedTarget", PyStrings.EncodeUtf7($"{new string('é', 200)}😀.docx"));
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        var name = (string) JsonNode.Parse(await response.Content.ReadAsStringAsync())!["Name"]!;
+        await Assert.That(Encoding.UTF8.GetByteCount(name)).IsLessThanOrEqualTo(250);
+        await Assert.That(name).EndsWith(".docx");
+        await Assert.That(name.Contains('�')).IsFalse();
+    }
+
+    [Test]
+    public async Task RenameFile_LongName()
+    {
+        var (host, fileId, token) = await Open(extraConfig: "enablerename = True");
+        await using var _ = host;
+        using var response = await host.Post(fileId, token, "RENAME_FILE", ("X-WOPI-Lock", ""), ("X-WOPI-RequestedName", longName));
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
+    }
+
     /// <summary>
     /// RenameFile_InvalidName: names with characters file systems forbid are illegal. WopiHost scrubs them and returns
     /// 200; this server follows the WOPI documentation, a 400 with X-WOPI-InvalidFileNameError.

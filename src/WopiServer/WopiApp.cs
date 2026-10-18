@@ -222,8 +222,11 @@ public static class WopiApp
         return X509CertificateLoader.LoadPkcs12(pem.Export(X509ContentType.Pkcs12), null);
     }
 
+    /// <summary>
+    /// The content of a secret file, without the trailing line break, including a Windows one.
+    /// </summary>
     static async Task<string> ReadSecret(string path) =>
-        (await File.ReadAllTextAsync(path)).Trim('\n');
+        (await File.ReadAllTextAsync(path)).Trim('\r', '\n');
 
     static string[] Split(string value) =>
         value.Split((char[]?) null, StringSplitOptions.RemoveEmptyEntries);

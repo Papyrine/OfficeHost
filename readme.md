@@ -216,7 +216,12 @@ The test project is a TUnit executable: run it, rather than `dotnet test`. It ho
 * `WopiTests`, `BridgeTests`, `UtilsTests`: the protocol end to end, the bridge against a stubbed CodiMD, and the
   helpers.
 
-CI builds and runs the tests on Linux and Windows.
+Microsoft's [WOPI validator](https://github.com/microsoft/wopi-validator-core) runs against the running server with
+`pwsh src/wopi-validator.ps1` (after a Release build, or with `-Configuration Debug`). It builds the validator, starts
+the server over a temporary storage, and runs each test group. The ProofKeys group is left out: the validator's command
+line sends no proofs, so `ProofKeyTests` covers them instead.
+
+CI builds and runs the tests on Linux and Windows, and the WOPI validator on Linux.
 
 
 ## Credits and license
