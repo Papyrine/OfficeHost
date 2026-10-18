@@ -6,6 +6,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Using Include="System.Net" />
+    <Using Include="System.Text.Json" />
+    <Using Include="System.Text.RegularExpressions" />
     <Using Include="System.Text.Json.Nodes" />
     <Using Include="Microsoft.AspNetCore.Builder" />
     <Using Include="Microsoft.AspNetCore.Hosting" />

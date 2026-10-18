@@ -23,6 +23,7 @@ class WopiEndpoints(WopiState state, WopiUtils utils, WopiCore core, Bridge brid
     public void Map(WebApplication app)
     {
         app.Use(HandleException);
+        app.Use(AddWopiHeaders);
         app.UseHttpMetrics();
         app.MapMetrics();
 
@@ -67,6 +68,34 @@ class WopiEndpoints(WopiState state, WopiUtils utils, WopiCore core, Bridge brid
             context.Response.Clear();
             await WopiResult.Text("Internal error, please contact support", StatusCodes.Status500InternalServerError).ExecuteAsync(context);
         }
+    }
+
+    /// <summary>
+    /// [MS-WOPI] 2.2.1 requires X-WOPI-ServerVersion and X-WOPI-MachineName on all WOPI responses, and
+    /// X-WOPI-ServerError on 500 responses.
+    /// </summary>
+    static Task AddWopiHeaders(HttpContext context, RequestDelegate next)
+    {
+        if (context.Request.Path.StartsWithSegments("/wopi/files") ||
+            context.Request.Path.StartsWithSegments("/wopi/folders"))
+        {
+            context.Response.OnStarting(
+                () =>
+                {
+                    var headers = context.Response.Headers;
+                    headers["X-WOPI-ServerVersion"] = WopiState.Version;
+                    headers["X-WOPI-MachineName"] = Environment.MachineName;
+                    if (context.Response.StatusCode == StatusCodes.Status500InternalServerError &&
+                        !headers.ContainsKey("X-WOPI-ServerError"))
+                    {
+                        headers["X-WOPI-ServerError"] = "Server error";
+                    }
+
+                    return Task.CompletedTask;
+                });
+        }
+
+        return next(context);
     }
 
     /// <summary>
@@ -501,6 +530,12 @@ class WopiEndpoints(WopiState state, WopiUtils utils, WopiCore core, Bridge brid
         if (error != null)
         {
             return error;
+        }
+
+        if (!acctok!.ViewMode.CanWrite())
+        {
+            // unlike the Python implementation, which only checked this for the POST operations on the file
+            return WopiResult.Text("Attempting to perform a write operation using a read-only token", StatusCodes.Status401Unauthorized);
         }
 
         // buffered, so that the content can be stored for recovery after a failed write

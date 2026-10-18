@@ -217,7 +217,7 @@ class Bridge(WopiState state, WopiUtils utils, BridgeHttp http, ILoggerFactory l
                 }
                 catch (InvalidLockException exception)
                 {
-                    if (exception.Message != "404")
+                    if (exception.Message != InvalidLockException.NotLocked)
                     {
                         // lock is invalid/corrupted: force read-only mode
                         log.LogInformation("Invalid lock, forcing read-only mode {error} {token}", exception.Message, acctok.Short());

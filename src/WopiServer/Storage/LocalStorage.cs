@@ -376,6 +376,11 @@ public sealed class LocalStorage(WopiConfig config, ILogger log, TimeProvider ti
 
         log.LogDebug("Invoking writeFile {filepath} {size}", filePath, size);
         var start = time.GetTimestamp();
+        DateTime? previousWriteTime = null;
+        if (File.Exists(full))
+        {
+            previousWriteTime = File.GetLastWriteTimeUtc(full);
+        }
         FileStream file;
         try
         {
@@ -411,6 +416,14 @@ public sealed class LocalStorage(WopiConfig config, ILogger log, TimeProvider ti
             written != size)
         {
             throw new StorageException($"Written {written} bytes but content is {size} bytes");
+        }
+
+        // the etag derives from the modification time, and WOPI versions must never repeat: two writes within the
+        // resolution of the file system clock would otherwise get the same one
+        if (previousWriteTime != null &&
+            File.GetLastWriteTimeUtc(full) <= previousWriteTime)
+        {
+            File.SetLastWriteTimeUtc(full, previousWriteTime.Value.AddTicks(1));
         }
 
         log.LogInformation("File written successfully {filepath} {elapsedTimems} {islock}", filePath, elapsed, isLock);

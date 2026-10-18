@@ -129,7 +129,8 @@ public class WopiTests
 
         using (var getLock = await host.Post(fileId, token, "GET_LOCK"))
         {
-            await Assert.That(getLock.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+            await Assert.That(getLock.StatusCode).IsEqualTo(HttpStatusCode.OK);
+            await Assert.That(Header(getLock, "X-WOPI-Lock")).IsEqualTo("");
         }
 
         using (var putUnlocked = await host.PutFile(fileId, token, "new", ("X-WOPI-Lock", "L1")))
@@ -196,7 +197,8 @@ public class WopiTests
 
         using (var getLock = await host.Post(fileId, token, "GET_LOCK"))
         {
-            await Assert.That(getLock.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+            await Assert.That(getLock.StatusCode).IsEqualTo(HttpStatusCode.OK);
+            await Assert.That(Header(getLock, "X-WOPI-Lock")).IsEqualTo("");
         }
 
         using var conflicts = new HttpRequestMessage(HttpMethod.Get, "/wopi/iop/conflicts");

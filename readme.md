@@ -62,6 +62,29 @@ Fixes of defects found in the Python code while porting:
 * `Content-Disposition` used `+` for spaces; it is now RFC 5987 percent-encoded.
 * The local storage rejects paths escaping the storage root.
 
+Changes for conformance to [MS-WOPI] (see `SpecTests.cs`, where each test cites its section):
+
+* GetLock on an unlocked file returns 200 with an empty `X-WOPI-Lock` (the Python server returns 404, which the spec
+  reserves for an unknown file). GetLock, GetFile and Unlock on an unknown file return 404.
+* UnlockAndRelock (`LOCK` with `X-WOPI-OldLock`) on an unlocked file is a 409 instead of taking the new lock.
+* WOPI responses include `X-WOPI-ServerVersion` and `X-WOPI-MachineName`, 500 responses `X-WOPI-ServerError`, and lock
+  conflicts with desktop Office/LibreOffice locks `X-WOPI-LockedByOtherInterface: true`.
+* CheckFileInfo no longer sends `BreadcrumbBrandName`/`BreadcrumbBrandUrl` as null, nor an empty `FileExtension`.
+* PutRelativeFile makes suggested names legal, rejects illegal relative targets with 400 (they could escape the folder),
+  and returns `X-WOPI-ValidRelativeTarget` with a 409.
+* RenameFile returns 501 unless `enablerename` is set, 400 with `X-WOPI-InvalidFileNameError` for an illegal name, and
+  no longer overwrites an existing file.
+* PutFile with a read-only token is a 401: the Python server let it create a file in place of an empty one.
+* The local storage keeps file versions from repeating when two saves fall within the file system clock resolution.
+
+Two spec requirements are not met, and their tests are skipped with the reason:
+
+* CheckFileInfo omits the CSPP+ properties the spec lists as required (`OfficeCollaborationServiceEndpointUrl`,
+  `OpenInClientCommandUrl`, `OpenInClientPostMessage`, `UserPrincipalName`), as the Python server does: some of them
+  break regular Office for the web sessions.
+* After RenameFile, the tokens issued before point to the old path, so the session cannot go on with the same id.
+  This is why `enablerename` is off by default, as in the Python server.
+
 
 ## Build, test and run
 
@@ -72,8 +95,8 @@ dotnet run --project src/WopiServer -- --config /path/to/wopiserver.conf
 ```
 
 The tests include a port of the Python storage interface test suite (`test/test_storageiface.py`), unit tests of the
-helpers, end-to-end tests of the WOPI protocol on an in-memory test server, and a CodiMD bridge round trip against a
-stub app.
+helpers, a conformance suite for the server side of [MS-WOPI] (`SpecTests.cs`), end-to-end tests of the WOPI protocol on
+an in-memory test server, and a CodiMD bridge round trip against a stub app.
 
 To run the server for development, write the two secret files and a configuration like the following, where the
 paths are adapted to your machine:

@@ -36,13 +36,21 @@ class WopiResult(int status) :
     /// <summary>
     /// A JSON body with a single `message` property.
     /// </summary>
-    public static WopiResult Message(string message, int status) =>
-        Json(
+    public static WopiResult Message(string message, int status)
+    {
+        var result = Json(
             new JsonObject
             {
                 ["message"] = message
             },
             status);
+        if (status == StatusCodes.Status500InternalServerError)
+        {
+            result.Headers["X-WOPI-ServerError"] = message;
+        }
+
+        return result;
+    }
 
     public async Task ExecuteAsync(HttpContext httpContext)
     {

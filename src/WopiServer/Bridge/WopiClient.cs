@@ -49,7 +49,13 @@ class WopiResponse(int status, Dictionary<string, string> headers, byte[] conten
 /// An invalid or missing WOPI lock.
 /// </summary>
 class InvalidLockException(string message) :
-    Exception(message);
+    Exception(message)
+{
+    /// <summary>
+    /// The message for a file that is not locked.
+    /// </summary>
+    public const string NotLocked = "404";
+}
 
 /// <summary>
 /// A set of WOPI client functions for the WOPI bridge service.
@@ -161,6 +167,12 @@ class WopiClient(HttpClient http, bool sslVerify, ILogger log)
         {
             // lock got lost or any other error
             throw new InvalidLockException(response.Status.ToString(CultureInfo.InvariantCulture));
+        }
+
+        if (string.IsNullOrEmpty(response.Header("X-WOPI-Lock")))
+        {
+            // the file is not locked: the Python implementation got this case as a 404
+            throw new InvalidLockException(InvalidLockException.NotLocked);
         }
 
         try

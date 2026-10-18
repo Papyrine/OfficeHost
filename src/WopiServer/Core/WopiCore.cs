@@ -47,7 +47,12 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
         var baseFileName = PosixPath.BaseName(acctok.FileName);
         fmd["BaseFileName"] = baseFileName;
         fmd["BreadcrumbDocName"] = baseFileName;
-        fmd["FileExtension"] = PosixPath.Extension(acctok.FileName);
+        // [MS-WOPI] 3.3.5.1.2.2: the value MUST begin with a ".", so a file without extension has none
+        var extension = PosixPath.Extension(acctok.FileName);
+        if (extension.Length > 0)
+        {
+            fmd["FileExtension"] = extension;
+        }
         var wopiSrc = $"WOPISrc={utils.GenerateWopiSrc(fileId, isProxied)}&access_token={AccessTokenArg(context)}";
         var hostEditUrl = Config.Get("general", "hostediturl");
         if (!string.IsNullOrEmpty(hostEditUrl))
@@ -114,8 +119,18 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
             fmd["FileUrl"] = url;
         }
 
-        fmd["BreadcrumbBrandName"] = Config.Get("general", "brandingname");
-        fmd["BreadcrumbBrandUrl"] = Config.Get("general", "brandingurl");
+        // these are strings in [MS-WOPI] 3.3.5.1.2.2: unlike the Python implementation, do not send them as null
+        var brandingName = Config.Get("general", "brandingname");
+        if (brandingName != null)
+        {
+            fmd["BreadcrumbBrandName"] = brandingName;
+        }
+
+        var brandingUrl = Config.Get("general", "brandingurl");
+        if (brandingUrl != null)
+        {
+            fmd["BreadcrumbBrandUrl"] = brandingUrl;
+        }
         fmd["OwnerId"] = statInfo.OwnerId;
         // typically same as OwnerId; different when accessing shared documents
         fmd["UserId"] = acctok.WopiUserId;
@@ -263,6 +278,12 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
                 acctok.FileName,
                 context.TokenForLog(),
                 exception.Message);
+            // [MS-WOPI] 3.3.5.3.1: 404 is the status for an unknown file
+            if (exception.IsNotFound)
+            {
+                return WopiResult.Message("File not found", StatusCodes.Status404NotFound);
+            }
+
             return WopiResult.Message("Failed to access file from storage", StatusCodes.Status500InternalServerError);
         }
     }
@@ -332,6 +353,13 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
                 filename,
                 $"The file was not locked{(string.IsNullOrEmpty(validateTarget) ? "" : " and got modified")}",
                 saveTime);
+        }
+
+        if (!string.IsNullOrEmpty(oldLock) &&
+            string.IsNullOrEmpty(retrievedLock))
+        {
+            // UnlockAndRelock releases the old lock, so it fails when there is none ([MS-WOPI] 3.3.5.1.23)
+            return utils.MakeConflictResponse(context, operation, acctok.UserId, null, requestedLock, oldLock, filename, "The file was not locked", saveTime);
         }
 
         // now check for and create an "external" lock if required
@@ -522,9 +550,15 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
     /// </summary>
     public async Task<WopiResult> GetLock(HttpContext context, string fileId, AccessToken acctok)
     {
+        if (!await Exists(acctok, acctok.FileName))
+        {
+            return WopiResult.Message("File not found", StatusCodes.Status404NotFound);
+        }
+
         var (retrievedLock, _) = await utils.RetrieveWopiLock(fileId, "GETLOCK", "", acctok.Endpoint, acctok.FileName, acctok.UserId, context.TokenForLog());
-        var hasLock = !string.IsNullOrEmpty(retrievedLock);
-        var response = new WopiResult(hasLock ? StatusCodes.Status200OK : StatusCodes.Status404NotFound);
+        // an unlocked file is reported with an empty lock, unlike the Python implementation which returns 404:
+        // [MS-WOPI] 3.3.5.1.10 reserves 404 for an unknown file, and the WOPI validator expects 200
+        var response = new WopiResult(StatusCodes.Status200OK);
         response.Headers["X-WOPI-Lock"] = retrievedLock ?? "";
         return response;
     }
@@ -535,6 +569,12 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
     public async Task<WopiResult> Unlock(HttpContext context, string fileId, AccessToken acctok)
     {
         var requestedLock = context.Request.Header("X-WOPI-Lock") ?? "";
+        if (!await Exists(acctok, acctok.FileName))
+        {
+            // [MS-WOPI] 3.3.5.1.22: an unknown file is a 404 rather than a lock mismatch
+            return WopiResult.Message("File not found", StatusCodes.Status404NotFound);
+        }
+
         var (retrievedLock, _) = await utils.RetrieveWopiLock(fileId, "UNLOCK", requestedLock, acctok.Endpoint, acctok.FileName, acctok.UserId, context.TokenForLog());
         if (!utils.CompareWopiLocks(retrievedLock, requestedLock))
         {
@@ -622,7 +662,8 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
         if (!string.IsNullOrEmpty(suggestedTarget))
         {
             // the suggested target is a UTF7-encoded (!) filename that can be changed to avoid collisions
-            suggestedTarget = PyStrings.DecodeUtf7(suggestedTarget);
+            // and, as [MS-WOPI] 3.3.5.1.15 requires, to be legally named
+            suggestedTarget = LegalName(PyStrings.DecodeUtf7(suggestedTarget));
             if (suggestedTarget[0] == '.')
             {
                 // we just have the extension here
@@ -634,45 +675,31 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
             }
 
             // check for existence of the target file and adjust until a non-existing one is obtained
-            while (true)
+            var freeName = await FreeName(acctok, targetName, token);
+            if (freeName == null)
             {
-                try
-                {
-                    await Storage.Stat(acctok.Endpoint, targetName, acctok.UserId);
-                    // the file exists: try a different name
-                    var (name, extension) = PosixPath.SplitExt(targetName);
-                    targetName = $"{name}_copy{extension}";
-                }
-                catch (StorageException exception)
-                {
-                    if (exception.IsNotFound)
-                    {
-                        // OK, the targetName is good to go
-                        break;
-                    }
-
-                    // we got another error with this file, fail
-                    log.LogError(
-                        "Error in PutRelative {user} {filename} {token} {suggTarget} {error}",
-                        acctok.UserId.Short(),
-                        targetName,
-                        token,
-                        suggestedTarget,
-                        exception.Message);
-                    return WopiResult.Message("Error with the given target", StatusCodes.Status500InternalServerError);
-                }
+                return WopiResult.Message("Error with the given target", StatusCodes.Status500InternalServerError);
             }
+
+            targetName = freeName;
         }
         else
         {
             // the relative target is a UTF7-encoded filename to be respected, and that may overwrite an existing file
-            targetName = PosixPath.Join(folder, PyStrings.DecodeUtf7(relativeTarget!));
+            var relativeName = PyStrings.DecodeUtf7(relativeTarget!);
+            if (!IsLegalName(relativeName))
+            {
+                // the name must not be modified, so an illegal one fails the request
+                return WopiResult.Message("Specified name is illegal", StatusCodes.Status400BadRequest);
+            }
+
+            targetName = PosixPath.Join(folder, relativeName);
             try
             {
                 // check for file existence
                 var statInfo = await Storage.StatX(acctok.Endpoint, targetName, acctok.UserId);
                 // the file exists, check lock
-                var (retrievedTargetLock, _) = await utils.RetrieveWopiLock(fileId, "PUT_RELATIVE", null, acctok.Endpoint, acctok.FileName, acctok.UserId, token, targetName);
+                var (retrievedTargetLock, _) = await utils.RetrieveWopiLock(fileId, "PUT_RELATIVE", null, acctok.Endpoint, targetName, acctok.UserId, token);
                 // deny if lock is valid or if overwriteTarget is False
                 if (!overwriteTarget ||
                     !string.IsNullOrEmpty(retrievedTargetLock))
@@ -684,7 +711,15 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
                         ["Name"] = PosixPath.BaseName(targetName),
                         ["Url"] = utils.GenerateWopiSrc(statInfo.Inode, acctok.AppName == state.ProxiedAppName)
                     };
-                    return utils.MakeConflictResponse(context, "PUT_RELATIVE", acctok.UserId, retrievedTargetLock, "NA", "NA", targetName, conflict);
+                    var conflictResponse = utils.MakeConflictResponse(context, "PUT_RELATIVE", acctok.UserId, retrievedTargetLock, "NA", "NA", targetName, conflict);
+                    // a name the client can use in a further PutRelativeFile
+                    var validTarget = await FreeName(acctok, targetName, token);
+                    if (validTarget != null)
+                    {
+                        conflictResponse.Headers["X-WOPI-ValidRelativeTarget"] = PyStrings.EncodeUtf7(PosixPath.BaseName(validTarget));
+                    }
+
+                    return conflictResponse;
                 }
             }
             catch (StorageException)
@@ -786,6 +821,58 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
     }
 
     /// <summary>
+    /// The given path, or the first variant with `_copy` suffixes that does not exist. Null on any other storage error.
+    /// </summary>
+    async Task<string?> FreeName(AccessToken acctok, string targetName, string token)
+    {
+        while (true)
+        {
+            try
+            {
+                await Storage.Stat(acctok.Endpoint, targetName, acctok.UserId);
+                // the file exists: try a different name
+                var (name, extension) = PosixPath.SplitExt(targetName);
+                targetName = $"{name}_copy{extension}";
+            }
+            catch (StorageException exception)
+            {
+                if (exception.IsNotFound)
+                {
+                    // OK, the targetName is good to go
+                    return targetName;
+                }
+
+                // we got another error with this file, fail
+                log.LogError("Error in PutRelative {user} {filename} {token} {error}", acctok.UserId.Short(), targetName, token, exception.Message);
+                return null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether a file name given by a WOPI client designates a file in the current folder.
+    /// </summary>
+    static bool IsLegalName(string name) =>
+        name.Length > 0 &&
+        name is not ("." or "..") &&
+        name.IndexOfAny(['/', '\\']) < 0 &&
+        !name.Any(char.IsControl);
+
+    /// <summary>
+    /// The name with the characters that would make it illegal replaced.
+    /// </summary>
+    static string LegalName(string name)
+    {
+        var legal = new string(name.Select(_ => _ is '/' or '\\' || char.IsControl(_) ? '_' : _).ToArray());
+        if (legal is "" or "." or "..")
+        {
+            return "_";
+        }
+
+        return legal;
+    }
+
+    /// <summary>
     /// Implements the DeleteFile WOPI call.
     /// </summary>
     public async Task<WopiResult> DeleteFile(HttpContext context, string fileId, AccessToken acctok)
@@ -827,7 +914,18 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
             return WopiResult.Message("Missing argument", StatusCodes.Status400BadRequest);
         }
 
+        if (!state.EnableRename)
+        {
+            // CheckFileInfo does not advertise SupportsRename
+            return WopiResult.Message("RenameFile is not enabled", StatusCodes.Status501NotImplemented);
+        }
+
         var targetName = PyStrings.DecodeUtf7(requestedName);
+        if (!IsLegalName(targetName))
+        {
+            return InvalidFileName("Specified name is illegal");
+        }
+
         var renameMetadata = new JsonObject
         {
             ["Name"] = PosixPath.SplitExt(targetName).Root
@@ -851,6 +949,11 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
             }
 
             log.LogInformation("RenameFile {user} {filename} {token} {targetname}", acctok.UserId.Short(), acctok.FileName, context.TokenForLog(), targetName);
+            if (await Exists(acctok, targetName))
+            {
+                // a rename must not overwrite another file
+                return InvalidFileName("A file with the requested name already exists");
+            }
 
             // try to rename and pass the lock if present. Note that WOPI specs do not require files to be locked
             // on rename operations, but the backend may still fail as renames may be implemented as copy + delete,
@@ -897,6 +1000,26 @@ class WopiCore(WopiState state, WopiUtils utils, ILogger log)
             }
 
             return response;
+        }
+    }
+
+    static WopiResult InvalidFileName(string reason)
+    {
+        var response = new WopiResult(StatusCodes.Status400BadRequest);
+        response.Headers["X-WOPI-InvalidFileNameError"] = reason;
+        return response;
+    }
+
+    async Task<bool> Exists(AccessToken acctok, string filename)
+    {
+        try
+        {
+            await Storage.Stat(acctok.Endpoint, filename, acctok.UserId);
+            return true;
+        }
+        catch (StorageException exception) when (exception.IsNotFound)
+        {
+            return false;
         }
     }
 

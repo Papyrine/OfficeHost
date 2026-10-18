@@ -15,7 +15,6 @@
   DownloadUrl: {Scrubbed},
   FileUrl: {Scrubbed},
   BreadcrumbBrandName: CERNBox,
-  BreadcrumbBrandUrl: null,
   OwnerId: 0:0,
   UserId: 0:0,
   Size: 7,

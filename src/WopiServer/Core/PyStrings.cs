@@ -52,6 +52,12 @@ static partial class PyStrings
 #pragma warning disable SYSLIB0001
     public static string DecodeUtf7(string value) =>
         Encoding.UTF7.GetString(Encoding.UTF8.GetBytes(value));
+
+    /// <summary>
+    /// The UTF-7 form of a name, as WOPI response headers carry file names.
+    /// </summary>
+    public static string EncodeUtf7(string value) =>
+        Encoding.ASCII.GetString(Encoding.UTF7.GetBytes(value));
 #pragma warning restore SYSLIB0001
 
     static readonly HashSet<string> windowsDeviceFiles =

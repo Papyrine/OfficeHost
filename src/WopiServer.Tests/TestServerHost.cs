@@ -22,14 +22,18 @@ sealed class TestServerHost : IAsyncDisposable
     /// </summary>
     public Func<HttpRequestMessage, Task<HttpResponseMessage>>? Apps { get; set; }
 
-    public static async Task<TestServerHost> Start(string extraConfig = "")
+    /// <param name="time">The clock of the server, the system one by default.</param>
+    /// <param name="multiUser">
+    /// Whether each TokenHeader is a distinct user, as with a CS3 storage. The local storage maps all users to root.
+    /// </param>
+    public static async Task<TestServerHost> Start(string extraConfig = "", TimeProvider? time = null, bool multiUser = false)
     {
         var host = new TestServerHost();
-        await host.Init(extraConfig);
+        await host.Init(extraConfig, time ?? TimeProvider.System, multiUser);
         return host;
     }
 
-    async Task Init(string extraConfig)
+    async Task Init(string extraConfig, TimeProvider time, bool multiUser)
     {
         Directory.CreateDirectory(StoragePath);
         await File.WriteAllTextAsync(folder.Combine("wopisecret"), $"{WopiSecret}\n");
@@ -54,10 +58,18 @@ sealed class TestServerHost : IAsyncDisposable
              storagehomepath = {StoragePath}
              """);
         var router = new Router(this);
+        IStorage? storage = null;
+        if (multiUser)
+        {
+            storage = new MultiUserStorage(new LocalStorage(new(config), NullLogger.Instance, time));
+        }
+
         app = await WopiApp.Build(
             config,
             new()
             {
+                Storage = storage,
+                Time = time,
                 LogWriter = TextWriter.Synchronized(Log),
                 BridgeHandler = router,
                 ConfigureBuilder = _ => _.WebHost.UseTestServer()
@@ -84,22 +96,22 @@ sealed class TestServerHost : IAsyncDisposable
     /// <summary>
     /// Opens a file through /wopi/iop/openinapp, returning the response.
     /// </summary>
-    public async Task<HttpResponseMessage> OpenInApp(string fileId, string viewMode = "VIEW_MODE_READ_WRITE", string appName = "MSOffice", string appUrl = "https://office/edit", string userName = "Alice", string userType = "regular")
+    public async Task<HttpResponseMessage> OpenInApp(string fileId, string viewMode = "VIEW_MODE_READ_WRITE", string appName = "MSOffice", string appUrl = "https://office/edit", string userName = "Alice", string userType = "regular", string userId = "alice")
     {
         var query = $"fileid={Uri.EscapeDataString(fileId)}&viewmode={viewMode}&appname={appName}&appurl={Uri.EscapeDataString(appUrl)}" +
-                    $"&appviewurl={Uri.EscapeDataString("https://office/view")}&username={userName}&userid=alice&usertype={userType}&folderurl={Uri.EscapeDataString("https://efss/files/home")}";
+                    $"&appviewurl={Uri.EscapeDataString("https://office/view")}&username={userName}&userid={userId}&usertype={userType}&folderurl={Uri.EscapeDataString("https://efss/files/home")}";
         using var request = new HttpRequestMessage(HttpMethod.Get, $"/wopi/iop/openinapp?{query}");
         request.Headers.Add("Authorization", $"Bearer {IopSecret}");
-        request.Headers.Add("TokenHeader", "revatoken");
+        request.Headers.Add("TokenHeader", userId);
         return await Client.SendAsync(request);
     }
 
     /// <summary>
     /// Opens a file and returns its WOPI file id and access token.
     /// </summary>
-    public async Task<(string FileId, string Token, JsonObject Response)> Open(string fileId, string viewMode = "VIEW_MODE_READ_WRITE", string appName = "MSOffice")
+    public async Task<(string FileId, string Token, JsonObject Response)> Open(string fileId, string viewMode = "VIEW_MODE_READ_WRITE", string appName = "MSOffice", string userId = "alice", string userType = "regular")
     {
-        using var response = await OpenInApp(fileId, viewMode, appName);
+        using var response = await OpenInApp(fileId, viewMode, appName, userType: userType, userId: userId);
         var body = await response.Content.ReadAsStringAsync();
         if (response.StatusCode != HttpStatusCode.OK)
         {

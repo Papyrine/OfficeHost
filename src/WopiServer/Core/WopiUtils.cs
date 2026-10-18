@@ -583,6 +583,11 @@ class WopiUtils(WopiState state, ILogger log)
         var response = WopiResult.Json(reason, StatusCodes.Status409Conflict);
         response.Headers["X-WOPI-Lock"] = retrievedLock ?? "";
         response.Headers["X-WOPI-LockFailureReason"] = message;
+        if (retrievedLock is ExternalLock or "External App")
+        {
+            // the file is locked by a desktop application, cf. [MS-WOPI] 3.3.5.1.14
+            response.Headers["X-WOPI-LockedByOtherInterface"] = "true";
+        }
 
         var session = context.Request.Header("X-WOPI-SessionId");
         if (!string.IsNullOrEmpty(session) &&
