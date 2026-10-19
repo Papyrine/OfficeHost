@@ -108,10 +108,15 @@ public class ApiTests
         var access = TestServerHost.Access(host.Storage.GetFileId("test.odt"));
         var launcher = host.Service<WopiLauncher>();
         await Helpers.Throws<InvalidOperationException>(() => launcher.Launch(access, "edit"));
-        var context = new DefaultHttpContext();
-        context.Request.Scheme = "https";
-        context.Request.Host = new("app.example");
-        context.Request.PathBase = "/docs";
+        var context = new DefaultHttpContext
+        {
+            Request =
+            {
+                Scheme = "https",
+                Host = new("app.example"),
+                PathBase = "/docs"
+            }
+        };
         var launch = await launcher.Launch(access, "edit", context.Request);
         await Assert.That(launch.Url).Contains(Uri.EscapeDataString($"https://app.example/docs/wopi/files/{access.FileId}"));
     }

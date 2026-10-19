@@ -84,7 +84,7 @@ public class StorageTests : IDisposable
     [Test]
     public async Task OpenRead()
     {
-        var id = Create("test.docx", "content");
+        var id = Create("test.docx");
         await Assert.That(await Read(await storage.OpenRead(id))).IsEqualTo("content");
         File.Delete(folder.Combine("test.docx"));
         await Helpers.Throws<FileNotFoundException>(() => storage.OpenRead(id));
@@ -185,7 +185,7 @@ public class StorageTests : IDisposable
     [Test]
     public async Task Rename()
     {
-        var id = Create("test.docx", "content");
+        var id = Create("test.docx");
         var renamed = (await storage.Rename(id, "renamed.docx"))!;
         await Assert.That(renamed.Id).IsEqualTo(id);
         await Assert.That(renamed.Name).IsEqualTo("renamed.docx");
@@ -199,7 +199,7 @@ public class StorageTests : IDisposable
     [Test]
     public async Task Rename_ExistingName()
     {
-        var id = Create("test.docx", "content");
+        var id = Create("test.docx");
         Create("other.docx", "other");
         await Assert.That(await storage.Rename(id, "other.docx")).IsNull();
         await Assert.That(await File.ReadAllTextAsync(folder.Combine("other.docx"))).IsEqualTo("other");

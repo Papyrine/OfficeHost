@@ -222,10 +222,13 @@ sealed class WopiHandler(
             var result = new WopiResult(StatusCodes.Status200OK)
             {
                 ContentType = "application/octet-stream",
-                BodyStream = await storage.OpenRead(fileId, cancel)
+                BodyStream = await storage.OpenRead(fileId, cancel),
+                Headers =
+                {
+                    ["Content-Disposition"] = $"attachment; filename*=UTF-8''{Uri.EscapeDataString(file.Name)}",
+                    ["X-WOPI-ItemVersion"] = file.Version
+                }
             };
-            result.Headers["Content-Disposition"] = $"attachment; filename*=UTF-8''{Uri.EscapeDataString(file.Name)}";
-            result.Headers["X-WOPI-ItemVersion"] = file.Version;
             return result;
         }
         catch (FileNotFoundException)

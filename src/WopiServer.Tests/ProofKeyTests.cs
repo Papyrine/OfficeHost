@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-
 /// <summary>
 /// The validation of X-WOPI-Proof against the proof keys of the WOPI client discovery.
 /// </summary>

@@ -348,7 +348,7 @@ static class Docx
 /// </summary>
 static class EditorPage
 {
-    public static async Task Open(IPage page, WopiLaunch launch)
+    public static Task Open(IPage page, WopiLaunch launch)
     {
         var html = $"""
                     <html><body>
@@ -359,6 +359,6 @@ static class EditorPage
                     <script>document.getElementById('wopi').submit();</script>
                     </body></html>
                     """;
-        await page.SetContentAsync(html);
+        return page.SetContentAsync(html);
     }
 }

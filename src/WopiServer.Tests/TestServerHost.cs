@@ -74,7 +74,7 @@ sealed class TestServerHost : IAsyncDisposable
             services.AddSingleton(time);
         }
 
-        services.AddSingleton<IWopiStorage>(wrapStorage?.Invoke(Storage) ?? Storage);
+        services.AddSingleton(wrapStorage?.Invoke(Storage) ?? Storage);
         if (userInfo)
         {
             services.AddSingleton<IWopiUserInfoStore, MemoryUserInfoStore>();

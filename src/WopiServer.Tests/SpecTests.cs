@@ -7,8 +7,8 @@ public class SpecTests
 {
     const string databuf = "file content";
 
-    static async Task<string> Body(HttpResponseMessage response) =>
-        await response.Content.ReadAsStringAsync();
+    static Task<string> Body(HttpResponseMessage response) =>
+        response.Content.ReadAsStringAsync();
 
     static string? Header(HttpResponseMessage response, string name)
     {

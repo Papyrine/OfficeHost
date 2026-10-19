@@ -7,8 +7,8 @@ public class EditorTests
 {
     const string text = "Hello from the WOPI server";
 
-    static async Task<IBrowser> Browser(IPlaywright playwright) =>
-        await playwright.Chromium.LaunchAsync(
+    static Task<IBrowser> Browser(IPlaywright playwright) =>
+        playwright.Chromium.LaunchAsync(
             new()
             {
                 Headless = Environment.GetEnvironmentVariable("E2E_HEADED") == null
