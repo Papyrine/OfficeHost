@@ -3,7 +3,6 @@
     <File Path="../.gitattributes" />
     <File Path="../readme.md" />
     <File Path="../claude.md" />
-    <File Path="../docs/porting.md" />
     <File Path="../global.json" />
     <File Path="Directory.Build.props" />
     <File Path="Directory.Packages.props" />

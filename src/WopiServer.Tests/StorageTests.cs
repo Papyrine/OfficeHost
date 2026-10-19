@@ -1,345 +1,283 @@
 /// <summary>
-/// The storage interface tests of the Python implementation (test/test_storageiface.py), against the local storage.
+/// <see cref="FileSystemStorage"/> and <see cref="MemoryLockStore"/>.
 /// </summary>
 public class StorageTests : IDisposable
 {
-    const string databuf = "ebe5tresbsrdthbrdhvdtr";
-    const string endpoint = "/";
-    const string userId = "0:0";
-
     readonly TempFolder folder = new();
-    readonly ManualTime time = new();
-    readonly LocalStorage storage;
+    readonly FileSystemStorage storage;
 
-    public StorageTests()
-    {
-        var config = Helpers.Ini(
-            $"""
-             [general]
-             storagetype = local
-             wopilockexpiration = 3
-             [io]
-             chunksize = 1
-             [local]
-             storagehomepath = {folder.Path}
-             """);
-        storage = new(new(config), NullLogger.Instance, time);
-    }
+    public StorageTests() =>
+        storage = new(folder.Path);
 
     public void Dispose() =>
         folder.Dispose();
 
-    Task Write(string path, string content, LockMetadata? lockMetadata = null, bool isLock = false, bool noVersion = false) =>
-        storage.WriteFile(endpoint, path, userId, Helpers.Stream(content), Encoding.UTF8.GetByteCount(content), lockMetadata, isLock, noVersion);
-
-    async Task<string> Read(string path)
+    string Create(string path, string content = "content")
     {
-        await using var stream = await storage.ReadFile(endpoint, path, userId, null);
-        using var reader = new StreamReader(stream);
-        return await reader.ReadToEndAsync();
+        var full = folder.Combine(path);
+        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+        File.WriteAllText(full, content);
+        return storage.GetFileId(path);
     }
 
-    [Test]
-    public async Task Stat()
+    static async Task<string> Read(Stream stream)
     {
-        await Write("/test.txt", databuf);
-        var statInfo = await storage.Stat(endpoint, "/test.txt", userId);
-        await Assert.That(statInfo.Size).IsEqualTo(databuf.Length);
-        await Assert.That(statInfo.MTime).IsGreaterThan(0);
-        await storage.RemoveFile(endpoint, "/test.txt", userId);
-    }
-
-    [Test]
-    public async Task StatX_FileId()
-    {
-        await Write("/test.txt", databuf);
-        var statInfo = await storage.StatX(endpoint, "/test.txt", userId);
-        await Assert.That(statInfo.Inode).StartsWith("local!");
-        await Assert.That(statInfo.FilePath).IsEqualTo("/test.txt");
-        await Assert.That(statInfo.OwnerId).IsEqualTo("0:0");
-        await Assert.That(statInfo.Etag).IsNotEmpty();
-        await Assert.That(statInfo.Xattrs).IsEmpty();
-        await storage.RemoveFile(endpoint, "/test.txt", userId);
-    }
-
-    [Test]
-    public async Task StatX_InvariantFileId()
-    {
-        await Write("/test&upd.txt", databuf);
-        var inode = (await storage.StatX(endpoint, "/test&upd.txt", userId)).Inode;
-        await Write("/test&upd.txt", databuf);
-        var statInfo = await storage.StatX(endpoint, "/test&upd.txt", userId);
-        await Assert.That(statInfo.Inode).IsEqualTo(inode);
-        await storage.RemoveFile(endpoint, "/test&upd.txt", userId);
-    }
-
-    [Test]
-    public async Task Stat_NoFile()
-    {
-        var exception = await Helpers.Throws<StorageException>(() => storage.Stat(endpoint, "/hopefullynotexisting", userId));
-        await Assert.That(exception.Message).Contains(Common.EnoentMsg);
-    }
-
-    [Test]
-    public async Task StatX_NoFile()
-    {
-        var exception = await Helpers.Throws<StorageException>(() => storage.StatX(endpoint, "/hopefullynotexisting", userId));
-        await Assert.That(exception.Message).Contains(Common.EnoentMsg);
-    }
-
-    [Test]
-    public async Task Stat_Directory()
-    {
-        var exception = await Helpers.Throws<StorageException>(() => storage.Stat(endpoint, "/", userId));
-        await Assert.That(exception.Message).IsEqualTo("Is a directory");
-        await Assert.That(await storage.HealthCheck()).IsEqualTo("Warning");
-    }
-
-    [Test]
-    public async Task ReadFile_Binary()
-    {
-        await Write("/test.txt", databuf);
-        await Assert.That(await Read("/test.txt")).IsEqualTo(databuf);
-        await storage.RemoveFile(endpoint, "/test.txt", userId);
-    }
-
-    [Test]
-    public async Task ReadFile_Text()
-    {
-        await Write("/test.txt", "bla\n");
-        await Assert.That(await Read("/test.txt")).IsEqualTo("bla\n");
-        await storage.RemoveFile(endpoint, "/test.txt", userId);
-    }
-
-    [Test]
-    public async Task ReadFile_Empty()
-    {
-        await Write("/test.txt", "");
-        await Assert.That(await Read("/test.txt")).IsEqualTo("");
-        await storage.RemoveFile(endpoint, "/test.txt", userId);
-    }
-
-    [Test]
-    public async Task Read_NoFile()
-    {
-        var exception = await Helpers.Throws<StorageException>(() => storage.ReadFile(endpoint, "/hopefullynotexisting", userId, null));
-        await Assert.That(exception.Message).Contains(Common.EnoentMsg);
-    }
-
-    [Test]
-    public async Task Write_Remove_SpecialChars()
-    {
-        await Write("/testwrite&rm", databuf);
-        await storage.Stat(endpoint, "/testwrite&rm", userId);
-        await storage.RemoveFile(endpoint, "/testwrite&rm", userId);
-        await Helpers.Throws<StorageException>(() => storage.Stat(endpoint, "/testwrite&rm", userId));
-    }
-
-    [Test]
-    public async Task Write_SizeMismatch()
-    {
-        var exception = await Helpers.Throws<StorageException>(() => storage.WriteFile(endpoint, "/test.txt", userId, Helpers.Stream("abc"), 4, null));
-        await Assert.That(exception.Message).IsEqualTo("Written 3 bytes but content is 4 bytes");
-    }
-
-    [Test]
-    public async Task Write_NoVersion()
-    {
-        await Write("/test.txt", "bla\n");
-        await Write("/test.txt", "blabla\n", noVersion: true);
-        await Assert.That(await Read("/test.txt")).IsEqualTo("blabla\n");
-        await storage.RemoveFile(endpoint, "/test.txt", userId);
-    }
-
-    [Test]
-    public async Task Write_IsLock()
-    {
-        await Write("/testoverwrite", databuf, isLock: true);
-        await storage.Stat(endpoint, "/testoverwrite", userId);
-        var exception = await Helpers.Throws<StorageException>(() => Write("/testoverwrite", databuf, isLock: true));
-        await Assert.That(exception.Message).Contains(Common.ExclError);
-        await storage.RemoveFile(endpoint, "/testoverwrite", userId);
-    }
-
-    [Test]
-    public async Task Write_Race()
-    {
-        var results = await Task.WhenAll(
-            Enumerable.Range(0, 2)
-                .Select(_ => Capture(() => Write("/testwriterace", databuf, isLock: true))));
-        await Assert.That(results.Count(_ => _ == null)).IsEqualTo(1);
-        await Assert.That(results.Single(_ => _ != null)!.Message).Contains(Common.ExclError);
-        await storage.RemoveFile(endpoint, "/testwriterace", userId);
-    }
-
-    static async Task<StorageException?> Capture(Func<Task> action)
-    {
-        await Task.Yield();
-        try
+        await using (stream)
         {
-            await action();
-            return null;
-        }
-        catch (StorageException exception)
-        {
-            return exception;
+            using var reader = new StreamReader(stream);
+            return await reader.ReadToEndAsync();
         }
     }
 
     [Test]
-    public async Task Lock()
+    public async Task GetFile()
     {
-        await Write("/testlock", databuf);
-        await storage.SetLock(endpoint, "/testlock", userId, "test app", WopiUtils.EncodeLock("testlock"));
-        var storageLock = await storage.GetLock(endpoint, "/testlock", userId);
-        await Assert.That(storageLock).IsNotNull();
-        await Assert.That(storageLock!.LockId).IsEqualTo(WopiUtils.EncodeLock("testlock"));
-        await Assert.That(storageLock.AppName).IsEqualTo("test app");
-        await Assert.That(storageLock.Expiration.Seconds).IsEqualTo(time.Now.ToUnixTimeSeconds() + 3);
-        var exception = await Helpers.Throws<StorageException>(() => storage.SetLock(endpoint, "/testlock", userId, "test app", "mismatchlock"));
-        await Assert.That(exception.Message).Contains(Common.ExclError);
-        await storage.Unlock(endpoint, "/testlock", userId, "test app", WopiUtils.EncodeLock("testlock"));
-        await Assert.That(await storage.GetLock(endpoint, "/testlock", userId)).IsNull();
-        await storage.RemoveFile(endpoint, "/testlock", userId, force: true);
+        var id = Create("sub/test.docx", "12345");
+        var file = (await storage.GetFile(id))!;
+        await Assert.That(file.Id).IsEqualTo(id);
+        await Assert.That(file.Name).IsEqualTo("test.docx");
+        await Assert.That(file.Size).IsEqualTo(5);
+        await Assert.That(file.OwnerId).IsEqualTo("owner");
+        await Assert.That(file.LastModified).IsEqualTo(new DateTimeOffset(File.GetLastWriteTimeUtc(folder.Combine("sub/test.docx"))));
+        await Assert.That(storage.GetPath(id)).IsEqualTo(folder.Combine("sub", "test.docx"));
     }
 
     [Test]
-    public async Task RefreshLock()
+    public async Task GetFile_Unknown()
     {
-        await Write("/testrlock", databuf);
-        var exception = await Helpers.Throws<StorageException>(() => storage.RefreshLock(endpoint, "/testrlock", userId, "test app", "testlock"));
-        await Assert.That(exception.Message).IsEqualTo(Common.ExclError);
-        await storage.SetLock(endpoint, "/testrlock", userId, "test app", "testlock");
-        exception = await Helpers.Throws<StorageException>(() => storage.RefreshLock(endpoint, "/testrlock", userId, "test app", "newlock", "mismatch"));
-        await Assert.That(exception.Message).IsEqualTo(Common.ExclError);
-        await storage.RefreshLock(endpoint, "/testrlock", userId, "test app", "newlock", "testlock");
-        var storageLock = await storage.GetLock(endpoint, "/testrlock", userId);
-        await Assert.That(storageLock!.LockId).IsEqualTo("newlock");
-        await Assert.That(storageLock.AppName).IsEqualTo("test app");
-        await storage.RefreshLock(endpoint, "/testrlock", userId, "test app", "newlock");
-        exception = await Helpers.Throws<StorageException>(() => storage.RefreshLock(endpoint, "/testrlock", userId, "mismatched app", "newlock"));
-        await Assert.That(exception.Message).Contains(Common.ExclError);
-        await storage.RemoveFile(endpoint, "/testrlock", userId);
-    }
-
-    [Test]
-    public async Task Lock_Race()
-    {
-        await Write("/testlockrace", databuf);
-        var results = await Task.WhenAll(
-            Capture(() => storage.SetLock(endpoint, "/testlockrace", userId, "test app", "testlock")),
-            Capture(() => storage.SetLock(endpoint, "/testlockrace", userId, "test app 2", "testlock2")));
-        await Assert.That(results.Count(_ => _ == null)).IsEqualTo(1);
-        await Assert.That(results.Single(_ => _ != null)!.Message).Contains(Common.ExclError);
-        await storage.RemoveFile(endpoint, "/testlockrace", userId);
-    }
-
-    [Test]
-    public async Task Lock_Operations()
-    {
-        await Write("/testlockop", databuf);
-        const string payload = "{'foo': 'bar', 'xyz': 123, 'data': {'a': 'b'}}";
-        var lockMetadata = new LockMetadata("test app", WopiUtils.EncodeLock(payload));
-        await storage.SetLock(endpoint, "/testlockop", userId, "test app", WopiUtils.EncodeLock(payload));
-        await Write("/testlockop", databuf, lockMetadata);
-        // different interfaces raise exceptions on either mismatching app xor mismatching lock payload,
-        // this is why we test that both mismatch
-        await Helpers.Throws<StorageException>(() => Write("/testlockop", databuf, new("mismatch app", "mismatchlock")));
-        // with xattrs, it's fine to set them without lock context (the lock should apply to files' contents only)
-        await storage.SetXattr(endpoint, "/testlockop", userId, "testkey", "123", new("mismatch app", "mismatchlock"));
-        await storage.SetXattr(endpoint, "/testlockop", userId, "testkey", "123", null);
-        await storage.RemoveXattr(endpoint, "/testlockop", userId, "testkey", null);
-        await storage.RefreshLock(endpoint, "/testlockop", userId, "test app", WopiUtils.EncodeLock(payload));
-        await Helpers.Throws<StorageException>(() => storage.RefreshLock(endpoint, "/testlockop", userId, "mismatched app", "mismatchlock"));
-        await Assert.That(await Read("/testlockop")).IsEqualTo(databuf);
-        await Helpers.Throws<StorageException>(() => Write("/testlockop", databuf));
-        await storage.RenameFile(endpoint, "/testlockop", "/testlockop_renamed", userId, lockMetadata);
-        // the lock moved along with the file
-        await Assert.That((await storage.GetLock(endpoint, "/testlockop_renamed", userId))!.AppName).IsEqualTo("test app");
-        await storage.RemoveFile(endpoint, "/testlockop_renamed", userId);
-    }
-
-    [Test]
-    public async Task Expired_Locks()
-    {
-        await Write("/testelock", databuf);
-        // 1: get an expired lock
-        await storage.SetLock(endpoint, "/testelock", userId, "test app", "testlock1");
-        time.Advance(TimeSpan.FromSeconds(3.1));
-        await Assert.That(await storage.GetLock(endpoint, "/testelock", userId)).IsNull();
-        // 2: set a new lock over an expired one
-        await storage.SetLock(endpoint, "/testelock", userId, "test app", "testlock2");
-        await Assert.That((await storage.GetLock(endpoint, "/testelock", userId))!.LockId).IsEqualTo("testlock2");
-        // 3: refresh an expired lock, should fail
-        time.Advance(TimeSpan.FromSeconds(3.1));
-        var exception = await Helpers.Throws<StorageException>(() => storage.RefreshLock(endpoint, "/testelock", userId, "test app", "testlock2"));
-        await Assert.That(exception.Message).IsEqualTo(Common.ExclError);
-        // 4: unlock an expired lock, should fail
-        exception = await Helpers.Throws<StorageException>(() => storage.Unlock(endpoint, "/testelock", userId, "test app", "testlock2"));
-        await Assert.That(exception.Message).IsEqualTo(Common.ExclError);
-        // 5: overwrite a file having an expired lock with a mismatched one or without lock metadata
-        await Write("/testelock", databuf, new("mismatched app", "mismatched lock"));
-        await Write("/testelock", databuf);
-        await storage.RemoveFile(endpoint, "/testelock", userId);
-    }
-
-    [Test]
-    public async Task Remove_NoFile()
-    {
-        var exception = await Helpers.Throws<StorageException>(() => storage.RemoveFile(endpoint, "/hopefullynotexisting", userId));
-        await Assert.That(exception.Message).Contains(Common.EnoentMsg);
-    }
-
-    [Test]
-    public async Task Xattr()
-    {
-        await Write("/test&xattr.txt", databuf);
-        await storage.SetXattr(endpoint, "/test&xattr.txt", userId, "testkey", "123", null);
-        await storage.SetLock(endpoint, "/test&xattr.txt", userId, "test app", "xattrlock");
-        await storage.SetXattr(endpoint, "/test&xattr.txt", userId, "testkey", "123", new("test app", "xattrlock"));
-        var statInfo = await storage.StatX(endpoint, "/test&xattr.txt", userId);
-        await Assert.That(statInfo.Xattrs["testkey"]).IsEqualTo("123");
-        await storage.RemoveXattr(endpoint, "/test&xattr.txt", userId, "testkey", new("test app", "xattrlock"));
-        statInfo = await storage.StatX(endpoint, "/test&xattr.txt", userId);
-        await Assert.That(statInfo.Xattrs.ContainsKey("testkey")).IsFalse();
-        await storage.RemoveFile(endpoint, "/test&xattr.txt", userId);
-    }
-
-    [Test]
-    public async Task Rename_StatX()
-    {
-        await Write("/test.txt", databuf);
-        var statInfo = await storage.StatX(endpoint, "/test.txt", userId);
-        var pathRef = statInfo.FilePath[..statInfo.FilePath.LastIndexOf('/')];
-        await storage.RenameFile(endpoint, "/test.txt", "/test&ren.txt", userId, null);
-        statInfo = await storage.StatX(endpoint, "/test&ren.txt", userId);
-        await Assert.That(statInfo.FilePath).IsEqualTo($"{pathRef}/test&ren.txt");
-        await storage.RenameFile(endpoint, "/test&ren.txt", "/test.txt", userId, null);
-        statInfo = await storage.StatX(endpoint, "/test.txt", userId);
-        await Assert.That(statInfo.FilePath).IsEqualTo($"{pathRef}/test.txt");
-        await storage.RemoveFile(endpoint, "/test.txt", userId);
+        await Assert.That(await storage.GetFile("unknown")).IsNull();
+        var id = Create("test.docx");
+        File.Delete(folder.Combine("test.docx"));
+        await Assert.That(await storage.GetFile(id)).IsNull();
     }
 
     /// <summary>
-    /// chunksize defaults to the shipped value, for configurations built without the defaults file.
+    /// Ids are URL safe, given once per file, and kept across instances of the storage.
     /// </summary>
     [Test]
-    public async Task ChunkSize_Default()
+    public async Task FileIds()
     {
-        var config = Helpers.Ini($"[local]\nstoragehomepath = {folder.Path}");
-        var defaults = new LocalStorage(new(config), NullLogger.Instance, time);
-        await defaults.WriteFile(endpoint, "/test.txt", userId, Helpers.Stream(databuf), databuf.Length, null);
-        await using var stream = await defaults.ReadFile(endpoint, "/test.txt", userId, null);
-        using var reader = new StreamReader(stream);
-        await Assert.That(await reader.ReadToEndAsync()).IsEqualTo(databuf);
+        var a = Create("a.docx");
+        var b = Create("b.docx");
+        await Assert.That(a).IsNotEqualTo(b);
+        await Assert.That(storage.GetFileId("a.docx")).IsEqualTo(a);
+        await Assert.That(storage.GetFileId("/a.docx")).IsEqualTo(a);
+        await Assert.That(a.All(_ => char.IsAsciiLetterOrDigit(_) || _ is '-' or '_')).IsTrue();
+        var reopened = new FileSystemStorage(folder.Path);
+        await Assert.That(reopened.GetFileId("b.docx")).IsEqualTo(b);
+        await Assert.That((await reopened.GetFile(a))!.Name).IsEqualTo("a.docx");
     }
 
     [Test]
-    public async Task Path_OutsideStorage()
+    public async Task FileIds_OnlyForFilesOfTheStorage()
     {
-        var exception = await Helpers.Throws<StorageException>(() => storage.Stat(endpoint, "/../outside.txt", userId));
-        await Assert.That(exception.Message).IsEqualTo(Common.AccessError);
-        exception = await Helpers.Throws<StorageException>(() => storage.Stat(endpoint, "/.wopimeta/x.json", userId));
-        await Assert.That(exception.Message).IsEqualTo(Common.AccessError);
+        await Helpers.Throws<FileNotFoundException>(() => Task.FromResult(storage.GetFileId("missing.docx")));
+        Directory.CreateDirectory(folder.Combine("folder"));
+        await Helpers.Throws<FileNotFoundException>(() => Task.FromResult(storage.GetFileId("folder")));
+        Create("a.docx");
+        foreach (var path in new[] { "../outside.docx", ".wopi/ids.json", "" })
+        {
+            await Helpers.Throws<UnauthorizedAccessException>(() => Task.FromResult(storage.GetFileId(path)));
+        }
+    }
+
+    [Test]
+    public async Task OpenRead()
+    {
+        var id = Create("test.docx", "content");
+        await Assert.That(await Read(await storage.OpenRead(id))).IsEqualTo("content");
+        File.Delete(folder.Combine("test.docx"));
+        await Helpers.Throws<FileNotFoundException>(() => storage.OpenRead(id));
+        await Helpers.Throws<FileNotFoundException>(() => storage.OpenRead("unknown"));
+    }
+
+    /// <summary>
+    /// A write replaces the content atomically, so a reader keeps the content it opened.
+    /// </summary>
+    [Test]
+    public async Task Write()
+    {
+        var id = Create("test.docx", "before");
+        var reader = await storage.OpenRead(id);
+        var written = await storage.Write(id, Helpers.Stream("after"));
+        await Assert.That(written.Size).IsEqualTo(5);
+        await Assert.That(await Read(reader)).IsEqualTo("before");
+        await Assert.That(await File.ReadAllTextAsync(folder.Combine("test.docx"))).IsEqualTo("after");
+        await Assert.That(Directory.GetFiles(folder.Combine(".wopi", "tmp"))).IsEmpty();
+    }
+
+    /// <summary>
+    /// Every write is a new version, even within the resolution of the clock of the file system.
+    /// </summary>
+    [Test]
+    public async Task Write_NewVersions()
+    {
+        var id = Create("test.docx");
+        var versions = new List<long>
+        {
+            long.Parse((await storage.GetFile(id))!.Version)
+        };
+        for (var i = 0; i < 5; i++)
+        {
+            versions.Add(long.Parse((await storage.Write(id, Helpers.Stream("same"))).Version));
+        }
+
+        for (var i = 1; i < versions.Count; i++)
+        {
+            await Assert.That(versions[i]).IsGreaterThan(versions[i - 1]);
+        }
+    }
+
+    [Test]
+    public async Task Write_Unknown()
+    {
+        var id = Create("test.docx");
+        File.Delete(folder.Combine("test.docx"));
+        await Helpers.Throws<FileNotFoundException>(() => storage.Write(id, Helpers.Stream("x")));
+        await Assert.That(File.Exists(folder.Combine("test.docx"))).IsFalse();
+    }
+
+    [Test]
+    public async Task GetSibling()
+    {
+        var id = Create("sub/test.docx");
+        var otherId = Create("sub/other.docx");
+        Create("other.docx");
+        await Assert.That((await storage.GetSibling(id, "other.docx"))!.Id).IsEqualTo(otherId);
+        await Assert.That(await storage.GetSibling(id, "missing.docx")).IsNull();
+    }
+
+    [Test]
+    public async Task CreateSibling()
+    {
+        var id = Create("sub/test.docx");
+        var created = (await storage.CreateSibling(id, "new.pdf", Helpers.Stream("pdf"), false))!;
+        await Assert.That(created.Name).IsEqualTo("new.pdf");
+        await Assert.That(created.Id).IsEqualTo(storage.GetFileId("sub/new.pdf"));
+        await Assert.That(await File.ReadAllTextAsync(folder.Combine("sub/new.pdf"))).IsEqualTo("pdf");
+
+        await Assert.That(await storage.CreateSibling(id, "new.pdf", Helpers.Stream("again"), false)).IsNull();
+        await Assert.That(await File.ReadAllTextAsync(folder.Combine("sub/new.pdf"))).IsEqualTo("pdf");
+
+        var overwritten = (await storage.CreateSibling(id, "new.pdf", Helpers.Stream("again"), true))!;
+        await Assert.That(overwritten.Id).IsEqualTo(created.Id);
+        await Assert.That(await File.ReadAllTextAsync(folder.Combine("sub/new.pdf"))).IsEqualTo("again");
+    }
+
+    /// <summary>
+    /// The storage refuses the names that are not in the folder of the file, should a caller not check them.
+    /// </summary>
+    [Test]
+    [Arguments("../escape.docx")]
+    [Arguments("deeper/new.docx")]
+    [Arguments("..")]
+    public async Task Siblings_OnlyInTheFolder(string name)
+    {
+        var id = Create("sub/test.docx");
+        await Helpers.Throws<UnauthorizedAccessException>(() => storage.CreateSibling(id, name, Helpers.Stream("x"), true));
+        await Helpers.Throws<UnauthorizedAccessException>(() => storage.GetSibling(id, name));
+        await Helpers.Throws<UnauthorizedAccessException>(() => storage.Rename(id, name));
+    }
+
+    /// <summary>
+    /// A renamed file keeps its id, and the id of the old name is no more.
+    /// </summary>
+    [Test]
+    public async Task Rename()
+    {
+        var id = Create("test.docx", "content");
+        var renamed = (await storage.Rename(id, "renamed.docx"))!;
+        await Assert.That(renamed.Id).IsEqualTo(id);
+        await Assert.That(renamed.Name).IsEqualTo("renamed.docx");
+        await Assert.That(await File.ReadAllTextAsync(folder.Combine("renamed.docx"))).IsEqualTo("content");
+        await Assert.That(storage.GetFileId("renamed.docx")).IsEqualTo(id);
+        await Assert.That((await new FileSystemStorage(folder.Path).GetFile(id))!.Name).IsEqualTo("renamed.docx");
+        await File.WriteAllTextAsync(folder.Combine("test.docx"), "new file");
+        await Assert.That(storage.GetFileId("test.docx")).IsNotEqualTo(id);
+    }
+
+    [Test]
+    public async Task Rename_ExistingName()
+    {
+        var id = Create("test.docx", "content");
+        Create("other.docx", "other");
+        await Assert.That(await storage.Rename(id, "other.docx")).IsNull();
+        await Assert.That(await File.ReadAllTextAsync(folder.Combine("other.docx"))).IsEqualTo("other");
+        await Assert.That(await File.ReadAllTextAsync(folder.Combine("test.docx"))).IsEqualTo("content");
+    }
+
+    [Test]
+    public async Task Rename_CaseOnly()
+    {
+        var id = Create("test.docx");
+        var renamed = (await storage.Rename(id, "Test.docx"))!;
+        await Assert.That(renamed.Name).IsEqualTo("Test.docx");
+        await Assert.That(storage.GetFileId("Test.docx")).IsEqualTo(id);
+    }
+
+    [Test]
+    public async Task Delete()
+    {
+        var id = Create("test.docx");
+        await storage.Delete(id);
+        await Assert.That(File.Exists(folder.Combine("test.docx"))).IsFalse();
+        await Assert.That(await storage.GetFile(id)).IsNull();
+        await Helpers.Throws<FileNotFoundException>(() => storage.Delete(id));
+    }
+
+    [Test]
+    public async Task MissingRoot() =>
+        await Helpers.Throws<DirectoryNotFoundException>(() => Task.FromResult(new FileSystemStorage(folder.Combine("missing"))));
+
+    // MemoryLockStore
+
+    [Test]
+    public async Task Locks_CompareExchange()
+    {
+        var time = new ManualTime();
+        var locks = new MemoryLockStore(time);
+        var expires = time.Now.AddMinutes(30);
+        await Assert.That(await locks.Get("f")).IsNull();
+
+        // lock an unlocked file
+        await Assert.That(await locks.CompareExchange("f", null, new("L", expires))).IsNull();
+        await Assert.That((await locks.Get("f"))!.Id).IsEqualTo("L");
+
+        // a mismatch changes nothing, and gives the current lock
+        await Assert.That((await locks.CompareExchange("f", "other", new("X", expires)))!.Id).IsEqualTo("L");
+        await Assert.That((await locks.CompareExchange("f", null, new("X", expires)))!.Id).IsEqualTo("L");
+        await Assert.That((await locks.Get("f"))!.Id).IsEqualTo("L");
+
+        // swap, then unlock
+        await Assert.That((await locks.CompareExchange("f", "L", new("L2", expires)))!.Id).IsEqualTo("L");
+        await Assert.That((await locks.CompareExchange("f", "L2", null))!.Id).IsEqualTo("L2");
+        await Assert.That(await locks.Get("f")).IsNull();
+    }
+
+    [Test]
+    public async Task Locks_Expire()
+    {
+        var time = new ManualTime();
+        var locks = new MemoryLockStore(time);
+        await locks.CompareExchange("f", null, new("L", time.Now.AddMinutes(30)));
+        time.Advance(TimeSpan.FromMinutes(30));
+        await Assert.That(await locks.Get("f")).IsNull();
+        // an expired lock is no lock: it cannot be swapped, and does not prevent a new one
+        await Assert.That(await locks.CompareExchange("f", "L", new("L2", time.Now.AddMinutes(30)))).IsNull();
+        await Assert.That(await locks.Get("f")).IsNull();
+        await Assert.That(await locks.CompareExchange("f", null, new("L3", time.Now.AddMinutes(30)))).IsNull();
+        await Assert.That((await locks.Get("f"))!.Id).IsEqualTo("L3");
+    }
+
+    /// <summary>
+    /// Of concurrent lock attempts on an unlocked file, exactly one wins.
+    /// </summary>
+    [Test]
+    public async Task Locks_Race()
+    {
+        var locks = new MemoryLockStore(TimeProvider.System);
+        var expires = DateTimeOffset.UtcNow.AddMinutes(30);
+        var results = await Task.WhenAll(Enumerable.Range(0, 50).Select(_ => Task.Run(() => locks.CompareExchange("f", null, new($"L{_}", expires)))));
+        await Assert.That(results.Count(_ => _ == null)).IsEqualTo(1);
     }
 }

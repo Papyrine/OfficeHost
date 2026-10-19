@@ -1,10 +1,27 @@
 /// <summary>
-/// The whole server running on a <see cref="TestServer"/>, over a temporary local storage.
+/// The access a test opens a file with.
+/// </summary>
+public enum Mode
+{
+    /// <summary>
+    /// Write, write relative and rename.
+    /// </summary>
+    Edit,
+
+    ReadOnly,
+
+    /// <summary>
+    /// Read only, and no download.
+    /// </summary>
+    ViewOnly
+}
+
+/// <summary>
+/// An application with the WOPI endpoints on a <see cref="TestServer"/>, over a temporary <see cref="FileSystemStorage"/>.
 /// </summary>
 sealed class TestServerHost : IAsyncDisposable
 {
-    public const string IopSecret = "iopsecret";
-    public const string WopiSecret = "wopisecret";
+    public const string SigningKey = "the signing key of the tests, long enough";
 
     readonly TempFolder folder = new();
     WebApplication app = null!;
@@ -13,84 +30,81 @@ sealed class TestServerHost : IAsyncDisposable
 
     public string StoragePath => folder.Combine("storage");
 
-    public string RecoveryPath => folder.Combine("recovery");
+    public FileSystemStorage Storage { get; private set; } = null!;
 
-    public StringWriter Log { get; } = new();
+    public TestLog Log { get; } = new();
 
     /// <summary>
-    /// Bridged apps are reached through this handler; requests to the server itself go to the test server.
+    /// Answers the outgoing requests, as those of the WOPI discovery.
     /// </summary>
-    public Func<HttpRequestMessage, Task<HttpResponseMessage>>? Apps { get; set; }
+    public Func<HttpRequestMessage, Task<HttpResponseMessage>>? Http { get; set; }
 
-    /// <param name="time">The clock of the server, the system one by default.</param>
-    /// <param name="multiUser">
-    /// Whether each TokenHeader is a distinct user, as with a CS3 storage. The local storage maps all users to root.
-    /// </param>
-    /// <param name="wrapStorage">Decorates the local storage, to simulate storage behaviours.</param>
-    /// <param name="apps">The bridged apps, from the startup on: see <see cref="Apps"/>.</param>
-    public static async Task<TestServerHost> Start(string extraConfig = "", TimeProvider? time = null, bool multiUser = false, Func<IStorage, IStorage>? wrapStorage = null, Func<HttpRequestMessage, Task<HttpResponseMessage>>? apps = null)
+    /// <param name="configure">Changes the options, after the defaults of the tests.</param>
+    /// <param name="time">The clock of the application, the system one by default.</param>
+    /// <param name="wrapStorage">Decorates the storage, to simulate storage behaviours.</param>
+    /// <param name="userInfo">Whether an <see cref="IWopiUserInfoStore"/> is registered.</param>
+    /// <param name="kestrel">Runs on Kestrel, on a free local port, rather than on a TestServer.</param>
+    public static async Task<TestServerHost> Start(Action<WopiOptions>? configure = null, TimeProvider? time = null, Func<IWopiStorage, IWopiStorage>? wrapStorage = null, bool userInfo = true, Action<IServiceCollection>? services = null, bool kestrel = false)
     {
-        var host = new TestServerHost
-        {
-            Apps = apps
-        };
-        await host.Init(extraConfig, time ?? TimeProvider.System, multiUser, wrapStorage);
+        var host = new TestServerHost();
+        await host.Init(configure, time, wrapStorage, userInfo, services, kestrel);
         return host;
     }
 
-    async Task Init(string extraConfig, TimeProvider time, bool multiUser, Func<IStorage, IStorage>? wrapStorage)
+    async Task Init(Action<WopiOptions>? configure, TimeProvider? time, Func<IWopiStorage, IWopiStorage>? wrapStorage, bool userInfo, Action<IServiceCollection>? configureServices, bool kestrel)
     {
         Directory.CreateDirectory(StoragePath);
-        await File.WriteAllTextAsync(folder.Combine("wopisecret"), $"{WopiSecret}\n");
-        await File.WriteAllTextAsync(folder.Combine("iopsecret"), $"{IopSecret}\n");
-        var config = Helpers.Ini(
-            $"""
-             [general]
-             storagetype = local
-             port = 8880
-             wopiurl = http://localhost/
-             {(extraConfig.Contains("loglevel") ? "" : "loglevel = Debug")}
-             homepath = /home/username
-             {extraConfig}
-             [security]
-             usehttps = no
-             wopisecretfile = {folder.Combine("wopisecret")}
-             iopsecretfile = {folder.Combine("iopsecret")}
-             [io]
-             chunksize = 4096
-             recoverypath = {RecoveryPath}
-             [local]
-             storagehomepath = {StoragePath}
-             """);
-        var router = new Router(this);
-        IStorage? storage = null;
-        if (multiUser ||
-            wrapStorage != null)
+        Storage = new(StoragePath);
+        var builder = WebApplication.CreateSlimBuilder();
+        if (kestrel)
         {
-            storage = new LocalStorage(new(config), NullLogger.Instance, time);
-            if (multiUser)
-            {
-                storage = new MultiUserStorage(storage);
-            }
-
-            if (wrapStorage != null)
-            {
-                storage = wrapStorage(storage);
-            }
+            builder.WebHost.UseUrls("http://127.0.0.1:0");
+        }
+        else
+        {
+            builder.WebHost.UseTestServer();
         }
 
-        app = await WopiApp.Build(
-            config,
-            new()
+        builder.Logging.ClearProviders();
+        builder.Logging.SetMinimumLevel(LogLevel.Debug);
+        builder.Logging.AddProvider(Log);
+        var services = builder.Services;
+        if (time != null)
+        {
+            services.AddSingleton(time);
+        }
+
+        services.AddSingleton<IWopiStorage>(wrapStorage?.Invoke(Storage) ?? Storage);
+        if (userInfo)
+        {
+            services.AddSingleton<IWopiUserInfoStore, MemoryUserInfoStore>();
+        }
+
+        services.AddWopi(
+            options =>
             {
-                Storage = storage,
-                Time = time,
-                LogWriter = TextWriter.Synchronized(Log),
-                HttpHandler = router,
-                ConfigureBuilder = _ => _.WebHost.UseTestServer()
+                options.SigningKey = SigningKey;
+                options.BaseUrl = "http://localhost";
+                options.HostEditUrl = (file, _) => $"https://app/edit/{file.Id}";
+                options.HostViewUrl = (file, _) => $"https://app/view/{file.Id}";
+                configure?.Invoke(options);
             });
+        services.AddHttpClient(WopiOptions.HttpClientName)
+            .ConfigurePrimaryHttpMessageHandler(() => new Handler(this));
+        configureServices?.Invoke(services);
+        app = builder.Build();
+        app.MapWopi();
         await app.StartAsync();
-        router.Server = app.GetTestServer().CreateHandler();
+        if (kestrel)
+        {
+            var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First();
+            Client = new()
+            {
+                BaseAddress = new(address)
+            };
+            return;
+        }
+
         Client = app.GetTestClient();
     }
 
@@ -103,46 +117,34 @@ sealed class TestServerHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        Client.Dispose();
         await app.StopAsync();
         await app.DisposeAsync();
         folder.Dispose();
     }
 
-    /// <summary>
-    /// Opens a file through /wopi/iop/openinapp, returning the response.
-    /// </summary>
-    public async Task<HttpResponseMessage> OpenInApp(string fileId, string viewMode = "VIEW_MODE_READ_WRITE", string appName = "MSOffice", string appUrl = "https://office/edit", string userName = "Alice", string userType = "regular", string userId = "alice", string? apiKey = null)
-    {
-        var query = $"fileid={Uri.EscapeDataString(fileId)}&viewmode={viewMode}&appname={appName}&appurl={Uri.EscapeDataString(appUrl)}" +
-                    $"&appviewurl={Uri.EscapeDataString("https://office/view")}&username={userName}&userid={userId}&usertype={userType}&folderurl={Uri.EscapeDataString("https://efss/files/home")}";
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"/wopi/iop/openinapp?{query}");
-        request.Headers.Add("Authorization", $"Bearer {IopSecret}");
-        request.Headers.Add("TokenHeader", userId);
-        if (apiKey != null)
+    public static WopiAccess Access(string fileId, Mode mode = Mode.Edit, string userId = "alice", bool anonymous = false) =>
+        new(fileId, userId)
         {
-            request.Headers.Add("ApiKey", apiKey);
-        }
-
-        return await Client.SendAsync(request);
-    }
+            UserName = anonymous ? null : char.ToUpperInvariant(userId[0]) + userId[1..],
+            IsAnonymous = anonymous,
+            CanWrite = mode == Mode.Edit,
+            CanWriteRelative = mode == Mode.Edit,
+            CanRename = mode == Mode.Edit,
+            ViewOnly = mode == Mode.ViewOnly
+        };
 
     /// <summary>
-    /// Opens a file and returns its WOPI file id and access token.
+    /// The id of a file of the storage, and an access token to it.
     /// </summary>
-    public async Task<(string FileId, string Token, JsonObject Response)> Open(string fileId, string viewMode = "VIEW_MODE_READ_WRITE", string appName = "MSOffice", string userId = "alice", string userType = "regular")
+    public async Task<(string FileId, string Token)> Open(string path, Mode mode = Mode.Edit, string userId = "alice", bool anonymous = false)
     {
-        using var response = await OpenInApp(fileId, viewMode, appName, userType: userType, userId: userId);
-        var body = await response.Content.ReadAsStringAsync();
-        if (response.StatusCode != HttpStatusCode.OK)
-        {
-            throw new($"openinapp failed: {response.StatusCode} {body}");
-        }
-
-        var json = JsonNode.Parse(body)!.AsObject();
-        var appUrl = (string) json["app-url"]!;
-        var wopiSrc = Uri.UnescapeDataString(appUrl[(appUrl.IndexOf("WOPISrc=", StringComparison.Ordinal) + 8)..].Split('&')[0]);
-        return (wopiSrc.Split('/')[^1], (string) json["form-parameters"]!["access_token"]!, json);
+        var fileId = Storage.GetFileId(path.TrimStart('/'));
+        return (fileId, await Token(Access(fileId, mode, userId, anonymous)));
     }
+
+    public async Task<string> Token(WopiAccess access) =>
+        (await Service<IWopiTokens>().Issue(access)).Value;
 
     public Task<HttpResponseMessage> Post(string fileId, string token, string operation, params (string Name, string Value)[] headers) =>
         Send($"/wopi/files/{fileId}", token, null, [("X-WOPI-Override", operation), .. headers]);
@@ -162,24 +164,80 @@ sealed class TestServerHost : IAsyncDisposable
         return await Client.SendAsync(request);
     }
 
-    sealed class Router(TestServerHost host) : HttpMessageHandler
+    sealed class Handler(TestServerHost host) : HttpMessageHandler
     {
-        public HttpMessageHandler? Server { get; set; }
-
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, Cancel cancellationToken)
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, Cancel cancellationToken)
         {
-            if (request.RequestUri!.Host == "localhost")
+            if (host.Http == null)
             {
-                using var invoker = new HttpMessageInvoker(Server!, false);
-                return await invoker.SendAsync(request, cancellationToken);
+                throw new HttpRequestException($"Unreachable {request.RequestUri}");
             }
 
-            if (host.Apps == null)
-            {
-                throw new HttpRequestException($"No app at {request.RequestUri}");
-            }
+            return host.Http(request);
+        }
+    }
+}
 
-            return await host.Apps(request);
+/// <summary>
+/// The user info in memory.
+/// </summary>
+sealed class MemoryUserInfoStore : IWopiUserInfoStore
+{
+    readonly ConcurrentDictionary<string, string> values = new();
+
+    public Task<string?> Get(string userId, Cancel cancel = default) =>
+        Task.FromResult(values.GetValueOrDefault(userId));
+
+    public Task Set(string userId, string userInfo, Cancel cancel = default)
+    {
+        values[userId] = userInfo;
+        return Task.CompletedTask;
+    }
+}
+
+/// <summary>
+/// The log lines of an application, as `Level Category: message`.
+/// </summary>
+sealed class TestLog : ILoggerProvider
+{
+    readonly List<string> lines = [];
+
+    public IReadOnlyList<string> Lines
+    {
+        get
+        {
+            lock (lines)
+            {
+                return lines.ToList();
+            }
+        }
+    }
+
+    public override string ToString() =>
+        string.Join('\n', Lines);
+
+    public ILogger CreateLogger(string categoryName) =>
+        new Logger(this, categoryName);
+
+    public void Dispose()
+    {
+    }
+
+    sealed class Logger(TestLog log, string category) : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull =>
+            null;
+
+        public bool IsEnabled(LogLevel logLevel) =>
+            true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            lock (log.lines)
+            {
+                log.lines.Add($"{logLevel} {category}: {formatter(state, exception)}");
+            }
         }
     }
 }

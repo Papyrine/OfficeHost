@@ -1,91 +1,62 @@
 /// <summary>
-/// A storage failing the operations a test picks, to reach the error handling of the server.
+/// A storage failing the operations a test picks, to reach the error handling of the WOPI endpoints.
 /// </summary>
-sealed class FaultyStorage(IStorage inner) :
+sealed class FaultyStorage(IWopiStorage inner) :
     ForwardingStorage(inner)
 {
     /// <summary>
-    /// Given an operation name (the IStorage method) and a path, the exception to throw, or null to go on.
+    /// Given an operation name (the <see cref="IWopiStorage"/> method), the exception to throw, or null to go on.
     /// </summary>
-    public Func<string, string, Exception?> Fault { get; set; } = (_, _) => null;
+    public Func<string, Exception?> Fault { get; set; } = _ => null;
 
-    /// <summary>
-    /// Changes what stat returns, for instance to give an EOS etag.
-    /// </summary>
-    public Func<StatInfo, StatInfo> MapStat { get; set; } = _ => _;
-
-    void Check(string operation, string path)
+    void Check(string operation)
     {
-        var exception = Fault(operation, path);
+        var exception = Fault(operation);
         if (exception != null)
         {
             throw exception;
         }
     }
 
-    public override async Task<StatInfo> Stat(string endpoint, string filePath, string userId)
+    public override Task<WopiFile?> GetFile(string fileId, Cancel cancel = default)
     {
-        Check(nameof(Stat), filePath);
-        return MapStat(await base.Stat(endpoint, filePath, userId));
+        Check(nameof(GetFile));
+        return base.GetFile(fileId, cancel);
     }
 
-    public override async Task<StatInfo> StatX(string endpoint, string fileRef, string userId)
+    public override Task<WopiFile?> GetSibling(string fileId, string name, Cancel cancel = default)
     {
-        Check(nameof(StatX), fileRef);
-        return MapStat(await base.StatX(endpoint, fileRef, userId));
+        Check(nameof(GetSibling));
+        return base.GetSibling(fileId, name, cancel);
     }
 
-    public override Task SetXattr(string endpoint, string filePath, string userId, string key, string value, LockMetadata? lockMetadata)
+    public override Task<Stream> OpenRead(string fileId, Cancel cancel = default)
     {
-        Check(nameof(SetXattr), filePath);
-        return base.SetXattr(endpoint, filePath, userId, key, value, lockMetadata);
+        Check(nameof(OpenRead));
+        return base.OpenRead(fileId, cancel);
     }
 
-    public override Task SetLock(string endpoint, string filePath, string userId, string appName, string? value)
+    public override Task<WopiFile> Write(string fileId, Stream content, Cancel cancel = default)
     {
-        Check(nameof(SetLock), filePath);
-        return base.SetLock(endpoint, filePath, userId, appName, value);
+        Check(nameof(Write));
+        return base.Write(fileId, content, cancel);
     }
 
-    public override Task<StorageLock?> GetLock(string endpoint, string filePath, string userId)
+    public override Task<WopiFile?> CreateSibling(string fileId, string name, Stream content, bool overwrite, Cancel cancel = default)
     {
-        Check(nameof(GetLock), filePath);
-        return base.GetLock(endpoint, filePath, userId);
+        Check(nameof(CreateSibling));
+        return base.CreateSibling(fileId, name, content, overwrite, cancel);
     }
 
-    public override Task RefreshLock(string endpoint, string filePath, string userId, string appName, string? value, string? oldValue = null)
+    public override Task<WopiFile?> Rename(string fileId, string name, Cancel cancel = default)
     {
-        Check(nameof(RefreshLock), filePath);
-        return base.RefreshLock(endpoint, filePath, userId, appName, value, oldValue);
+        Check(nameof(Rename));
+        return base.Rename(fileId, name, cancel);
     }
 
-    public override Task Unlock(string endpoint, string filePath, string userId, string appName, string? value)
+    public override Task Delete(string fileId, Cancel cancel = default)
     {
-        Check(nameof(Unlock), filePath);
-        return base.Unlock(endpoint, filePath, userId, appName, value);
-    }
-
-    public override Task<Stream> ReadFile(string endpoint, string filePath, string userId, string? lockId)
-    {
-        Check(nameof(ReadFile), filePath);
-        return base.ReadFile(endpoint, filePath, userId, lockId);
-    }
-
-    public override Task WriteFile(string endpoint, string filePath, string userId, Stream content, long? size, LockMetadata? lockMetadata, bool isLock = false, bool noVersion = false)
-    {
-        Check(nameof(WriteFile), filePath);
-        return base.WriteFile(endpoint, filePath, userId, content, size, lockMetadata, isLock, noVersion);
-    }
-
-    public override Task RenameFile(string endpoint, string origFilePath, string newFilePath, string userId, LockMetadata? lockMetadata)
-    {
-        Check(nameof(RenameFile), origFilePath);
-        return base.RenameFile(endpoint, origFilePath, newFilePath, userId, lockMetadata);
-    }
-
-    public override Task RemoveFile(string endpoint, string filePath, string userId, bool force = false)
-    {
-        Check(nameof(RemoveFile), filePath);
-        return base.RemoveFile(endpoint, filePath, userId, force);
+        Check(nameof(Delete));
+        return base.Delete(fileId, cancel);
     }
 }

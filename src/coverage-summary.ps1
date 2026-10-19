@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Summarizes a Cobertura coverage report of the server: line and branch coverage per file, and in total.
+Summarizes a Cobertura coverage report of the library: line and branch coverage per file, and in total.
 
 .DESCRIPTION
 With -Summary, the table is also appended to that file as markdown (the GitHub job summary in CI).
@@ -18,7 +18,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $xml = [xml] (Get-Content $Report -Raw)
 $files = @{}
-foreach ($class in $xml.SelectNodes("//package[@name='wopiserver']//class")) {
+foreach ($class in $xml.SelectNodes("//package[@name='WopiServer']//class")) {
     $name = ($class.filename -replace '\\', '/') -replace '^.*src/WopiServer/', ''
     if (-not $files.ContainsKey($name)) {
         $files[$name] = @{ Covered = [System.Collections.Generic.HashSet[int]]::new(); All = [System.Collections.Generic.HashSet[int]]::new(); Branches = 0; BranchesCovered = 0 }

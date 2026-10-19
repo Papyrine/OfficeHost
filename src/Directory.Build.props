@@ -6,8 +6,9 @@
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <SuppressNETCoreSdkPreviewMessage>true</SuppressNETCoreSdkPreviewMessage>
     <!--
-    This repo ships an application, not a library: no nupkg and no strong name.
-    Both have to be set here rather than in the projects, as ProjectDefaults evaluates them before the project body.
+    No nupkg and no strong name yet: ProjectDefaults packs with an icon.png and signs with a key.snk, which this repo
+    does not have. Both have to be set here rather than in the projects, as ProjectDefaults evaluates them before the
+    project body.
     -->
     <IsPackageProject>false</IsPackageProject>
     <SignAssembly>false</SignAssembly>

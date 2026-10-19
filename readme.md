@@ -2,213 +2,150 @@
 
 [![Build](https://github.com/Papyrine/WopiServer/actions/workflows/build.yml/badge.svg)](https://github.com/Papyrine/WopiServer/actions/workflows/build.yml)
 
-A WOPI server for ASP.NET Core (.NET 10). It implements the host side of the Web Application Open Platform Interface
-([WOPI](https://learn.microsoft.com/en-us/microsoft-365/cloud-storage-partner-program/online/)), so a file storage can
-offer online editing with Microsoft 365 for the web, Collabora Online or ONLYOFFICE. A bridge also integrates editors
-without WOPI support: CodiMD and Etherpad.
-
-It is a port of the Python [CS3 WOPI server](https://github.com/cs3org/wopiserver), and uses the same configuration
-file. See [the porting notes](docs/porting.md) for what was ported and how the two differ.
+The host side of the Web Application Open Platform Interface
+([WOPI](https://learn.microsoft.com/en-us/microsoft-365/cloud-storage-partner-program/online/)) as a library for
+ASP.NET Core (.NET 10). Add it to a web application, and WOPI clients (Collabora Online, ONLYOFFICE, Microsoft 365 for
+the web) open, edit and save the files of any storage the application has.
 
 
 ## How it works
 
-1. A user opens a document in your file storage (EFSS). The storage calls `/wopi/iop/openinapp` with a shared secret,
-   naming the file, the user and the editor.
-2. The server checks the file, and returns the URL of the editor and a WOPI access token: a JWT scoped to that file,
-   user and view mode.
-3. The storage opens the editor with the token. The editor calls the WOPI endpoints of this server
-   (`/wopi/files/<id>`) to read the file metadata, lock the file, and get and save its contents.
+1. A user opens a document in the application. The application asks `WopiLauncher` for the URL of the editor and a WOPI
+   access token, scoped to that file and user.
+2. The page of the application posts the token to the editor URL, usually in an iframe.
+3. The editor calls the WOPI endpoints the library maps (`/wopi/files/{fileId}`) to read the file metadata, lock the
+   file, and get and save its content. The library checks the token and the locks, and goes to the storage of the
+   application through `IWopiStorage`.
 
 
 ## Features
 
 * The WOPI file operations: CheckFileInfo, GetFile, PutFile, Lock, GetLock, RefreshLock, Unlock, UnlockAndRelock,
-  PutRelativeFile, RenameFile, DeleteFile, PutUserInfo. Conformance to [MS-WOPI] is tested section by section.
-* Locks that interoperate with desktop apps: Microsoft Office and LibreOffice lock files block editing online, and a
-  LibreOffice-compatible lock file is created while a file is edited online.
-* Detection of files changed behind the server's back, with conflict copies instead of lost changes, and a recovery
-  space for saves that fail.
-* Validation of the proof keys of the WOPI clients (`X-WOPI-Proof`).
-* The bridge for CodiMD and Etherpad, which saves the documents back to the storage as they change.
-* Pluggable storage: a local folder storage is included, any other plugs in through `IStorage`.
-* JSON lines logs and Prometheus metrics.
+  PutRelativeFile, RenameFile, DeleteFile, PutUserInfo. Conformance to [MS-WOPI] is tested section by section, and
+  Microsoft's WOPI validator passes.
+* Access tokens that grant a user's access to one file: signed tokens out of the box, or any token scheme through
+  `IWopiTokens`.
+* The discovery of the WOPI clients, to launch their actions and validate the proof keys of their requests
+  (`X-WOPI-Proof`).
+* Pluggable storage and locks: `FileSystemStorage` and `MemoryLockStore` are included.
 
 
-## Running
+## Usage
 
-```pwsh
-dotnet run --project src/WopiServer -- --config /path/to/wopiserver.conf
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddSingleton<IWopiStorage>(new FileSystemStorage("/var/documents"));
+builder.Services.AddWopi(
+    options =>
+    {
+        options.SigningKey = builder.Configuration["Wopi:SigningKey"];
+        options.DiscoveryUrls.Add("http://collabora:9980/hosting/discovery");
+        options.HostEditUrl = (file, _) => $"https://app.example/edit/{file.Id}";
+        options.HostViewUrl = (file, _) => $"https://app.example/view/{file.Id}";
+    });
+
+var app = builder.Build();
+app.MapWopi();
+app.MapGet(
+    "/edit/{fileId}",
+    async (string fileId, HttpRequest request, WopiLauncher launcher) =>
+    {
+        // what the signed in user may do with the file is the application's call
+        var access = new WopiAccess(fileId, "alice")
+        {
+            UserName = "Alice",
+            CanWrite = true,
+            CanWriteRelative = true,
+            CanRename = true
+        };
+        var launch = await launcher.Launch(access, "edit", request);
+        return Results.Content(
+            $"""
+             <form id="wopi" method="post" action="{WebUtility.HtmlEncode(launch.Url)}">
+               <input type="hidden" name="access_token" value="{WebUtility.HtmlEncode(launch.AccessToken)}" />
+               <input type="hidden" name="access_token_ttl" value="{launch.AccessTokenTtl}" />
+             </form>
+             <script>document.getElementById('wopi').submit();</script>
+             """,
+            "text/html");
+    });
+app.Run();
 ```
 
-The configuration is loaded in this order, later files overriding earlier ones:
-
-1. `wopiserver.defaults.conf`, shipped next to the executable. It documents every option.
-2. `/etc/wopi/wopiserver.defaults.conf`, when present, or the file given with `--defaults`.
-3. `/etc/wopi/wopiserver.conf`, or the file given with `--config`. This file is watched: options read per request (log
-   level, URLs advertised to the editors, lock and token lifetimes...) apply without a restart, while the storage, the
-   port, `wopiurl`, HTTPS and the secret files are read at startup.
-
-A minimal configuration over a local folder:
-
-```ini
-[general]
-storagetype = local
-wopiurl = http://localhost:8880
-loghandler = stream
-
-[security]
-wopisecretfile = /etc/wopi/wopisecret
-iopsecretfile = /etc/wopi/iopsecret
-
-[io]
-recoverypath = /var/spool/wopirecovery
-
-[local]
-storagehomepath = /var/wopi_local_storage
-```
-
-The two secret files hold random strings: `wopisecret` signs the access tokens, `iopsecret` is the shared secret of
-the calls from the storage. Then open a file for an editor:
-
-```pwsh
-curl -H "Authorization: Bearer <iopsecret>" -H "TokenHeader: x" "http://localhost:8880/wopi/iop/openinapp?fileid=/test.docx&viewmode=VIEW_MODE_READ_WRITE&appname=MSOffice&appurl=https://your-office/edit&username=Alice"
-```
-
-The response gives the URL to open the editor with, and the token to post to it as `access_token`:
-
-```json
-{"app-url":"https://your-office/edit?WOPISrc=http%3A%2F%2Flocalhost%3A8880%2Fwopi%2Ffiles%2Flocal%21...","form-parameters":{"access_token":"eyJ..."}}
-```
+The WOPI clients call back the application: they must reach it at the URL of the request that launched the editor, or
+at `BaseUrl` when it differs, as when the editor runs in a container or behind a reverse proxy.
 
 
-### Docker
+## Options
 
-```pwsh
-docker build -t wopiserver .
-docker run -p 8880:8880 -v /path/to/etc-wopi:/etc/wopi:ro -v /path/to/storage:/var/wopi_local_storage wopiserver
-```
-
-`/etc/wopi` holds `wopiserver.conf` and the `wopisecret` and `iopsecret` files. In the image, the server logs to stdout
-and the local storage is `/var/wopi_local_storage`, which the image's `app` user must be able to write.
-
-
-## Configuration
-
-The main options, by section. `wopiserver.defaults.conf` describes them all, with their defaults.
-
-| Option | |
-|---|---|
-| **[general]** | |
-| `storagetype` | The storage: `local`. When embedding with a custom `IStorage`, it only names the storage on the information page. |
-| `port`, `wopiurl` | The port to listen on, and the public URL of the server, as WOPI clients reach it. |
-| `loglevel`, `loghandler`, `logdest` | `Debug` to `Critical`; `file` (to `logdest`) or `stream` (`stdout` or `stderr`). |
-| `hostediturl`, `hostviewurl` | The pages of the storage that embed the editor, with `<path>`, `<endpoint>`, `<fileid>` and `<app>` placeholders. |
-| `downloadurl`, `filesharingurl`, `webdavurl` | Optional URLs advertised to the editors. |
-| `brandingname`, `brandingurl` | The name and link of the storage shown by the editors. |
-| `tokenvalidity` | The lifetime of the access tokens, in seconds (1 day). |
-| `wopilockexpiration` | The lifetime of the locks, in seconds (30 minutes, as WOPI requires). |
-| `detectexternallocks`, `detectexternalmodifications` | The interoperability with desktop apps, on by default. |
-| `homepath` | Where conflict copies and "save as" go when the folder of the file is not writable. |
-| `enablerename` | Allows RenameFile, off by default (see [the porting notes](docs/porting.md)). |
-| `noversiongraceperiod` | Skips creating a new version for saves within this many seconds. |
-| `wopiproxy`, `wopiproxysecretfile`, `proxiedappname` | Routes an app through ownCloud's WOPI proxy. |
-| **[security]** | |
-| `wopisecretfile`, `iopsecretfile` | The secret files. |
-| `usehttps`, `wopicert`, `wopikey` | Serves HTTPS with a PEM certificate and key. |
-| `proofkeydiscoveryurls`, `proofkeyrequired` | See [Proof keys](#proof-keys). |
-| **[apps]** | |
-| `codeofficetypes`, `nonofficetypes` | The file types that get a LibreOffice lock file, and those that get no desktop lock checks. |
-| `businessflow`, `earlyfeatures`, `compliancedomain` | Microsoft 365 settings. |
-| **[io]** | |
-| `chunksize`, `recoverypath` | The read buffer size, and the folder of the recovery space. |
-| **[local]** | |
-| `storagehomepath` | The folder of the local storage. |
-| **[bridge]** | |
-| `sslverify`, `saveinterval`, `unlockinterval`, `disablezip` | The bridge's certificate check, save and unlock intervals, and CodiMD bundles. |
+| Option | Default | |
+|---|---|---|
+| `SigningKey` | | Signs the access tokens, at least 32 characters. Not needed with another `IWopiTokens`. |
+| `TokenLifetime` | 10 hours | How long an access token is valid. |
+| `LockDuration` | 30 minutes | How long a lock lasts unless refreshed, as [MS-WOPI] sets it. |
+| `BaseUrl` | the request's | The URL the WOPI clients reach the application at: WOPISrc is `{BaseUrl}/wopi/files/{fileId}`. |
+| `DiscoveryUrls` | | The trusted WOPI clients: their actions are launched, and their proof keys checked. |
+| `RequireProof` | false | Refuses requests without `X-WOPI-Proof`. Collabora Online does not sign its requests. |
+| `MaxFileSize` | no limit | The largest file PutFile and PutRelativeFile accept, replacing the server's request size limit. |
+| `ServerVersion` | the library's | The `X-WOPI-ServerVersion` of the responses. |
+| `HostEditUrl`, `HostViewUrl` | | The pages of the application that open a file, returned by CheckFileInfo and PutRelativeFile. |
+| `OnCheckFileInfo` | | Adds or changes CheckFileInfo properties: `CloseUrl`, breadcrumbs, branding, CSPP+ properties. |
 
 
-## Endpoints
+## Access
 
-| Endpoint | |
-|---|---|
-| `GET /wopi/iop/openinapp` | Opens a file for an editor: returns the editor URL and an access token. Needs `Authorization: Bearer <iopsecret>`. |
-| `GET /wopi/iop/download?access_token=` | Downloads a file with its access token, to configure as `downloadurl`. |
-| `GET /wopi/iop/list`, `GET /wopi/iop/conflicts` | The open files and the lock conflicts, for operators. Need the iopsecret. |
-| `GET /wopi/iop/test` | A token for the Microsoft WOPI validator. Needs the iopsecret. |
-| `/wopi/files/<id>`, `/wopi/files/<id>/contents` | The WOPI protocol, for the editors. |
-| `/wopi/bridge/<docid>`, `GET /wopi/bridge/list` | The bridge: the save webhook of the bridged apps, and the open documents for operators. |
-| `GET /metrics` | Prometheus metrics, including `open_by_app`. |
-| `GET /wopi` | An information page, with the health of the storage. |
+`WopiAccess` is what a token grants: a user's access to a file, which the application decides when it launches the
+editor.
+
+* `CanWrite`: lock, save and delete the file. Without it the file opens read only.
+* `CanWriteRelative`: Save As, creating files next to this one.
+* `CanRename`: rename the file.
+* `ViewOnly`: no download, print or copy.
+* `IsAnonymous`, `UserName`: how the editor shows the user.
+
+The built-in tokens carry the access, signed with `SigningKey`, so they need no storage, but cannot be revoked before
+they expire. To keep tokens in a database, or tie them to the application's sessions, register an `IWopiTokens`.
 
 
 ## Storage
 
-The `local` storage maps the files of a folder (`[local] storagehomepath`). It keeps the WOPI metadata (locks, save
-times, user info) in a hidden `.wopimeta` folder, and runs on Linux, Windows and macOS. It treats all users as the same
-one, so it is meant for development and tests.
+The storage is the application's: implement `IWopiStorage` over a database, blob storage or a document management
+system. File ids are chosen by the storage, and must not change when a file is saved or renamed, as WOPI clients keep
+using them. A missing file throws `FileNotFoundException`.
 
-For production, implement `IStorage` over your storage and embed the server:
-
-```cs
-var configuration = WopiConfig.Load(defaultsPath: null, configPath: "/etc/wopi/wopiserver.conf");
-var app = await WopiApp.Build(
-    configuration,
-    new()
-    {
-        Storage = new MyStorage()
-    });
-await app.RunAsync();
+```csharp
+public interface IWopiStorage
+{
+    Task<WopiFile?> GetFile(string fileId, Cancel cancel = default);
+    Task<WopiFile?> GetSibling(string fileId, string name, Cancel cancel = default);
+    Task<Stream> OpenRead(string fileId, Cancel cancel = default);
+    Task<WopiFile> Write(string fileId, Stream content, Cancel cancel = default);
+    Task<WopiFile?> CreateSibling(string fileId, string name, Stream content, bool overwrite, Cancel cancel = default);
+    Task<WopiFile?> Rename(string fileId, string name, Cancel cancel = default);
+    Task Delete(string fileId, Cancel cancel = default);
+}
 ```
 
-`IStorage` covers stat, extended attributes, locks, and reading, writing, renaming and removing files. Failures are
-`StorageException`s whose message holds `Common.EnoentMsg`, `Common.ExclError` or `Common.AccessError` when they apply:
-the server tells a missing file, a lock conflict and a permission error apart by them. `StorageTests.cs`, the suite of
-the local storage, is a starting point to test an implementation.
+`FileSystemStorage` keeps the files in a folder, for development, tests and single machines. It gives each file an id
+on first use (`GetFileId("reports/q3.docx")`), kept in a hidden `.wopi` folder so that ids survive renames, and writes
+through a temporary file so that a save never leaves a partial file.
 
-`WopiAppOptions` also takes a `TimeProvider`, a `TextWriter` for the log, the `HttpMessageHandler` of the outgoing
-requests, and a callback to configure the `WebApplicationBuilder`.
+Locks are kept by an `IWopiLockStore`. The default `MemoryLockStore` suits a single instance of the application;
+several instances need a shared store, such as one over Redis or a database, with an atomic compare and exchange.
+
+PutUserInfo, where the editors keep per-user data such as the tips a user has seen, is supported when an
+`IWopiUserInfoStore` is registered.
 
 
 ## Proof keys
 
-WOPI clients sign their requests with a key they publish in their discovery. To check those signatures, list the
-discovery URLs of the trusted clients:
+WOPI clients that publish a `proof-key` in their discovery sign their requests ([MS-WOPI] 2.2.1). The requests that
+carry `X-WOPI-Proof` are validated against the keys of `DiscoveryUrls`: the current and the old key, for clients that
+rotate theirs. The keys are cached for an hour, and refetched on a mismatch when over a minute old, so forged requests
+do not turn into a discovery request each.
 
-```ini
-[security]
-proofkeydiscoveryurls = https://your-office/hosting/discovery https://your-collabora/hosting/discovery
-```
-
-Signed requests that match none of the keys are refused with a 500, as the Microsoft WOPI validator expects. The keys
-are cached for an hour and refetched when a proof does not match, so key rotation is followed.
-
-Unsigned requests are still accepted, unless `proofkeyrequired = True`. That setting also stops advertising `FileUrl`,
-which would let a client bypass GetFile, and it does not work with the bridge, whose calls to this server are not
-signed.
-
-
-## Bridge
-
-Set `codimdurl` or `etherpadurl` in `[general]`, with `codimdinturl` or `etherpadinturl` when the server reaches the
-app at another URL, and put the API key in `/var/run/secrets/codimd_apikey` or `etherpad_apikey`. The apps can also be
-registered on their first open, with `appname=CodiMD` or `Etherpad` in `/wopi/iop/openinapp`.
-
-The bridge pushes the document to the app on open, locks it, and saves it back when the app calls its webhook, every
-`saveinterval` seconds at most and on close. Markdown with pictures is saved as a `.zmd` zip bundle.
-
-
-## Logs and metrics
-
-The log is one JSON object per line, with `time`, `host`, `level`, `module`, `msg`, and the values of the message:
-
-```json
-{"time":"2026-10-18T16:43:51.940","host":"XPS","level":"INFO","process":"wopiserver","module":"wopiutils","msg":"No lock found","lockop":"Genaccesstoken","user":"0:0","filename":"/a.docx","token":"NA"}
-```
-
-Access tokens are logged by their last 20 characters, except tokens that fail validation, which are logged in full to
-help debugging. The CheckFileInfo URLs are redacted unless `loglevel = Debug`.
-`/metrics` exposes the request metrics of prometheus-net and the `open_by_app` counter.
+Requests without proof are accepted unless `RequireProof` is set. The signed URL is `BaseUrl` (or the request's) and the
+path and query of the request, so `BaseUrl` must be the URL the clients call.
 
 
 ## Development
@@ -220,45 +157,45 @@ dotnet run --project src/WopiServer.Tests --no-build
 
 The test project is a TUnit executable: run it, rather than `dotnet test`. It holds:
 
-* `StorageTests`: the storage interface suite of the Python server, against the local storage.
 * `SpecTests`: conformance to the server side of [MS-WOPI], each test citing its section.
 * `EdgeCaseTests`: protocol edge cases ported from [WopiHost](https://github.com/petrsvihlik/WopiHost).
 * `ProofKeyTests`: the proof key validation, including key rotation.
-* `FailureTests`: storage failures, desktop locks and fallbacks, through a storage that fails on demand.
-* `BridgeFlowTests`, `BridgeTests`: the bridge against stubbed CodiMD and Etherpad, including the save loop's
-  retries, relocks, recovery and idle unlocks.
-* `StartupTests`: configuration errors, HTTPS, the log destinations, the WOPI proxy and the command line.
-* `WopiTests`, `UtilsTests`: the protocol end to end, and the helpers.
+* `FailureTests`: storage failures, through a storage that fails on demand.
+* `StorageTests`: `FileSystemStorage` and `MemoryLockStore`.
+* `ApiTests`: the launcher, the tokens, the options and the registration.
+* `KestrelTests`: the request size limits, on Kestrel.
 
-`src/WopiServer.E2ETests` opens documents in real editors, Collabora and ONLYOFFICE, in Docker, driven with Playwright:
-Collabora opens, edits and saves a document, and ONLYOFFICE opens one with every request validated against its proof
-keys. It needs Docker and the Playwright browser, and pulls the editor images on the first run (about 1.5 and 4.3 GB):
+`src/WopiServer.E2ETests` hosts the endpoints on a real port and opens documents in real editors, Collabora and
+ONLYOFFICE, in Docker, driven with Playwright: Collabora opens, edits and saves a document, and ONLYOFFICE opens one
+with every request validated against its proof keys. It needs Docker and the Playwright browser, and pulls the editor
+images on the first run (about 1.5 and 4.3 GB):
 
 ```pwsh
 dotnet build src/WopiServer.E2ETests
 pwsh src/WopiServer.E2ETests/bin/Debug/net10.0/playwright.ps1 install chromium
-dotnet run --project src/WopiServer.E2ETests --no-build
+dotnet run --project src/WopiServer.E2ETests --no-build -- --treenode-filter '/*/*/EditorTests/*'
 ```
 
-Code coverage of the server, with a per-file table:
+Microsoft's [WOPI validator](https://github.com/microsoft/wopi-validator-core) runs with
+`pwsh src/wopi-validator.ps1` (`-Configuration Debug` for a Debug build): it builds the validator, then runs
+`ValidatorTests` of the same project, each test group of the validator on a fresh storage. The ProofKeys group is left
+out: the validator's command line sends no proofs, so `ProofKeyTests` covers them instead.
+
+Code coverage of the library, with a per-file table:
 
 ```pwsh
 dotnet run --project src/WopiServer.Tests -- --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml --coverage-settings $PWD/src/coverage.config --results-directory $PWD/TestResults
 pwsh src/coverage-summary.ps1 TestResults/coverage.cobertura.xml
 ```
 
-Microsoft's [WOPI validator](https://github.com/microsoft/wopi-validator-core) runs against the running server with
-`pwsh src/wopi-validator.ps1` (after a Release build, or with `-Configuration Debug`). It builds the validator, starts
-the server over a temporary storage, and runs each test group. The ProofKeys group is left out: the validator's command
-line sends no proofs, so `ProofKeyTests` covers them instead.
-
-CI builds and runs the tests on Linux and Windows, with the coverage in the job summary, builds and runs the Docker
-image, and runs the WOPI validator on Linux. The E2E tests run nightly and on demand (`e2e.yml`), not on every push.
+CI builds and runs the tests on Linux and Windows, with the coverage in the job summary, and runs the WOPI validator on
+Linux. The editor tests run nightly and on demand (`e2e.yml`), not on every push.
 
 
 ## Credits and license
 
-The Python CS3 WOPI server is by Giuseppe Lo Presti (CERN) and its contributors. Like it, this server is under the
-Apache 2.0 license, see [license.txt](license.txt).
+The WOPI logic started as a port of the Python [CS3 WOPI server](https://github.com/cs3org/wopiserver), by Giuseppe Lo
+Presti (CERN) and its contributors. Like it, this library is under the Apache 2.0 license, see
+[license.txt](license.txt).
 
 [MS-WOPI]: https://learn.microsoft.com/en-us/openspecs/office_protocols/ms-wopi/

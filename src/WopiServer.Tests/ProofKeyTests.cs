@@ -116,7 +116,7 @@ public class ProofKeyTests
         }
     }
 
-    static async Task<Context> Start(bool required = false, bool cspBlobsOnly = false, string extraConfig = "")
+    static async Task<Context> Start(bool required = false, bool cspBlobsOnly = false)
     {
         var time = new ManualTime();
         var client = new WopiClient
@@ -124,18 +124,15 @@ public class ProofKeyTests
             CspBlobsOnly = cspBlobsOnly
         };
         var host = await TestServerHost.Start(
-            $"""
-             downloadurl = https://wopi/download
-             {extraConfig}
-             [security]
-             proofkeydiscoveryurls = {discoveryUrl}
-             proofkeyrequired = {required}
-             [general]
-             """,
+            _ =>
+            {
+                _.DiscoveryUrls.Add(discoveryUrl);
+                _.RequireProof = required;
+            },
             time);
-        host.Apps = client.Handle;
+        host.Http = client.Handle;
         await File.WriteAllTextAsync(host.PathOf("/test.docx"), "content");
-        var (fileId, token, _) = await host.Open("/test.docx");
+        var (fileId, token) = await host.Open("/test.docx");
         return new(host, client, time, fileId, token);
     }
 
@@ -163,7 +160,7 @@ public class ProofKeyTests
                 CspBlobsOnly = cspBlobsOnly
             };
             using var response = await client.Handle(new(HttpMethod.Get, discoveryUrl));
-            var keys = ProofKeys.ParseDiscovery(await response.Content.ReadAsStringAsync());
+            var keys = WopiDiscovery.Parse(await response.Content.ReadAsStringAsync()).Keys;
             await Assert.That(keys.Current!.Value.Modulus!.SequenceEqual(client.Current.ExportParameters(false).Modulus!)).IsTrue();
             await Assert.That(keys.Old!.Value.Modulus!.SequenceEqual(client.Old!.ExportParameters(false).Modulus!)).IsTrue();
         }
@@ -274,7 +271,7 @@ public class ProofKeyTests
     }
 
     /// <summary>
-    /// Unsigned requests, such as the bridge's, are accepted unless proofkeyrequired is set.
+    /// Unsigned requests are accepted unless RequireProof is set: Collabora Online does not sign its requests.
     /// </summary>
     [Test]
     [Arguments(false, HttpStatusCode.OK)]
@@ -284,21 +281,6 @@ public class ProofKeyTests
         await using var context = await Start(required);
         using var response = await context.Host.Client.GetAsync(context.Url);
         await Assert.That(response.StatusCode).IsEqualTo(expected);
-    }
-
-    /// <summary>
-    /// A client given FileUrl fetches it instead of calling GetFile, so it is not advertised when proof is required.
-    /// </summary>
-    [Test]
-    [Arguments(false, true)]
-    [Arguments(true, false)]
-    public async Task FileUrl(bool required, bool advertised)
-    {
-        await using var context = await Start(required);
-        using var response = await context.CheckFileInfo(context.Client.Current);
-        var info = JsonNode.Parse(await response.Content.ReadAsStringAsync())!.AsObject();
-        await Assert.That(info.ContainsKey("FileUrl")).IsEqualTo(advertised);
-        await Assert.That(info.ContainsKey("DownloadUrl")).IsTrue();
     }
 
     /// <summary>

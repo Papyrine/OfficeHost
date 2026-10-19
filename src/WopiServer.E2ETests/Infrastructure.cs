@@ -1,6 +1,5 @@
 using System.IO.Compression;
 using System.Net.Sockets;
-using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
 /// <summary>
@@ -14,6 +13,8 @@ sealed class EditorContainer(string name, int port) : IAsyncDisposable
     public int Port { get; } = port;
 
     public string Url => $"http://localhost:{Port}";
+
+    public string DiscoveryUrl => $"{Url}/hosting/discovery";
 
     /// <summary>
     /// Starts a container and waits until its WOPI discovery answers.
@@ -70,19 +71,6 @@ sealed class EditorContainer(string name, int port) : IAsyncDisposable
     public async Task<string> Logs(Cancel cancel) =>
         (await Docker(["logs", "--tail", "200", name], cancel)).Output;
 
-    /// <summary>
-    /// The URL of an action of the editor's discovery, without the optional placeholders like `&lt;ui=UI_LLCC&amp;&gt;`.
-    /// </summary>
-    public async Task<string> ActionUrl(string action, string extension, Cancel cancel)
-    {
-        using var http = new HttpClient();
-        var discovery = XDocument.Parse(await http.GetStringAsync($"{Url}/hosting/discovery", cancel));
-        var urlsrc = discovery.Descendants("action")
-            .First(_ => (string?) _.Attribute("name") == action && (string?) _.Attribute("ext") == extension)
-            .Attribute("urlsrc")!.Value;
-        return Regex.Replace(urlsrc, "<[^>]*>", "");
-    }
-
     public async ValueTask DisposeAsync() =>
         await Docker(["rm", "--force", name], Cancel.None);
 
@@ -107,64 +95,72 @@ sealed class EditorContainer(string name, int port) : IAsyncDisposable
 }
 
 /// <summary>
-/// The server on a real port, reachable from the containers as host.docker.internal, over a temporary storage.
+/// An application hosting the WOPI endpoints on a real port, over a temporary <see cref="FileSystemStorage"/>. The
+/// containers reach it as host.docker.internal.
 /// </summary>
-sealed class RunningServer(WebApplication app, StringWriter log, string folder, int port) : IAsyncDisposable
+sealed class RunningServer(WebApplication app, string folder, FileSystemStorage storage, List<string> requests, TestLog log) : IAsyncDisposable
 {
-    public const string IopSecret = "e2eiopsecret";
-
     public string Folder { get; } = folder;
 
-    public int Port { get; } = port;
+    public FileSystemStorage Storage { get; } = storage;
 
-    public string StoragePath => Path.Combine(Folder, "storage");
+    public string StoragePath => Storage.Root;
 
-    public string Log
+    public TestLog Log { get; } = log;
+
+    /// <summary>
+    /// The WOPI requests served, as `GET /wopi/files/{id}/contents 200`.
+    /// </summary>
+    public IReadOnlyList<string> Requests
     {
         get
         {
-            lock (log)
+            lock (requests)
             {
-                return log.ToString();
+                return requests.ToList();
             }
         }
     }
 
-    public static async Task<RunningServer> Start(string extraSecurity = "")
+    /// <param name="host">The host name the WOPI clients reach this machine by.</param>
+    public static async Task<RunningServer> Start(Action<WopiOptions>? configure = null, string host = "host.docker.internal")
     {
         var folder = Directory.CreateTempSubdirectory("wopiserver-e2e").FullName;
-        Directory.CreateDirectory(Path.Combine(folder, "storage"));
-        await File.WriteAllTextAsync(Path.Combine(folder, "wopisecret"), "e2ewopisecret");
-        await File.WriteAllTextAsync(Path.Combine(folder, "iopsecret"), IopSecret);
+        var storage = new FileSystemStorage(Directory.CreateDirectory(Path.Combine(folder, "storage")).FullName);
         var port = FreePort();
-        var ini = $"""
-                   [general]
-                   storagetype = local
-                   port = {port}
-                   wopiurl = http://host.docker.internal:{port}
-                   loglevel = Debug
-                   [security]
-                   usehttps = no
-                   wopisecretfile = {Path.Combine(folder, "wopisecret")}
-                   iopsecretfile = {Path.Combine(folder, "iopsecret")}
-                   {extraSecurity}
-                   [io]
-                   recoverypath = {Path.Combine(folder, "recovery")}
-                   [local]
-                   storagehomepath = {Path.Combine(folder, "storage")}
-                   """;
-        var configuration = new ConfigurationBuilder()
-            .AddIniStream(new MemoryStream(Encoding.UTF8.GetBytes(ini)))
-            .Build();
-        var log = new StringWriter();
-        var app = await WopiApp.Build(
-            configuration,
-            new()
+        var builder = WebApplication.CreateSlimBuilder();
+        // the containers reach the host through its gateway address, not the loopback one
+        builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+        var log = new TestLog();
+        builder.Logging.ClearProviders();
+        builder.Logging.SetMinimumLevel(LogLevel.Debug);
+        builder.Logging.AddProvider(log);
+        builder.Services.AddSingleton<IWopiStorage>(storage);
+        builder.Services.AddSingleton<IWopiUserInfoStore, MemoryUserInfoStore>();
+        builder.Services.AddWopi(
+            _ =>
             {
-                LogWriter = TextWriter.Synchronized(log)
+                _.SigningKey = "the signing key of the end-to-end tests";
+                _.BaseUrl = $"http://{host}:{port}";
+                // the pages of the application that open a file, which PutRelativeFile returns for the new file
+                _.HostEditUrl = (file, _) => $"http://{host}:{port}/edit/{file.Id}";
+                _.HostViewUrl = (file, _) => $"http://{host}:{port}/view/{file.Id}";
+                configure?.Invoke(_);
             });
+        var app = builder.Build();
+        var requests = new List<string>();
+        app.Use(
+            async (context, next) =>
+            {
+                await next(context);
+                lock (requests)
+                {
+                    requests.Add($"{context.Request.Method} {context.Request.Path} {context.Response.StatusCode}");
+                }
+            });
+        app.MapWopi();
         await app.StartAsync();
-        return new(app, log, folder, port);
+        return new(app, folder, storage, requests, log);
     }
 
     static int FreePort()
@@ -174,37 +170,49 @@ sealed class RunningServer(WebApplication app, StringWriter log, string folder, 
         return ((IPEndPoint) listener.LocalEndpoint).Port;
     }
 
-    /// <summary>
-    /// Opens a file through /wopi/iop/openinapp: the URL of the editor, and the access token to post to it.
-    /// </summary>
-    public async Task<(string AppUrl, string Token)> OpenInApp(string file, string appName, string appUrl)
-    {
-        using var http = new HttpClient();
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"http://localhost:{Port}/wopi/iop/openinapp?fileid={Uri.EscapeDataString(file)}&viewmode=VIEW_MODE_READ_WRITE&appname={appName}&appurl={Uri.EscapeDataString(appUrl)}&username=E2E&userid=e2e");
-        request.Headers.Add("Authorization", $"Bearer {IopSecret}");
-        request.Headers.Add("TokenHeader", "x");
-        using var response = await http.SendAsync(request);
-        var body = await response.Content.ReadAsStringAsync();
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new($"openinapp failed: {response.StatusCode} {body}");
-        }
+    public T Service<T>()
+        where T : notnull =>
+        app.Services.GetRequiredService<T>();
 
-        var json = JsonNode.Parse(body)!;
-        return ((string) json["app-url"]!, (string) json["form-parameters"]!["access_token"]!);
+    /// <summary>
+    /// The id of a file of the storage, and an access token to it that allows everything.
+    /// </summary>
+    public async Task<(string FileId, string Token)> Open(string path)
+    {
+        var fileId = Storage.GetFileId(path);
+        var token = await Service<IWopiTokens>().Issue(Access(fileId));
+        return (fileId, token.Value);
+    }
+
+    public static WopiAccess Access(string fileId) =>
+        new(fileId, "e2e")
+        {
+            UserName = "E2E",
+            CanWrite = true,
+            CanWriteRelative = true,
+            CanRename = true
+        };
+
+    /// <summary>
+    /// Launches the edit action of a file in the WOPI client of the discovery.
+    /// </summary>
+    public async Task<(string FileId, WopiLaunch Launch)> Launch(string path, string discoveryUrl)
+    {
+        var fileId = Storage.GetFileId(path);
+        return (fileId, await Service<WopiLauncher>().Launch(Access(fileId), "edit", discoveryUrl: discoveryUrl));
     }
 
     /// <summary>
-    /// Waits until the log has a line with the given message.
+    /// Waits until a request matching the given one was served, as `POST /wopi/files/{id}/contents 200`.
     /// </summary>
-    public async Task WaitForLog(string message, TimeSpan timeout, Cancel cancel)
+    public async Task WaitForRequest(string request, TimeSpan timeout, Cancel cancel)
     {
         var deadline = DateTime.UtcNow + timeout;
-        while (!Log.Contains($"\"msg\":\"{message}\""))
+        while (!Requests.Contains(request))
         {
             if (DateTime.UtcNow > deadline)
             {
-                throw new TimeoutException($"No \"{message}\" in the server log within {timeout}");
+                throw new TimeoutException($"No {request} within {timeout}, served: {string.Join(", ", Requests)}");
             }
 
             await Task.Delay(500, cancel);
@@ -221,6 +229,64 @@ sealed class RunningServer(WebApplication app, StringWriter log, string folder, 
         }
         catch (IOException)
         {
+        }
+    }
+}
+
+/// <summary>
+/// The user info in memory.
+/// </summary>
+sealed class MemoryUserInfoStore : IWopiUserInfoStore
+{
+    readonly ConcurrentDictionary<string, string> values = new();
+
+    public Task<string?> Get(string userId, Cancel cancel = default) =>
+        Task.FromResult(values.GetValueOrDefault(userId));
+
+    public Task Set(string userId, string userInfo, Cancel cancel = default)
+    {
+        values[userId] = userInfo;
+        return Task.CompletedTask;
+    }
+}
+
+/// <summary>
+/// The log lines of the application.
+/// </summary>
+sealed class TestLog : ILoggerProvider
+{
+    readonly List<string> lines = [];
+
+    public override string ToString()
+    {
+        lock (lines)
+        {
+            return string.Join('\n', lines);
+        }
+    }
+
+    public ILogger CreateLogger(string categoryName) =>
+        new Logger(this, categoryName);
+
+    public void Dispose()
+    {
+    }
+
+    sealed class Logger(TestLog log, string category) : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull =>
+            null;
+
+        public bool IsEnabled(LogLevel logLevel) =>
+            true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            lock (log.lines)
+            {
+                log.lines.Add($"{logLevel} {category}: {formatter(state, exception)}{(exception == null ? "" : $" {exception}")}");
+            }
         }
     }
 }
@@ -278,17 +344,17 @@ static class Docx
 }
 
 /// <summary>
-/// Opens an editor the way a WOPI host page does: by posting the access token to the editor URL.
+/// Opens an editor the way the page of an application does: by posting the access token to the action URL.
 /// </summary>
 static class EditorPage
 {
-    public static async Task Open(IPage page, string appUrl, string token)
+    public static async Task Open(IPage page, WopiLaunch launch)
     {
         var html = $"""
                     <html><body>
-                    <form id="wopi" method="post" action="{WebUtility.HtmlEncode(appUrl)}">
-                      <input type="hidden" name="access_token" value="{WebUtility.HtmlEncode(token)}" />
-                      <input type="hidden" name="access_token_ttl" value="0" />
+                    <form id="wopi" method="post" action="{WebUtility.HtmlEncode(launch.Url)}">
+                      <input type="hidden" name="access_token" value="{WebUtility.HtmlEncode(launch.AccessToken)}" />
+                      <input type="hidden" name="access_token_ttl" value="{launch.AccessTokenTtl}" />
                     </form>
                     <script>document.getElementById('wopi').submit();</script>
                     </body></html>

@@ -1,7 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!--
-  End-to-end tests against real WOPI clients (Collabora, ONLYOFFICE) in Docker, driven with Playwright.
-  Not part of the regular test run: see readme.md for how to run it. It needs Docker and the Playwright browsers.
+  End-to-end tests against real WOPI clients (Collabora, ONLYOFFICE) in Docker, driven with Playwright, and the WOPI
+  validator of Microsoft.
+  Not part of the regular test run: see readme.md for how to run them. The editor tests need Docker and the Playwright
+  browsers, the validator tests the validator, as src/wopi-validator.ps1 builds it.
   -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -12,7 +14,9 @@
     <Using Include="System.Net" />
     <Using Include="System.Text.Json.Nodes" />
     <Using Include="Microsoft.AspNetCore.Builder" />
-    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.AspNetCore.Hosting" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Logging" />
     <Using Include="Microsoft.Playwright" />
     <PackageReference Include="TUnit" />
     <PackageReference Include="Microsoft.Playwright" />

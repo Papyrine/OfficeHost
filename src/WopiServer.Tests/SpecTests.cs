@@ -20,11 +20,11 @@ public class SpecTests
         return null;
     }
 
-    static async Task<(TestServerHost Host, string FileId, string Token)> Open(string file = "/test.docx", string content = databuf, string viewMode = "VIEW_MODE_READ_WRITE", string extraConfig = "", TimeProvider? time = null)
+    static async Task<(TestServerHost Host, string FileId, string Token)> Open(string file = "/test.docx", string content = databuf, Mode mode = Mode.Edit, Action<WopiOptions>? configure = null, TimeProvider? time = null)
     {
-        var host = await TestServerHost.Start(extraConfig, time);
+        var host = await TestServerHost.Start(configure, time);
         await File.WriteAllTextAsync(host.PathOf(file), content);
-        var (fileId, token, _) = await host.Open(file, viewMode);
+        var (fileId, token) = await host.Open(file, mode);
         return (host, fileId, token);
     }
 
@@ -115,8 +115,8 @@ public class SpecTests
         await using var host = await TestServerHost.Start();
         await File.WriteAllTextAsync(host.PathOf("/a.docx"), databuf);
         await File.WriteAllTextAsync(host.PathOf("/b.docx"), databuf);
-        var (idA, tokenA, _) = await host.Open("/a.docx");
-        var (idB, _, _) = await host.Open("/b.docx");
+        var (idA, tokenA) = await host.Open("/a.docx");
+        var (idB, _) = await host.Open("/b.docx");
         await Assert.That(idA).IsNotEqualTo(idB);
         foreach (var id in new[] { idA, idB })
         {
@@ -130,7 +130,7 @@ public class SpecTests
             await Assert.That(putFile.StatusCode).IsEqualTo(HttpStatusCode.OK);
         }
 
-        var (idAfterSave, _, _) = await host.Open("/a.docx");
+        var (idAfterSave, _) = await host.Open("/a.docx");
         await Assert.That(idAfterSave).IsEqualTo(idA);
     }
 
@@ -143,8 +143,8 @@ public class SpecTests
         await using var host = await TestServerHost.Start();
         await File.WriteAllTextAsync(host.PathOf("/a.docx"), databuf);
         await File.WriteAllTextAsync(host.PathOf("/b.docx"), "other content");
-        var (_, tokenA, _) = await host.Open("/a.docx");
-        var (idB, _, _) = await host.Open("/b.docx");
+        var (_, tokenA) = await host.Open("/a.docx");
+        var (idB, _) = await host.Open("/b.docx");
         using var response = await host.Client.GetAsync($"/wopi/files/{idB}/contents?access_token={tokenA}");
         await Assert.That(await Body(response)).IsNotEqualTo("other content");
     }
@@ -169,13 +169,13 @@ public class SpecTests
 
     /// <summary>
     /// 3.3.5.1.2.2 lists OfficeCollaborationServiceEndpointUrl, OpenInClientCommandUrl, OpenInClientPostMessage and
-    /// UserPrincipalName as not optional too.
+    /// UserPrincipalName as not optional too. They are CSPP+ properties, which break regular Office for the web
+    /// sessions: an application that is a CSPP+ partner adds them with OnCheckFileInfo.
     /// </summary>
     [Test]
-    [Skip("These are CSPP+ properties: the server only sends OfficeCollaborationServiceEndpointUrl to the WOPI validator (.wopitest files), as some of them break regular Office for the web sessions, see the comment in WopiCore.CheckFileInfo.")]
     public async Task CheckFileInfo_RequiredCsppProperties()
     {
-        var (host, fileId, token) = await Open();
+        var (host, fileId, token) = await Open(configure: _ => _.OnCheckFileInfo = AddCsppProperties);
         await using var _ = host;
         var info = await CheckFileInfo(host, fileId, token);
         foreach (var name in CheckFileInfoSchema.Required)
@@ -184,45 +184,43 @@ public class SpecTests
         }
     }
 
-    public static IEnumerable<Func<(string File, string ViewMode, string UserType, string Config)>> CheckFileInfoCases()
+    static Task AddCsppProperties(CheckFileInfoContext context)
     {
-        yield return () => ("/test.docx", "VIEW_MODE_READ_WRITE", "regular", "");
-        yield return () => ("/test.docx", "VIEW_MODE_VIEW_ONLY", "anonymous", "");
-        yield return () => ("/test.docx", "VIEW_MODE_READ_ONLY", "ocm", "");
-        yield return () => ("/test.docx", "VIEW_MODE_PREVIEW", "federated", "");
-        yield return () => ("/noextension", "VIEW_MODE_READ_WRITE", "regular", "");
-        yield return () => ("/test.wopitest", "VIEW_MODE_READ_WRITE", "regular", "");
-        yield return () => (
-            "/test.docx",
-            "VIEW_MODE_READ_WRITE",
-            "regular",
-            """
-            brandingname = Brand
-            brandingurl = https://brand
-            downloadurl = https://wopi/download
-            hostediturl = https://efss/edit<path>
-            hostviewurl = https://efss/view<path>
-            filesharingurl = https://efss/share<path>
-            webdavurl = https://efss/dav
-            enablerename = True
-            [apps]
-            earlyfeatures = True
-            compliancedomain = euc
-            [general]
-            """);
+        var properties = context.Properties;
+        properties["OfficeCollaborationServiceEndpointUrl"] = "";
+        properties["OpenInClientCommandUrl"] = "";
+        properties["OpenInClientPostMessage"] = false;
+        properties["UserPrincipalName"] = $"{context.Access.UserId}@example.com";
+        return Task.CompletedTask;
+    }
+
+    public static IEnumerable<Func<(string File, Mode Mode, bool Anonymous, bool Customized)>> CheckFileInfoCases()
+    {
+        yield return () => ("/test.docx", Mode.Edit, false, false);
+        yield return () => ("/test.docx", Mode.ViewOnly, true, false);
+        yield return () => ("/test.docx", Mode.ReadOnly, false, false);
+        yield return () => ("/noextension", Mode.Edit, false, false);
+        yield return () => ("/test.docx", Mode.Edit, false, true);
     }
 
     /// <summary>
-    /// 3.3.5.1.2.2: each property has the type given by the schema, whatever the user, the view mode and the
-    /// configuration.
+    /// 3.3.5.1.2.2: each property has the type given by the schema, whatever the user, the access and the
+    /// properties the application adds.
     /// </summary>
     [Test]
     [MethodDataSource(nameof(CheckFileInfoCases))]
-    public async Task CheckFileInfo_PropertyTypes(string file, string viewMode, string userType, string config)
+    public async Task CheckFileInfo_PropertyTypes(string file, Mode mode, bool anonymous, bool customized)
     {
-        await using var host = await TestServerHost.Start(config);
+        await using var host = await TestServerHost.Start(
+            _ =>
+            {
+                if (customized)
+                {
+                    _.OnCheckFileInfo = AddCsppProperties;
+                }
+            });
         await File.WriteAllTextAsync(host.PathOf(file), databuf);
-        var (fileId, token, _) = await host.Open(file, viewMode, userType: userType);
+        var (fileId, token) = await host.Open(file, mode, anonymous: anonymous);
         var info = await CheckFileInfo(host, fileId, token);
         foreach (var (name, value) in info)
         {
@@ -321,14 +319,12 @@ public class SpecTests
     /// 3.3.5.1.2.2: UserCanWrite, ReadOnly and RestrictedWebViewOnly reflect the permissions of the token.
     /// </summary>
     [Test]
-    [Arguments("VIEW_MODE_READ_WRITE", true, false)]
-    [Arguments("VIEW_MODE_PREVIEW", true, false)]
-    [Arguments("VIEW_MODE_READ_ONLY", false, false)]
-    [Arguments("VIEW_MODE_VIEW_ONLY", false, true)]
-    [Arguments("VIEW_MODE_EMBEDDED", false, true)]
-    public async Task CheckFileInfo_Permissions(string viewMode, bool canWrite, bool viewOnly)
+    [Arguments(Mode.Edit, true, false)]
+    [Arguments(Mode.ReadOnly, false, false)]
+    [Arguments(Mode.ViewOnly, false, true)]
+    public async Task CheckFileInfo_Permissions(Mode mode, bool canWrite, bool viewOnly)
     {
-        var (host, fileId, token) = await Open(viewMode: viewMode);
+        var (host, fileId, token) = await Open(mode: mode);
         await using var _ = host;
         var info = await CheckFileInfo(host, fileId, token);
         await Assert.That((bool?) info["UserCanWrite"]).IsEqualTo(canWrite);
@@ -406,10 +402,10 @@ public class SpecTests
     [Test]
     public async Task PutUserInfo_IsReturnedForTheSameUserOnly()
     {
-        await using var host = await TestServerHost.Start(multiUser: true);
+        await using var host = await TestServerHost.Start();
         await File.WriteAllTextAsync(host.PathOf("/test.docx"), databuf);
-        var (fileId, alice, _) = await host.Open("/test.docx", userId: "alice");
-        var (_, bob, _) = await host.Open("/test.docx", userId: "bob");
+        var (fileId, alice) = await host.Open("/test.docx", userId: "alice");
+        var (_, bob) = await host.Open("/test.docx", userId: "bob");
         using (var request = new HttpRequestMessage(HttpMethod.Post, $"/wopi/files/{fileId}?access_token={alice}"))
         {
             request.Headers.Add("X-WOPI-Override", "PUT_USER_INFO");
@@ -434,7 +430,7 @@ public class SpecTests
         var content = new byte[1024 * 1024 + 7];
         new Random(42).NextBytes(content);
         await File.WriteAllBytesAsync(host.PathOf("/test.docx"), content);
-        var (fileId, token, _) = await host.Open("/test.docx");
+        var (fileId, token) = await host.Open("/test.docx");
         using var response = await host.Client.GetAsync($"/wopi/files/{fileId}/contents?access_token={token}");
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
         await Assert.That((await response.Content.ReadAsByteArrayAsync()).SequenceEqual(content)).IsTrue();
@@ -528,7 +524,7 @@ public class SpecTests
     [Test]
     public async Task PutFile_ReadOnlyToken()
     {
-        var (host, fileId, token) = await Open(content: "", viewMode: "VIEW_MODE_READ_ONLY");
+        var (host, fileId, token) = await Open(content: "", mode: Mode.ReadOnly);
         await using var _ = host;
         using var response = await host.PutFile(fileId, token, "x");
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Unauthorized);
@@ -606,21 +602,6 @@ public class SpecTests
         await Assert.That(await CurrentLock(host, fileId, token)).IsEqualTo("L");
         time.Advance(TimeSpan.FromMinutes(2));
         await Assert.That(await CurrentLock(host, fileId, token)).IsEqualTo("");
-    }
-
-    /// <summary>
-    /// 3.3.5.1.14: X-WOPI-LockedByOtherInterface SHOULD be "true" when the file is locked by another client,
-    /// here Microsoft Office for desktop.
-    /// </summary>
-    [Test]
-    public async Task Lock_LockedByOtherInterface()
-    {
-        var (host, fileId, token) = await Open("/test.odt");
-        await using var _ = host;
-        await File.WriteAllTextAsync(host.PathOf("/~$test.odt"), "lock");
-        using var response = await host.Post(fileId, token, "LOCK", ("X-WOPI-Lock", "L"));
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Conflict);
-        await Assert.That(Header(response, "X-WOPI-LockedByOtherInterface")).IsEqualTo("true");
     }
 
     /// <summary>
@@ -973,7 +954,7 @@ public class SpecTests
             }
 
             await Assert.That(validTarget).IsNotNull();
-            await Assert.That(File.Exists(host.PathOf($"/{PyStrings.DecodeUtf7(validTarget)}"))).IsFalse();
+            await Assert.That(File.Exists(host.PathOf($"/{FileNames.DecodeUtf7(validTarget)}"))).IsFalse();
         }
 
         await Assert.That(await File.ReadAllTextAsync(host.PathOf("/other.docx"))).IsEqualTo("existing");
@@ -983,7 +964,7 @@ public class SpecTests
             await Assert.That(retry.StatusCode).IsEqualTo(HttpStatusCode.OK);
         }
 
-        await Assert.That((string?) json!["Name"]).IsEqualTo(PyStrings.DecodeUtf7(validTarget));
+        await Assert.That((string?) json!["Name"]).IsEqualTo(FileNames.DecodeUtf7(validTarget));
     }
 
     /// <summary>
@@ -995,8 +976,8 @@ public class SpecTests
         await using var host = await TestServerHost.Start();
         await File.WriteAllTextAsync(host.PathOf("/test.docx"), databuf);
         await File.WriteAllTextAsync(host.PathOf("/other.docx"), "existing");
-        var (fileId, token, _) = await host.Open("/test.docx");
-        var (otherId, otherToken, _) = await host.Open("/other.docx");
+        var (fileId, token) = await host.Open("/test.docx");
+        var (otherId, otherToken) = await host.Open("/other.docx");
         await Lock(host, otherId, otherToken, "L");
 
         var (locked, _) = await PutRelative(host, fileId, token, "new", ("X-WOPI-RelativeTarget", "other.docx"), ("X-WOPI-OverwriteRelativeTarget", "true"));
@@ -1088,7 +1069,7 @@ public class SpecTests
     [Test]
     public async Task PutRelativeFile_ReadOnlyToken()
     {
-        var (host, fileId, token) = await Open(viewMode: "VIEW_MODE_VIEW_ONLY");
+        var (host, fileId, token) = await Open(mode: Mode.ViewOnly);
         await using var _ = host;
         var (response, _) = await PutRelative(host, fileId, token, "new", ("X-WOPI-SuggestedTarget", ".pdf"));
         using (response)
@@ -1107,7 +1088,7 @@ public class SpecTests
     [Test]
     public async Task RenameFile_WithLock()
     {
-        var (host, fileId, token) = await Open(extraConfig: "enablerename = True");
+        var (host, fileId, token) = await Open();
         await using var _ = host;
         await Assert.That((bool?) (await CheckFileInfo(host, fileId, token))["SupportsRename"]).IsTrue();
         await Lock(host, fileId, token, "L");
@@ -1125,7 +1106,7 @@ public class SpecTests
     [Test]
     public async Task RenameFile_LockMismatch()
     {
-        var (host, fileId, token) = await Open(extraConfig: "enablerename = True");
+        var (host, fileId, token) = await Open();
         await using var _ = host;
         await Lock(host, fileId, token, "L");
         using var response = await host.Post(fileId, token, "RENAME_FILE", ("X-WOPI-Lock", "other"), ("X-WOPI-RequestedName", "renamed"));
@@ -1144,7 +1125,7 @@ public class SpecTests
     [Arguments("other")]
     public async Task RenameFile_IllegalName(string name)
     {
-        var (host, fileId, token) = await Open(extraConfig: "enablerename = True");
+        var (host, fileId, token) = await Open();
         await using var _ = host;
         await File.WriteAllTextAsync(host.PathOf("/other.docx"), "existing");
         using var response = await host.Post(fileId, token, "RENAME_FILE", ("X-WOPI-Lock", ""), ("X-WOPI-RequestedName", name));
@@ -1155,16 +1136,17 @@ public class SpecTests
     }
 
     /// <summary>
-    /// 3.3.5.1.19: 501 when unsupported, as advertised by SupportsRename.
+    /// 3.3.5.1.2.2: UserCanRename is false for a user who cannot rename, and the request is refused.
     /// </summary>
     [Test]
-    public async Task RenameFile_Unsupported()
+    public async Task RenameFile_NotAllowed()
     {
-        var (host, fileId, token) = await Open();
+        var (host, fileId, _) = await Open();
         await using var _ = host;
-        await Assert.That((bool?) (await CheckFileInfo(host, fileId, token))["SupportsRename"]).IsFalse();
+        var token = await host.Token(TestServerHost.Access(fileId) with { CanRename = false });
+        await Assert.That((bool?) (await CheckFileInfo(host, fileId, token))["UserCanRename"]).IsFalse();
         using var response = await host.Post(fileId, token, "RENAME_FILE", ("X-WOPI-Lock", ""), ("X-WOPI-RequestedName", "renamed"));
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.NotImplemented);
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Unauthorized);
         await Assert.That(File.Exists(host.PathOf("/test.docx"))).IsTrue();
     }
 
@@ -1172,10 +1154,9 @@ public class SpecTests
     /// 2.2.3: the id identifies the file, so the WOPI session goes on with the same id and token after a rename.
     /// </summary>
     [Test]
-    [Skip("The access token holds the path of the file, so a renamed file is unknown to the tokens issued before. The Python implementation has the same limitation, which is why it disables RenameFile by default (enablerename).")]
     public async Task RenameFile_SessionContinues()
     {
-        var (host, fileId, token) = await Open(extraConfig: "enablerename = True");
+        var (host, fileId, token) = await Open();
         await using var _ = host;
         using var response = await host.Post(fileId, token, "RENAME_FILE", ("X-WOPI-Lock", ""), ("X-WOPI-RequestedName", "renamed"));
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);

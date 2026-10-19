@@ -36,11 +36,6 @@ sealed class TempFolder : IDisposable
 
 static class Helpers
 {
-    public static IConfigurationRoot Ini(string ini) =>
-        new ConfigurationBuilder()
-            .AddIniStream(new MemoryStream(Encoding.UTF8.GetBytes(ini)))
-            .Build();
-
     public static async Task<T> Throws<T>(Func<Task> action)
         where T : Exception
     {

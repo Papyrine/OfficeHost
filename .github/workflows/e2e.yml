@@ -1,6 +1,6 @@
 name: E2E
 
-# Real WOPI clients (Collabora, ONLYOFFICE) in Docker, driven with Playwright: see src/WopiServer.E2ETests.
+# Real WOPI clients (Collabora, ONLYOFFICE) in Docker, driven with Playwright: see EditorTests in src/WopiServer.E2ETests.
 # Nightly and on demand only, as the editors are heavy images and fail mostly for upstream reasons.
 on:
   schedule:

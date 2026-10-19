@@ -4,38 +4,40 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A C# port of the Python CS3 WOPI server (https://github.com/cs3org/wopiserver, checked out at
-`C:\Code\PythonWopiServer` on the author's machine). `docs/porting.md` lists what is and is not ported, and the
-deliberate behaviour differences. When changing WOPI logic, compare with the Python source: the port follows it
-function by function, keeping its comments and log messages.
+A library for ASP.NET Core that implements the host side of WOPI ([MS-WOPI]): `AddWopi` registers the services,
+`MapWopi` maps the `/wopi/files` endpoints, and the application supplies the storage. It started as a port of the
+Python CS3 WOPI server, but is not compatible with it and does not follow it: design on the merits of WOPI and ASP.NET
+Core, with no CS3, Reva or container specifics.
 
 ## Commands
 
 - Build: `dotnet build src` (warnings are errors, code style is enforced in the build).
 - Tests: `dotnet run --project src/WopiServer.Tests --no-build` (TUnit, do not use `dotnet test`).
-  One test: `... -- --treenode-filter '/*/*/WopiTests/Lock_Lifecycle'`.
-- Run: `dotnet run --project src/WopiServer -- --config <wopiserver.conf>`.
-- Coverage: see the readme (`src/coverage.config`, `src/coverage-summary.ps1`). WOPI validator: `pwsh src/wopi-validator.ps1`.
-- CI: `.github/workflows/build.yml` runs the Release build and the tests on Ubuntu and Windows, uploading the TRX
-  results, and the `.received` snapshots on failure.
+  One test: `... -- --treenode-filter '/*/*/SpecTests/Lock_UnlockedFile'`.
+- Coverage: see the readme (`src/coverage.config`, `src/coverage-summary.ps1`).
+- WOPI validator: `pwsh src/wopi-validator.ps1` (runs `ValidatorTests` of `src/WopiServer.E2ETests`).
+- Editor tests (Docker, Playwright): `src/WopiServer.E2ETests`, `EditorTests`, see the readme.
+- CI: `.github/workflows/build.yml` (build, tests with coverage on Ubuntu and Windows, validator), `e2e.yml` (editors,
+  nightly).
 
 ## Layout
 
-- `WopiApp.cs`: startup (the Python `Wopi.init`), `WopiEndpoints.cs`: the routes of `wopiserver.py`,
-  `WopiState.cs`: settings and the open files / conflicts bookkeeping, `WopiConfig.cs`: INI config with
-  `configparser` semantics.
-- `Core/`: `WopiCore` (`wopi.py`), `WopiUtils` (`wopiutils.py`), `Common` (`commoniface.py`), plus Python idioms the
-  protocol depends on: `PosixPath` (`os.path`, storage paths always use `/`), `UrlCodec` (`quote_plus`), `Jwt` (PyJWT
-  HS256, hand-rolled as Microsoft's handlers reject short keys), `PyStrings`.
-- `Storage/`: `IStorage` and `LocalStorage`. Storage errors are `StorageException`s classified by message
-  (`Common.EnoentMsg`, `ExclError`, `AccessError`), as in Python.
-- `Bridge/`: `Bridge` (`bridge/__init__.py`, including the save loop), `WopiClient`, `CodiMD`, `Etherpad`.
-- `Logging/JsonLogProvider.cs`: JSON lines in the Python format. The `msg` is the template text before the first
-  placeholder, so log templates are `"Message text {key1} {key2}"` with lowercase keys matching the Python logs.
+- `WopiExtensions.cs`: `AddWopi` and `MapWopi`, with the endpoint filter adding the X-WOPI headers of [MS-WOPI] 2.2.1
+  and turning unexpected exceptions into 500s.
+- `WopiHandler.cs`: the WOPI operations, over `IWopiStorage`, `IWopiLockStore` and `IWopiTokens`. Locks go through the
+  store's `CompareExchange`, so each lock operation is atomic.
+- `WopiOptions.cs`, `WopiAccess.cs` (the access a token grants, `IWopiTokens` and the built-in signed tokens on
+  `Jwt.cs`), `WopiLauncher.cs` (action URLs from the discovery), `WopiDiscovery.cs` and `ProofKeys.cs`.
+- `IWopiStorage.cs` (with `IWopiUserInfoStore`), `FileSystemStorage.cs`, `IWopiLockStore.cs` (with `MemoryLockStore`),
+  `FileNames.cs` (legal names, UTF-7 names of PutRelativeFile and RenameFile).
 
 ## Conventions
 
 - ProjectDefaults (nuget) overwrites the root `.editorconfig` on build: don't hand-edit it. No namespaces, implicit
   accessibility modifiers, central package management in `src/Directory.Packages.props`.
-- The app is neither packed nor strong-named (`src/Directory.Build.props`).
-- Snapshot tests use Verify: accept a change by replacing the `.verified.txt` with the reviewed `.received.txt`.
+- The public API is what the application uses: keep implementation types internal (the tests see them through
+  `InternalsVisibleTo`).
+- Responses follow [MS-WOPI] first, then the Microsoft WOPI documentation; the WOPI validator decides where they differ
+  (as the 500 for an invalid X-WOPI-TimeStamp or proof).
+
+[MS-WOPI]: https://learn.microsoft.com/en-us/openspecs/office_protocols/ms-wopi/

@@ -1,23 +1,25 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <AssemblyName>wopiserver</AssemblyName>
+    <Description>The host side of the Web Application Open Platform Interface (WOPI) for ASP.NET Core: lets WOPI clients such as Collabora Online, ONLYOFFICE or Office for the web open and save files from any storage.</Description>
   </PropertyGroup>
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <Using Include="System.Buffers" />
     <Using Include="System.Buffers.Text" />
     <Using Include="System.Globalization" />
-    <Using Include="System.IO.Compression" />
     <Using Include="System.Net" />
-    <Using Include="System.Net.Http.Headers" />
     <Using Include="System.Security.Cryptography" />
     <Using Include="System.Text.Json" />
     <Using Include="System.Text.Json.Nodes" />
     <Using Include="System.Text.Json.Serialization" />
-    <Using Include="System.Text.RegularExpressions" />
-    <Using Include="Microsoft.Extensions.Primitives" />
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.AspNetCore.Http" />
+    <Using Include="Microsoft.AspNetCore.Routing" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.DependencyInjection.Extensions" />
+    <Using Include="Microsoft.Extensions.Logging" />
+    <Using Include="Microsoft.Extensions.Options" />
     <PackageReference Include="ProjectDefaults" PrivateAssets="all" />
-    <PackageReference Include="prometheus-net.AspNetCore" />
-    <None Update="wopiserver.defaults.conf" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

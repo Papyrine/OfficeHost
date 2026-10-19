@@ -3,50 +3,39 @@ using System.Xml.Linq;
 
 /// <summary>
 /// Validates the X-WOPI-Proof and X-WOPI-ProofOld headers of WOPI requests against the proof keys the WOPI clients
-/// publish in their discovery ([MS-WOPI] 2.2.1 and 3.1.5.1.1.2.2.5), so the server knows a request comes from a trusted
-/// WOPI client. The Python implementation has no such validation.
+/// publish in their discovery ([MS-WOPI] 2.2.1 and 3.1.5.1.1.2.2.5), so that only trusted WOPI clients are served.
 /// </summary>
-class ProofKeys(WopiConfig config, HttpClient http, TimeProvider time, ILogger log)
+sealed class ProofKeys(WopiDiscovery discovery, IOptions<WopiOptions> options, TimeProvider time)
 {
     /// <summary>
     /// The keys of a discovery: either may be missing.
     /// </summary>
     public record Keys(RSAParameters? Current, RSAParameters? Old);
 
-    record CachedKeys(Keys Keys, DateTimeOffset Fetched);
+    WopiOptions Options => options.Value;
 
-    static readonly TimeSpan refreshInterval = TimeSpan.FromHours(1);
-
-    /// <summary>
-    /// The minimum age of the cached keys before a mismatch triggers a refetch, so a stream of forged requests does not
-    /// turn into a stream of discovery requests.
-    /// </summary>
-    static readonly TimeSpan rotationRefetchInterval = TimeSpan.FromMinutes(1);
-
-    readonly SemaphoreSlim gate = new(1, 1);
-    readonly Dictionary<string, CachedKeys> cache = [];
-
-    public IReadOnlyList<string> DiscoveryUrls =>
-        config.Get("security", "proofkeydiscoveryurls", "").Split((char[]?) null, StringSplitOptions.RemoveEmptyEntries);
-
-    public bool Enabled => DiscoveryUrls.Count > 0;
-
-    /// <summary>
-    /// Whether requests without proof are refused. The requests of the bridge to this server are not signed.
-    /// </summary>
-    public bool Required => Enabled && config.IsTrue("security", "proofkeyrequired", false);
+    public bool Enabled => Options.DiscoveryUrls.Count > 0;
 
     /// <summary>
     /// Validates the proof of a request. Returns null when the request is valid, or the reason it is not.
     /// </summary>
     /// <param name="requestUrl">The absolute URL the WOPI client called.</param>
-    public async Task<string?> Validate(HttpRequest request, string accessToken, string requestUrl)
+    public async Task<string?> Validate(HttpRequest request, string accessToken, string requestUrl, Cancel cancel)
     {
+        if (!Enabled)
+        {
+            return null;
+        }
+
         var proof = request.Header("X-WOPI-Proof");
-        var proofOld = request.Header("X-WOPI-ProofOld");
         if (string.IsNullOrEmpty(proof))
         {
-            return "Missing X-WOPI-Proof";
+            if (Options.RequireProof)
+            {
+                return "Missing X-WOPI-Proof";
+            }
+
+            return null;
         }
 
         if (!long.TryParse(request.Header("X-WOPI-TimeStamp"), CultureInfo.InvariantCulture, out var ticks) ||
@@ -63,19 +52,20 @@ class ProofKeys(WopiConfig config, HttpClient http, TimeProvider time, ILogger l
         }
 
         var expected = ExpectedProof(accessToken, requestUrl, ticks);
-        foreach (var url in DiscoveryUrls)
+        var proofOld = request.Header("X-WOPI-ProofOld");
+        foreach (var url in Options.DiscoveryUrls)
         {
-            var keys = await GetKeys(url, false);
-            if (keys != null &&
-                Verify(expected, proof, proofOld, keys))
+            var document = await discovery.Get(url, cancel: cancel);
+            if (document != null &&
+                Verify(expected, proof, proofOld, document.Keys))
             {
                 return null;
             }
 
-            // the WOPI client may have rotated its keys since we fetched them
-            keys = await GetKeys(url, true);
-            if (keys != null &&
-                Verify(expected, proof, proofOld, keys))
+            // the WOPI client may have rotated its keys since the discovery was fetched
+            document = await discovery.Get(url, true, cancel);
+            if (document != null &&
+                Verify(expected, proof, proofOld, document.Keys))
             {
                 return null;
             }
@@ -133,55 +123,18 @@ class ProofKeys(WopiConfig config, HttpClient http, TimeProvider time, ILogger l
         }
     }
 
-    async Task<Keys?> GetKeys(string url, bool refetch)
-    {
-        await gate.WaitAsync();
-        try
-        {
-            var now = time.GetUtcNow();
-            if (cache.TryGetValue(url, out var cached))
-            {
-                var age = now - cached.Fetched;
-                if (refetch ? age < rotationRefetchInterval : age < refreshInterval)
-                {
-                    if (refetch)
-                    {
-                        // fetched too recently to be worth another attempt
-                        return null;
-                    }
-
-                    return cached.Keys;
-                }
-            }
-
-            try
-            {
-                var keys = ParseDiscovery(await http.GetStringAsync(url));
-                cache[url] = new(keys, now);
-                log.LogInformation("Fetched WOPI proof keys {url} {current} {old}", url, keys.Current != null, keys.Old != null);
-                return keys;
-            }
-            catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or FormatException or CryptographicException or System.Xml.XmlException)
-            {
-                log.LogError("Failed to fetch WOPI proof keys {url} {error}", url, exception.Message);
-                // keep using the previous keys, if any
-                return cached?.Keys;
-            }
-        }
-        finally
-        {
-            gate.Release();
-        }
-    }
-
     /// <summary>
-    /// The keys of the proof-key element of a discovery XML, from its modulus and exponent attributes, or else from the
-    /// CSP blobs of its value attributes.
+    /// The keys of the proof-key element of a discovery, from its modulus and exponent attributes, or else from the
+    /// CSP blobs of its value attributes. A discovery without proof-key has no keys.
     /// </summary>
-    public static Keys ParseDiscovery(string xml)
+    public static Keys ParseKeys(XDocument discovery)
     {
-        var element = XDocument.Parse(xml).Descendants().FirstOrDefault(_ => _.Name.LocalName == "proof-key") ??
-                      throw new FormatException("The discovery has no proof-key element");
+        var element = discovery.Descendants().FirstOrDefault(_ => _.Name.LocalName == "proof-key");
+        if (element == null)
+        {
+            return new(null, null);
+        }
+
         return new(
             Key(element, "modulus", "exponent", "value"),
             Key(element, "oldmodulus", "oldexponent", "oldvalue"));

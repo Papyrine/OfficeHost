@@ -17,11 +17,11 @@ public class EdgeCaseTests
         return null;
     }
 
-    static async Task<(TestServerHost Host, string FileId, string Token)> Open(string content = databuf, TimeProvider? time = null, string file = "/test.docx", Func<IStorage, IStorage>? wrapStorage = null, string extraConfig = "")
+    static async Task<(TestServerHost Host, string FileId, string Token)> Open(string content = databuf, TimeProvider? time = null, string file = "/test.docx", Func<IWopiStorage, IWopiStorage>? wrapStorage = null)
     {
-        var host = await TestServerHost.Start(extraConfig, time, wrapStorage: wrapStorage);
+        var host = await TestServerHost.Start(time: time, wrapStorage: wrapStorage);
         await File.WriteAllTextAsync(host.PathOf(file), content);
-        var (fileId, token, _) = await host.Open(file);
+        var (fileId, token) = await host.Open(file);
         return (host, fileId, token);
     }
 
@@ -190,15 +190,15 @@ public class EdgeCaseTests
     }
 
     /// <summary>
-    /// The storage of a file that vanishes between the stat and the read.
+    /// The storage of a file that vanishes between GetFile and OpenRead.
     /// </summary>
-    sealed class VanishingStorage(IStorage inner, Action vanish) :
+    sealed class VanishingStorage(IWopiStorage inner, Action vanish) :
         ForwardingStorage(inner)
     {
-        public override Task<Stream> ReadFile(string endpoint, string filePath, string userId, string? lockId)
+        public override Task<Stream> OpenRead(string fileId, Cancel cancel = default)
         {
             vanish();
-            return base.ReadFile(endpoint, filePath, userId, lockId);
+            return base.OpenRead(fileId, cancel);
         }
     }
 
@@ -206,12 +206,12 @@ public class EdgeCaseTests
     /// GetFile_FileVanishesAfterExistsCheck_Returns_404.
     /// </summary>
     [Test]
-    public async Task GetFile_FileVanishesAfterStat()
+    public async Task GetFile_FileVanishesBeforeRead()
     {
         TestServerHost? host = null;
         await using var hostScope = host = await TestServerHost.Start(wrapStorage: _ => new VanishingStorage(_, () => File.Delete(host!.PathOf("/test.docx"))));
         await File.WriteAllTextAsync(host.PathOf("/test.docx"), databuf);
-        var (fileId, token, _) = await host.Open("/test.docx");
+        var (fileId, token) = await host.Open("/test.docx");
         using var response = await host.Client.GetAsync($"/wopi/files/{fileId}/contents?access_token={token}");
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
     }
@@ -280,12 +280,12 @@ public class EdgeCaseTests
         await using var _ = host;
         using var response = await PutRelative(host, fileId, token, "X-WOPI-RelativeTarget", target);
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
-        var valid = PyStrings.DecodeUtf7(Header(response, "X-WOPI-ValidRelativeTarget") ?? "");
+        var valid = FileNames.DecodeUtf7(Header(response, "X-WOPI-ValidRelativeTarget") ?? "");
         await Assert.That(valid).IsNotEqualTo("");
         await Assert.That(valid.IndexOfAny(['/', '\\', ':', '?', '<', '>', '|', '*', '"'])).IsEqualTo(-1);
         await Assert.That(valid).EndsWith(".txt");
 
-        using var retry = await PutRelative(host, fileId, token, "X-WOPI-RelativeTarget", PyStrings.EncodeUtf7(valid));
+        using var retry = await PutRelative(host, fileId, token, "X-WOPI-RelativeTarget", FileNames.EncodeUtf7(valid));
         await Assert.That(retry.StatusCode).IsEqualTo(HttpStatusCode.OK);
     }
 
@@ -352,7 +352,7 @@ public class EdgeCaseTests
         }
         else
         {
-            name = PyStrings.DecodeUtf7(Header(response, "X-WOPI-ValidRelativeTarget")!);
+            name = FileNames.DecodeUtf7(Header(response, "X-WOPI-ValidRelativeTarget")!);
         }
 
         await Assert.That(Encoding.UTF8.GetByteCount(name)).IsLessThanOrEqualTo(250);
@@ -368,7 +368,7 @@ public class EdgeCaseTests
     {
         var (host, fileId, token) = await Open();
         await using var _ = host;
-        using var response = await PutRelative(host, fileId, token, "X-WOPI-SuggestedTarget", PyStrings.EncodeUtf7($"{new string('é', 200)}😀.docx"));
+        using var response = await PutRelative(host, fileId, token, "X-WOPI-SuggestedTarget", FileNames.EncodeUtf7($"{new string('é', 200)}😀.docx"));
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
         var name = (string) JsonNode.Parse(await response.Content.ReadAsStringAsync())!["Name"]!;
         await Assert.That(Encoding.UTF8.GetByteCount(name)).IsLessThanOrEqualTo(250);
@@ -379,7 +379,7 @@ public class EdgeCaseTests
     [Test]
     public async Task RenameFile_LongName()
     {
-        var (host, fileId, token) = await Open(extraConfig: "enablerename = True");
+        var (host, fileId, token) = await Open();
         await using var _ = host;
         using var response = await host.Post(fileId, token, "RENAME_FILE", ("X-WOPI-Lock", ""), ("X-WOPI-RequestedName", longName));
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
@@ -395,7 +395,7 @@ public class EdgeCaseTests
     [Arguments("trailing.")]
     public async Task RenameFile_ForbiddenCharacters(string name)
     {
-        var (host, fileId, token) = await Open(extraConfig: "enablerename = True");
+        var (host, fileId, token) = await Open();
         await using var _ = host;
         using var response = await host.Post(fileId, token, "RENAME_FILE", ("X-WOPI-Lock", ""), ("X-WOPI-RequestedName", name));
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
