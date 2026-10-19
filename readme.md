@@ -83,7 +83,7 @@ and opens them in Collabora Online, with a host page that loads the editor in an
 Online (CODE) in Docker, allowing it to call back the sample:
 
 ```pwsh
-docker run --rm --publish 9980:9980 --add-host host.docker.internal:host-gateway --env "domain=host\.docker\.internal.*" --env "extra_params=--o:ssl.enable=false --o:ssl.termination=false" collabora/code
+docker run --rm --publish 9980:9980 --add-host host.docker.internal:host-gateway --env "domain=host\.docker\.internal.*" --env "extra_params=--o:ssl.enable=false --o:ssl.termination=false --o:welcome.enable=false" collabora/code
 ```
 
 Then run the sample, and open http://localhost:5000:

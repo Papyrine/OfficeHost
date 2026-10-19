@@ -9,11 +9,13 @@ static class SamplePages
           <html lang="en">
           <head>
             <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
             <title>{{WebUtility.HtmlEncode(title)}}</title>
             <style>
               body { font-family: system-ui, sans-serif; margin: 0; }
               main { max-width: 48rem; margin: 2rem auto; padding: 0 1rem; }
               td { padding: 0.25rem 1rem 0.25rem 0; }
+              code { overflow-wrap: anywhere; }
             </style>
           </head>
           <body>{{body}}</body>
