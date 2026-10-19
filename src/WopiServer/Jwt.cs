@@ -109,6 +109,3 @@ static class Jwt
         }
     }
 }
-
-class JwtException(string message) :
-    Exception(message);

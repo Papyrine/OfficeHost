@@ -1,5 +1,3 @@
-using System.Buffers.Binary;
-
 /// <summary>
 /// Validates the X-WOPI-Proof and X-WOPI-ProofOld headers of WOPI requests against the proof keys the WOPI clients
 /// publish in their discovery ([MS-WOPI] 2.2.1 and 3.1.5.1.1.2.2.5), so that only trusted WOPI clients are served.

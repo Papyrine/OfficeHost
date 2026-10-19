@@ -42,8 +42,13 @@ static class FileNames
     /// </summary>
     public static string Legal(string name)
     {
-        var legal = new string(name.Select(_ => forbiddenChars.Contains(_) || char.IsControl(_) ? '_' : _).ToArray())
+        var legal = new string(
+                name.Select(_ => forbiddenChars.Contains(_) ||
+                                 char.IsControl(_)
+                    ? '_'
+                    : _).ToArray())
             .TrimEnd('.', ' ');
+
         if (Encoding.UTF8.GetByteCount(legal) > MaxBytes)
         {
             var (root, extension) = SplitExtension(legal);

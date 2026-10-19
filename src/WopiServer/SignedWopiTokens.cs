@@ -9,13 +9,12 @@ sealed class SignedWopiTokens(IOptions<WopiOptions> options, TimeProvider time) 
 
     static string ValidateKey(string? key)
     {
-        if (key == null ||
-            key.Length < 32)
+        if (key is {Length: >= 32})
         {
-            throw new InvalidOperationException($"{nameof(WopiOptions)}.{nameof(WopiOptions.SigningKey)} must be at least 32 characters, or another {nameof(IWopiTokens)} must be registered");
+            return key;
         }
 
-        return key;
+        throw new InvalidOperationException($"{nameof(WopiOptions)}.{nameof(WopiOptions.SigningKey)} must be at least 32 characters, or another {nameof(IWopiTokens)} must be registered");
     }
 
     public Task<WopiToken> Issue(WopiAccess access, Cancel cancel = default)
