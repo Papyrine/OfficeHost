@@ -3,8 +3,8 @@
 /// </summary>
 public class StorageTests : IDisposable
 {
-    readonly TempDirectory folder = new();
-    readonly FileSystemStorage storage;
+    TempDirectory folder = new();
+    FileSystemStorage storage;
 
     public StorageTests() =>
         storage = new(folder.Path);

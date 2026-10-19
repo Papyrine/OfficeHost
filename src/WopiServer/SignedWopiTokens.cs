@@ -4,8 +4,8 @@
 sealed class SignedWopiTokens(IOptions<WopiOptions> options, TimeProvider time) :
     IWopiTokens
 {
-    readonly string key = ValidateKey(options.Value.SigningKey);
-    readonly TimeSpan lifetime = options.Value.TokenLifetime;
+    string key = ValidateKey(options.Value.SigningKey);
+    TimeSpan lifetime = options.Value.TokenLifetime;
 
     static string ValidateKey(string? key)
     {

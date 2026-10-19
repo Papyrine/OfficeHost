@@ -197,7 +197,7 @@ public class ApiTests
 
     sealed class OpaqueTokens : IWopiTokens
     {
-        readonly ConcurrentDictionary<string, WopiToken> tokens = new();
+        ConcurrentDictionary<string, WopiToken> tokens = new();
 
         public Task<WopiToken> Issue(WopiAccess access, Cancel cancel = default)
         {

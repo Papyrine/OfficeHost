@@ -22,7 +22,7 @@ sealed class WopiHandler(
     /// </summary>
     const int maxUserInfoLength = 1024;
 
-    readonly IWopiUserInfoStore? userInfoStore = services.GetService<IWopiUserInfoStore>();
+    IWopiUserInfoStore? userInfoStore = services.GetService<IWopiUserInfoStore>();
 
     WopiOptions Options => options.Value;
 

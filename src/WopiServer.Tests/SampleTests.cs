@@ -20,8 +20,8 @@ public partial class SampleTests : IAsyncDisposable
         </wopi-discovery>
         """;
 
-    readonly TempDirectory folder = new();
-    readonly WebApplicationFactory<Program> factory;
+    TempDirectory folder = new();
+    WebApplicationFactory<Program> factory;
 
     public SampleTests() =>
         factory = new WebApplicationFactory<Program>()

@@ -328,7 +328,7 @@ public class EdgeCaseTests
         await Assert.That(File.Exists(host.PathOf($"/{name}"))).IsTrue();
     }
 
-    static readonly string longName = string.Concat(Enumerable.Repeat("longwopitestfilename", 26));
+    static string longName = string.Concat(Enumerable.Repeat("longwopitestfilename", 26));
 
     /// <summary>
     /// WOPI validator PutRelativeFile.FileNameLongerThan512Chars: a host supports long names or returns a 400. Names

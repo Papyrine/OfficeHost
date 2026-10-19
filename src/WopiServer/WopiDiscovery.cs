@@ -11,16 +11,16 @@ sealed class WopiDiscovery(IHttpClientFactory httpFactory, TimeProvider time, IL
 
     record Cached(Document Document, DateTimeOffset Fetched);
 
-    static readonly TimeSpan refreshInterval = TimeSpan.FromHours(1);
+    static TimeSpan refreshInterval = TimeSpan.FromHours(1);
 
     /// <summary>
     /// The minimum age of a cached discovery before a refetch is allowed, so that a stream of forged requests does not
     /// turn into a stream of discovery requests.
     /// </summary>
-    static readonly TimeSpan refetchInterval = TimeSpan.FromMinutes(1);
+    static TimeSpan refetchInterval = TimeSpan.FromMinutes(1);
 
-    readonly SemaphoreSlim gate = new(1, 1);
-    readonly Dictionary<string, Cached> cache = [];
+    SemaphoreSlim gate = new(1, 1);
+    Dictionary<string, Cached> cache = [];
 
     /// <summary>
     /// The discovery, fetched when not cached or older than an hour. With <paramref name="refetch"/>, as when the keys

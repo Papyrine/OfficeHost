@@ -3,9 +3,9 @@
 /// </summary>
 static class Jwt
 {
-    static readonly string encodedHeader = Base64Url.EncodeToString("""{"alg":"HS256","typ":"JWT"}"""u8);
+    static string encodedHeader = Base64Url.EncodeToString("""{"alg":"HS256","typ":"JWT"}"""u8);
 
-    static readonly JsonSerializerOptions jsonOptions = new()
+    static JsonSerializerOptions jsonOptions = new()
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };

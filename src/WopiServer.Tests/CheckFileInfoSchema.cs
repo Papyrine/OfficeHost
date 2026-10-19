@@ -3,7 +3,7 @@
 /// </summary>
 static class CheckFileInfoSchema
 {
-    public static readonly IReadOnlyDictionary<string, string> Types = new Dictionary<string, string>
+    public static IReadOnlyDictionary<string, string> Types = new Dictionary<string, string>
     {
         ["AADUserObjectId"] = "string",
         ["AccessTokenExpiry"] = "long",
@@ -135,7 +135,7 @@ static class CheckFileInfoSchema
     /// <summary>
     /// The properties whose "optional" is false in the schema.
     /// </summary>
-    public static readonly IReadOnlyList<string> Required =
+    public static IReadOnlyList<string> Required =
     [
         "BaseFileName",
         "OfficeCollaborationServiceEndpointUrl",

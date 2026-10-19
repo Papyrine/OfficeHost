@@ -10,24 +10,24 @@ public sealed class FileSystemStorage :
 {
     const string metaFolderName = ".wopi";
 
-    static readonly StringComparison pathComparison =
+    static StringComparison pathComparison =
         OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
-    static readonly JsonSerializerOptions indexOptions = new()
+    static JsonSerializerOptions indexOptions = new()
     {
         WriteIndented = true
     };
 
-    readonly string ownerId;
-    readonly string metaPath;
-    readonly string indexPath;
-    readonly Lock sync = new();
+    string ownerId;
+    string metaPath;
+    string indexPath;
+    Lock sync = new();
 
     // file id -> path relative to the root, with `/` separators
-    readonly Dictionary<string, string> paths;
+    Dictionary<string, string> paths;
 
     // path key -> file id
-    readonly Dictionary<string, string> ids = [];
+    Dictionary<string, string> ids = [];
 
     /// <param name="root">The folder of the files, which must exist.</param>
     /// <param name="ownerId">The OwnerId of all the files.</param>

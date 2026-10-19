@@ -14,7 +14,7 @@ static class FileNames
     /// The characters a file name cannot hold: the path separators, and those Windows forbids, as a storage may be
     /// accessed from any OS (on NTFS, `a:b` would even name the alternate data stream `b` of the file `a`).
     /// </summary>
-    static readonly SearchValues<char> forbiddenChars = SearchValues.Create("/\\<>:\"|?*");
+    static SearchValues<char> forbiddenChars = SearchValues.Create("/\\<>:\"|?*");
 
 #pragma warning disable SYSLIB0001
     public static string DecodeUtf7(string value) =>
