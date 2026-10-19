@@ -17,6 +17,7 @@ Core, with no CS3, Reva or container specifics.
 - Coverage: see the readme (`src/coverage.config`, `src/coverage-summary.ps1`).
 - WOPI validator: `pwsh src/wopi-validator.ps1` (runs `ValidatorTests` of `src/WopiServer.E2ETests`).
 - Editor tests (Docker, Playwright): `src/WopiServer.E2ETests`, `EditorTests`, see the readme.
+- Sample: `dotnet run --project src/WopiServer.Sample` (an application hosting the library, tested by `SampleTests`).
 - CI: `.github/workflows/build.yml` (build, tests with coverage on Ubuntu and Windows, validator), `e2e.yml` (editors,
   nightly).
 

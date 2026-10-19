@@ -22,7 +22,9 @@
     <PackageReference Include="Verify.TUnit" />
     <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="ProjectDefaults" PrivateAssets="all" />
     <ProjectReference Include="..\WopiServer\WopiServer.csproj" />
+    <ProjectReference Include="..\WopiServer.Sample\WopiServer.Sample.csproj" />
   </ItemGroup>
 </Project>

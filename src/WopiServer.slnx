@@ -9,6 +9,7 @@
     <File Path="nuget.config" />
   </Folder>
   <Project Path="WopiServer/WopiServer.csproj" />
+  <Project Path="WopiServer.Sample/WopiServer.Sample.csproj" />
   <Project Path="WopiServer.Tests/WopiServer.Tests.csproj" />
   <Project Path="WopiServer.E2ETests/WopiServer.E2ETests.csproj" />
 </Solution>

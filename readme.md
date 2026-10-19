@@ -76,6 +76,27 @@ The WOPI clients call back the application: they must reach it at the URL of the
 at `BaseUrl` when it differs, as when the editor runs in a container or behind a reverse proxy.
 
 
+## Sample
+
+[src/WopiServer.Sample](src/WopiServer.Sample) is this setup as a running application: it lists the files of a folder
+and opens them in Collabora Online, with a host page that loads the editor in an iframe. To try it, start Collabora
+Online (CODE) in Docker, allowing it to call back the sample:
+
+```pwsh
+docker run --rm --publish 9980:9980 --add-host host.docker.internal:host-gateway --env "domain=host\.docker\.internal.*" --env "extra_params=--o:ssl.enable=false --o:ssl.termination=false" collabora/code
+```
+
+Then run the sample, and open http://localhost:5000:
+
+```pwsh
+dotnet run --project src/WopiServer.Sample
+```
+
+It starts with a `Welcome.docx` in `src/WopiServer.Sample/files`; add files there to open them too. Edit opens a file
+with write access, View read only. The URLs and the signing key are in its `appsettings.json`: `Wopi:BaseUrl` is how
+Collabora reaches the sample (`host.docker.internal` from the container), and `Sample:AppUrl` how the browser does.
+
+
 ## Options
 
 | Option | Default | |
@@ -164,6 +185,7 @@ The test project is a TUnit executable: run it, rather than `dotnet test`. It ho
 * `StorageTests`: `FileSystemStorage` and `MemoryLockStore`.
 * `ApiTests`: the launcher, the tokens, the options and the registration.
 * `KestrelTests`: the request size limits, on Kestrel.
+* `SampleTests`: the sample application, with a stubbed WOPI client.
 
 `src/WopiServer.E2ETests` hosts the endpoints on a real port and opens documents in real editors, Collabora and
 ONLYOFFICE, in Docker, driven with Playwright: Collabora opens, edits and saves a document, and ONLYOFFICE opens one

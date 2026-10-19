@@ -24,3 +24,6 @@ Thumbs.db
 
 .claude/settings.local.json
 *.lnk
+
+## Sample
+src/WopiServer.Sample/files/

@@ -75,10 +75,17 @@ public sealed partial class WopiLauncher
             urls = [discoveryUrl];
         }
 
+        var unreachable = new List<string>();
         foreach (var url in urls)
         {
             var document = await discovery.Get(url, cancel: cancel);
-            var match = document?.Actions.FirstOrDefault(
+            if (document == null)
+            {
+                unreachable.Add(url);
+                continue;
+            }
+
+            var match = document.Actions.FirstOrDefault(
                 _ => _.Name == action &&
                      string.Equals(_.Extension, extension, StringComparison.OrdinalIgnoreCase));
             if (match != null)
@@ -87,7 +94,13 @@ public sealed partial class WopiLauncher
             }
         }
 
-        throw new InvalidOperationException($"No WOPI client offers the {action} action for .{extension} files");
+        var message = $"No WOPI client offers the {action} action for .{extension} files";
+        if (unreachable.Count > 0)
+        {
+            message += $", and the discovery of {string.Join(", ", unreachable)} could not be fetched";
+        }
+
+        throw new InvalidOperationException(message);
     }
 }
 
