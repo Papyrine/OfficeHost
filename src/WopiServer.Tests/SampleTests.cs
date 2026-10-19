@@ -20,7 +20,7 @@ public partial class SampleTests : IAsyncDisposable
         </wopi-discovery>
         """;
 
-    readonly TempFolder folder = new();
+    readonly TempDirectory folder = new();
     readonly WebApplicationFactory<Program> factory;
 
     public SampleTests() =>
@@ -103,7 +103,7 @@ public partial class SampleTests : IAsyncDisposable
     [Test]
     public async Task Launch_UnsupportedFile()
     {
-        await File.WriteAllTextAsync(folder.Combine("notes.txt"), "text");
+        await File.WriteAllTextAsync(Path.Combine(folder, "notes.txt"), "text");
         using var client = factory.CreateClient();
         var fileId = factory.Services.GetRequiredService<FileSystemStorage>().GetFileId("notes.txt");
         using var response = await client.GetAsync($"/edit/{Uri.EscapeDataString(fileId)}");

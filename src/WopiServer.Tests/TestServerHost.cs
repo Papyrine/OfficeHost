@@ -23,12 +23,12 @@ sealed class TestServerHost : IAsyncDisposable
 {
     public const string SigningKey = "the signing key of the tests, long enough";
 
-    readonly TempFolder folder = new();
+    readonly TempDirectory folder = new();
     WebApplication app = null!;
 
     public HttpClient Client { get; private set; } = null!;
 
-    public string StoragePath => folder.Combine("storage");
+    public string StoragePath => Path.Combine(folder, "storage");
 
     public FileSystemStorage Storage { get; private set; } = null!;
 

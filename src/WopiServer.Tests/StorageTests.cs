@@ -3,7 +3,7 @@
 /// </summary>
 public class StorageTests : IDisposable
 {
-    readonly TempFolder folder = new();
+    readonly TempDirectory folder = new();
     readonly FileSystemStorage storage;
 
     public StorageTests() =>
@@ -14,7 +14,7 @@ public class StorageTests : IDisposable
 
     string Create(string path, string content = "content")
     {
-        var full = folder.Combine(path);
+        var full = Path.Combine(folder, path);
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         File.WriteAllText(full, content);
         return storage.GetFileId(path);
@@ -38,8 +38,8 @@ public class StorageTests : IDisposable
         await Assert.That(file.Name).IsEqualTo("test.docx");
         await Assert.That(file.Size).IsEqualTo(5);
         await Assert.That(file.OwnerId).IsEqualTo("owner");
-        await Assert.That(file.LastModified).IsEqualTo(new DateTimeOffset(File.GetLastWriteTimeUtc(folder.Combine("sub/test.docx"))));
-        await Assert.That(storage.GetPath(id)).IsEqualTo(folder.Combine("sub", "test.docx"));
+        await Assert.That(file.LastModified).IsEqualTo(new DateTimeOffset(File.GetLastWriteTimeUtc(Path.Combine(folder, "sub/test.docx"))));
+        await Assert.That(storage.GetPath(id)).IsEqualTo(Path.Combine(folder, "sub", "test.docx"));
     }
 
     [Test]
@@ -47,7 +47,7 @@ public class StorageTests : IDisposable
     {
         await Assert.That(await storage.GetFile("unknown")).IsNull();
         var id = Create("test.docx");
-        File.Delete(folder.Combine("test.docx"));
+        File.Delete(Path.Combine(folder, "test.docx"));
         await Assert.That(await storage.GetFile(id)).IsNull();
     }
 
@@ -69,15 +69,15 @@ public class StorageTests : IDisposable
     }
 
     [Test]
-    public async Task FileIds_OnlyForFilesOfTheStorage()
+    public void FileIds_OnlyForFilesOfTheStorage()
     {
-        await Helpers.Throws<FileNotFoundException>(() => Task.FromResult(storage.GetFileId("missing.docx")));
-        Directory.CreateDirectory(folder.Combine("folder"));
-        await Helpers.Throws<FileNotFoundException>(() => Task.FromResult(storage.GetFileId("folder")));
+        Assert.Throws<FileNotFoundException>(() => storage.GetFileId("missing.docx"));
+        Directory.CreateDirectory(Path.Combine(folder, "folder"));
+        Assert.Throws<FileNotFoundException>(() => storage.GetFileId("folder"));
         Create("a.docx");
         foreach (var path in new[] { "../outside.docx", ".wopi/ids.json", "" })
         {
-            await Helpers.Throws<UnauthorizedAccessException>(() => Task.FromResult(storage.GetFileId(path)));
+            Assert.Throws<UnauthorizedAccessException>(() => storage.GetFileId(path));
         }
     }
 
@@ -86,9 +86,9 @@ public class StorageTests : IDisposable
     {
         var id = Create("test.docx");
         await Assert.That(await Read(await storage.OpenRead(id))).IsEqualTo("content");
-        File.Delete(folder.Combine("test.docx"));
-        await Helpers.Throws<FileNotFoundException>(() => storage.OpenRead(id));
-        await Helpers.Throws<FileNotFoundException>(() => storage.OpenRead("unknown"));
+        File.Delete(Path.Combine(folder, "test.docx"));
+        await Assert.ThrowsAsync<FileNotFoundException>(() => storage.OpenRead(id));
+        await Assert.ThrowsAsync<FileNotFoundException>(() => storage.OpenRead("unknown"));
     }
 
     /// <summary>
@@ -102,8 +102,8 @@ public class StorageTests : IDisposable
         var written = await storage.Write(id, Helpers.Stream("after"));
         await Assert.That(written.Size).IsEqualTo(5);
         await Assert.That(await Read(reader)).IsEqualTo("before");
-        await Assert.That(await File.ReadAllTextAsync(folder.Combine("test.docx"))).IsEqualTo("after");
-        await Assert.That(Directory.GetFiles(folder.Combine(".wopi", "tmp"))).IsEmpty();
+        await Assert.That(await File.ReadAllTextAsync(Path.Combine(folder, "test.docx"))).IsEqualTo("after");
+        await Assert.That(Directory.GetFiles(Path.Combine(folder, ".wopi", "tmp"))).IsEmpty();
     }
 
     /// <summary>
@@ -132,9 +132,9 @@ public class StorageTests : IDisposable
     public async Task Write_Unknown()
     {
         var id = Create("test.docx");
-        File.Delete(folder.Combine("test.docx"));
-        await Helpers.Throws<FileNotFoundException>(() => storage.Write(id, Helpers.Stream("x")));
-        await Assert.That(File.Exists(folder.Combine("test.docx"))).IsFalse();
+        File.Delete(Path.Combine(folder, "test.docx"));
+        await Assert.ThrowsAsync<FileNotFoundException>(() => storage.Write(id, Helpers.Stream("x")));
+        await Assert.That(File.Exists(Path.Combine(folder, "test.docx"))).IsFalse();
     }
 
     [Test]
@@ -154,14 +154,14 @@ public class StorageTests : IDisposable
         var created = (await storage.CreateSibling(id, "new.pdf", Helpers.Stream("pdf"), false))!;
         await Assert.That(created.Name).IsEqualTo("new.pdf");
         await Assert.That(created.Id).IsEqualTo(storage.GetFileId("sub/new.pdf"));
-        await Assert.That(await File.ReadAllTextAsync(folder.Combine("sub/new.pdf"))).IsEqualTo("pdf");
+        await Assert.That(await File.ReadAllTextAsync(Path.Combine(folder, "sub/new.pdf"))).IsEqualTo("pdf");
 
         await Assert.That(await storage.CreateSibling(id, "new.pdf", Helpers.Stream("again"), false)).IsNull();
-        await Assert.That(await File.ReadAllTextAsync(folder.Combine("sub/new.pdf"))).IsEqualTo("pdf");
+        await Assert.That(await File.ReadAllTextAsync(Path.Combine(folder, "sub/new.pdf"))).IsEqualTo("pdf");
 
         var overwritten = (await storage.CreateSibling(id, "new.pdf", Helpers.Stream("again"), true))!;
         await Assert.That(overwritten.Id).IsEqualTo(created.Id);
-        await Assert.That(await File.ReadAllTextAsync(folder.Combine("sub/new.pdf"))).IsEqualTo("again");
+        await Assert.That(await File.ReadAllTextAsync(Path.Combine(folder, "sub/new.pdf"))).IsEqualTo("again");
     }
 
     /// <summary>
@@ -174,9 +174,9 @@ public class StorageTests : IDisposable
     public async Task Siblings_OnlyInTheFolder(string name)
     {
         var id = Create("sub/test.docx");
-        await Helpers.Throws<UnauthorizedAccessException>(() => storage.CreateSibling(id, name, Helpers.Stream("x"), true));
-        await Helpers.Throws<UnauthorizedAccessException>(() => storage.GetSibling(id, name));
-        await Helpers.Throws<UnauthorizedAccessException>(() => storage.Rename(id, name));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => storage.CreateSibling(id, name, Helpers.Stream("x"), true));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => storage.GetSibling(id, name));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => storage.Rename(id, name));
     }
 
     /// <summary>
@@ -189,10 +189,10 @@ public class StorageTests : IDisposable
         var renamed = (await storage.Rename(id, "renamed.docx"))!;
         await Assert.That(renamed.Id).IsEqualTo(id);
         await Assert.That(renamed.Name).IsEqualTo("renamed.docx");
-        await Assert.That(await File.ReadAllTextAsync(folder.Combine("renamed.docx"))).IsEqualTo("content");
+        await Assert.That(await File.ReadAllTextAsync(Path.Combine(folder, "renamed.docx"))).IsEqualTo("content");
         await Assert.That(storage.GetFileId("renamed.docx")).IsEqualTo(id);
         await Assert.That((await new FileSystemStorage(folder.Path).GetFile(id))!.Name).IsEqualTo("renamed.docx");
-        await File.WriteAllTextAsync(folder.Combine("test.docx"), "new file");
+        await File.WriteAllTextAsync(Path.Combine(folder, "test.docx"), "new file");
         await Assert.That(storage.GetFileId("test.docx")).IsNotEqualTo(id);
     }
 
@@ -202,8 +202,8 @@ public class StorageTests : IDisposable
         var id = Create("test.docx");
         Create("other.docx", "other");
         await Assert.That(await storage.Rename(id, "other.docx")).IsNull();
-        await Assert.That(await File.ReadAllTextAsync(folder.Combine("other.docx"))).IsEqualTo("other");
-        await Assert.That(await File.ReadAllTextAsync(folder.Combine("test.docx"))).IsEqualTo("content");
+        await Assert.That(await File.ReadAllTextAsync(Path.Combine(folder, "other.docx"))).IsEqualTo("other");
+        await Assert.That(await File.ReadAllTextAsync(Path.Combine(folder, "test.docx"))).IsEqualTo("content");
     }
 
     [Test]
@@ -220,14 +220,14 @@ public class StorageTests : IDisposable
     {
         var id = Create("test.docx");
         await storage.Delete(id);
-        await Assert.That(File.Exists(folder.Combine("test.docx"))).IsFalse();
+        await Assert.That(File.Exists(Path.Combine(folder, "test.docx"))).IsFalse();
         await Assert.That(await storage.GetFile(id)).IsNull();
-        await Helpers.Throws<FileNotFoundException>(() => storage.Delete(id));
+        await Assert.ThrowsAsync<FileNotFoundException>(() => storage.Delete(id));
     }
 
     [Test]
-    public async Task MissingRoot() =>
-        await Helpers.Throws<DirectoryNotFoundException>(() => Task.FromResult(new FileSystemStorage(folder.Combine("missing"))));
+    public void MissingRoot() =>
+        Assert.Throws<DirectoryNotFoundException>(() => new FileSystemStorage(Path.Combine(folder, "missing")));
 
     // MemoryLockStore
 

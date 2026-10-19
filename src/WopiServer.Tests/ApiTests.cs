@@ -78,8 +78,8 @@ public class ApiTests
     {
         await using var host = await StartWithDiscovery();
         await File.WriteAllTextAsync(host.PathOf("/test.xlsx"), "content");
-        var exception = await Helpers.Throws<InvalidOperationException>(() => host.Service<WopiLauncher>().Launch(TestServerHost.Access(host.Storage.GetFileId("test.xlsx")), "edit"));
-        await Assert.That(exception.Message).Contains(".xlsx");
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => host.Service<WopiLauncher>().Launch(TestServerHost.Access(host.Storage.GetFileId("test.xlsx")), "edit"));
+        await Assert.That(exception!.Message).Contains(".xlsx");
     }
 
     [Test]
@@ -87,8 +87,8 @@ public class ApiTests
     {
         await using var host = await TestServerHost.Start(_ => _.DiscoveryUrls.Add(discoveryUrl));
         await File.WriteAllTextAsync(host.PathOf("/test.odt"), "content");
-        var exception = await Helpers.Throws<WopiClientUnreachableException>(() => host.Service<WopiLauncher>().Launch(TestServerHost.Access(host.Storage.GetFileId("test.odt")), "edit"));
-        await Assert.That(exception.Message).IsEqualTo($"No WOPI client offers the edit action for .odt files, and the discovery of {discoveryUrl} could not be fetched");
+        var exception = await Assert.ThrowsAsync<WopiClientUnreachableException>(() => host.Service<WopiLauncher>().Launch(TestServerHost.Access(host.Storage.GetFileId("test.odt")), "edit"));
+        await Assert.That(exception!.Message).IsEqualTo($"No WOPI client offers the edit action for .odt files, and the discovery of {discoveryUrl} could not be fetched");
         await Assert.That(exception.DiscoveryUrls).IsEquivalentTo([discoveryUrl]);
     }
 
@@ -108,7 +108,7 @@ public class ApiTests
         await File.WriteAllTextAsync(host.PathOf("/test.odt"), "content");
         var access = TestServerHost.Access(host.Storage.GetFileId("test.odt"));
         var launcher = host.Service<WopiLauncher>();
-        await Helpers.Throws<InvalidOperationException>(() => launcher.Launch(access, "edit"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => launcher.Launch(access, "edit"));
         var context = new DefaultHttpContext
         {
             Request =
@@ -157,10 +157,10 @@ public class ApiTests
         const string key = "a key for the JSON web tokens";
         var token = Jwt.Encode(new { a = "b", exp = 2000 }, key);
         await Assert.That(Jwt.Decode<JsonObject>(token, key, 1999)["a"]!.GetValue<string>()).IsEqualTo("b");
-        await Helpers.Throws<JwtException>(() => Task.FromResult(Jwt.Decode<JsonObject>(token, key, 2000)));
-        await Helpers.Throws<JwtException>(() => Task.FromResult(Jwt.Decode<JsonObject>(Jwt.Encode(new { a = "b" }, key), key, 0)));
+        Assert.Throws<JwtException>(() => Jwt.Decode<JsonObject>(token, key, 2000));
+        Assert.Throws<JwtException>(() => Jwt.Decode<JsonObject>(Jwt.Encode(new { a = "b" }, key), key, 0));
         var none = $"{Base64Url(new { alg = "none" })}.{token.Split('.')[1]}.";
-        await Helpers.Throws<JwtException>(() => Task.FromResult(Jwt.Decode<JsonObject>(none, key, 0)));
+        Assert.Throws<JwtException>(() => Jwt.Decode<JsonObject>(none, key, 0));
     }
 
     static string Base64Url(object value) =>
@@ -169,8 +169,8 @@ public class ApiTests
     [Test]
     public async Task SigningKey_Required()
     {
-        var exception = await Helpers.Throws<InvalidOperationException>(() => TestServerHost.Start(_ => _.SigningKey = "short"));
-        await Assert.That(exception.Message).Contains(nameof(WopiOptions.SigningKey));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => TestServerHost.Start(_ => _.SigningKey = "short"));
+        await Assert.That(exception!.Message).Contains(nameof(WopiOptions.SigningKey));
     }
 
     /// <summary>
@@ -210,7 +210,7 @@ public class ApiTests
         var builder = WebApplication.CreateSlimBuilder();
         builder.Services.AddWopi(_ => _.SigningKey = TestServerHost.SigningKey);
         await using var app = builder.Build();
-        var exception = await Helpers.Throws<InvalidOperationException>(() => Task.FromResult(app.MapWopi()));
+        var exception = Assert.Throws<InvalidOperationException>(() => app.MapWopi());
         await Assert.That(exception.Message).Contains(nameof(IWopiStorage));
     }
 

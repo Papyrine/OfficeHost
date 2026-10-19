@@ -7,10 +7,10 @@ using System.Text.RegularExpressions;
 /// </summary>
 public sealed partial class WopiLauncher
 {
-    readonly IWopiStorage storage;
-    readonly IWopiTokens tokens;
-    readonly IOptions<WopiOptions> options;
-    readonly WopiDiscovery discovery;
+    IWopiStorage storage;
+    IWopiTokens tokens;
+    IOptions<WopiOptions> options;
+    WopiDiscovery discovery;
 
     internal WopiLauncher(IWopiStorage storage, IWopiTokens tokens, IOptions<WopiOptions> options, WopiDiscovery discovery)
     {
@@ -104,23 +104,3 @@ public sealed partial class WopiLauncher
         throw new InvalidOperationException(message);
     }
 }
-
-/// <summary>
-/// No reachable WOPI client offers the action: the discovery of some could not be fetched, as when a WOPI client is down.
-/// </summary>
-public class WopiClientUnreachableException(string message, IReadOnlyList<string> discoveryUrls) :
-    InvalidOperationException(message)
-{
-    /// <summary>
-    /// The discovery URLs that could not be fetched.
-    /// </summary>
-    public IReadOnlyList<string> DiscoveryUrls { get; } = discoveryUrls;
-}
-
-/// <summary>
-/// What the page of the application needs to open a file in a WOPI client.
-/// </summary>
-/// <param name="Url">The URL of the action, to POST the form to.</param>
-/// <param name="AccessToken">The access_token form field.</param>
-/// <param name="AccessTokenTtl">The access_token_ttl form field: when the token expires, in milliseconds since the Unix epoch.</param>
-public record WopiLaunch(string Url, string AccessToken, long AccessTokenTtl);
