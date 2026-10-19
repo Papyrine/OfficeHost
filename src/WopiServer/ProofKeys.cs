@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Xml.Linq;
 
 /// <summary>
 /// Validates the X-WOPI-Proof and X-WOPI-ProofOld headers of WOPI requests against the proof keys the WOPI clients

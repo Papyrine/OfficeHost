@@ -1,3 +1,5 @@
+namespace WopiServer;
+
 /// <summary>
 /// The settings of the WOPI endpoints, given to <see cref="WopiExtensions.AddWopi"/>.
 /// </summary>

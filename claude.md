@@ -36,8 +36,11 @@ Core, with no CS3, Reva or container specifics.
 
 ## Conventions
 
-- ProjectDefaults (nuget) overwrites the root `.editorconfig` on build: don't hand-edit it. No namespaces, implicit
-  accessibility modifiers, central package management in `src/Directory.Packages.props`.
+- ProjectDefaults (nuget) overwrites the root `.editorconfig` on build: don't hand-edit it. Implicit accessibility
+  modifiers, central package management in `src/Directory.Packages.props`.
+- Namespaces: the public types of the library are in `namespace WopiServer;`, and a file with a public type holds no
+  internal type. Internal types, and the sample and test projects, have no namespace: the projects import `WopiServer`
+  with a `<Using>`.
 - The public API is what the application uses: keep implementation types internal (the tests see them through
   `InternalsVisibleTo`).
 - Responses follow [MS-WOPI] first, then the Microsoft WOPI documentation; the WOPI validator decides where they differ

@@ -1,3 +1,5 @@
+namespace WopiServer;
+
 /// <summary>
 /// Where the files are. File ids are chosen by the storage, and must not change when a file is saved or renamed, as
 /// WOPI clients keep using them. Operations on a missing file throw a <see cref="FileNotFoundException"/>; other

@@ -1,6 +1,3 @@
-using System.Xml;
-using System.Xml.Linq;
-
 /// <summary>
 /// Fetches and caches the discovery of the WOPI clients: the actions they offer and their proof keys
 /// ([MS-WOPI] 3.1.5.1).

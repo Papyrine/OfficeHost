@@ -1,6 +1,5 @@
 using System.IO.Compression;
 using System.Net.Sockets;
-using System.Xml.Linq;
 
 /// <summary>
 /// A WOPI client running in Docker.

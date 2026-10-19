@@ -1,3 +1,5 @@
+namespace WopiServer;
+
 /// <summary>
 /// Keeps the WOPI locks. The built-in <see cref="MemoryLockStore"/> suits a single instance of the application; a
 /// store shared by all instances is needed otherwise.

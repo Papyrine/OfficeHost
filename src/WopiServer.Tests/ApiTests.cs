@@ -78,7 +78,10 @@ public class ApiTests
     {
         await using var host = await StartWithDiscovery();
         await File.WriteAllTextAsync(host.PathOf("/test.xlsx"), "content");
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => host.Service<WopiLauncher>().Launch(TestServerHost.Access(host.Storage.GetFileId("test.xlsx")), "edit"));
+        var launcher = host.Service<WopiLauncher>();
+        var fileId = host.Storage.GetFileId("test.xlsx");
+        var access = TestServerHost.Access(fileId);
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => launcher.Launch(access, "edit"));
         await Assert.That(exception!.Message).Contains(".xlsx");
     }
 
@@ -87,7 +90,10 @@ public class ApiTests
     {
         await using var host = await TestServerHost.Start(_ => _.DiscoveryUrls.Add(discoveryUrl));
         await File.WriteAllTextAsync(host.PathOf("/test.odt"), "content");
-        var exception = await Assert.ThrowsAsync<WopiClientUnreachableException>(() => host.Service<WopiLauncher>().Launch(TestServerHost.Access(host.Storage.GetFileId("test.odt")), "edit"));
+        var launcher = host.Service<WopiLauncher>();
+        var fileId = host.Storage.GetFileId("test.odt");
+        var access = TestServerHost.Access(fileId);
+        var exception = await Assert.ThrowsAsync<WopiClientUnreachableException>(() => launcher.Launch(access, "edit"));
         await Assert.That(exception!.Message).IsEqualTo($"No WOPI client offers the edit action for .odt files, and the discovery of {discoveryUrl} could not be fetched");
         await Assert.That(exception.DiscoveryUrls).IsEquivalentTo([discoveryUrl]);
     }

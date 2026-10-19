@@ -1,5 +1,3 @@
-using Microsoft.AspNetCore.Http.Features;
-
 /// <summary>
 /// The WOPI operations ([MS-WOPI] 3.3.5) over the <see cref="IWopiStorage"/>, the <see cref="IWopiLockStore"/> and the
 /// <see cref="IWopiTokens"/>.

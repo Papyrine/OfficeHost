@@ -1,3 +1,5 @@
+namespace WopiServer;
+
 /// <summary>
 /// The files of a folder, for development, tests and single-machine deployments. The ids of the files are kept in a
 /// hidden <c>.wopi</c> folder at the root, so that they survive renames; <see cref="GetFileId"/> gives the id of a file

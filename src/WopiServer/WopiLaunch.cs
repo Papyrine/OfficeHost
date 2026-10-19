@@ -1,4 +1,6 @@
-﻿/// <summary>
+namespace WopiServer;
+
+/// <summary>
 /// What the page of the application needs to open a file in a WOPI client.
 /// </summary>
 /// <param name="Url">The URL of the action, to POST the form to.</param>

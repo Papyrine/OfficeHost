@@ -1,3 +1,5 @@
+namespace WopiServer;
+
 /// <summary>
 /// Adds the WOPI endpoints to an ASP.NET Core application.
 /// </summary>
@@ -33,16 +35,17 @@ public static class WopiExtensions
     /// </summary>
     public static RouteGroupBuilder MapWopi(this IEndpointRouteBuilder endpoints)
     {
-        if (endpoints.ServiceProvider.GetService<IWopiStorage>() == null)
+        var services = endpoints.ServiceProvider;
+        if (services.GetService<IWopiStorage>() == null)
         {
             throw new InvalidOperationException($"No {nameof(IWopiStorage)} is registered: register one alongside {nameof(AddWopi)}");
         }
 
         // fails now rather than on the first request when the signing key is missing
-        endpoints.ServiceProvider.GetRequiredService<IWopiTokens>();
-        var options = endpoints.ServiceProvider.GetRequiredService<IOptions<WopiOptions>>().Value;
+        services.GetRequiredService<IWopiTokens>();
+        var options = services.GetRequiredService<IOptions<WopiOptions>>().Value;
         var serverVersion = options.ServerVersion ?? typeof(WopiExtensions).Assembly.GetName().Version?.ToString() ?? "1.0";
-        var log = endpoints.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Wopi");
+        var log = services.GetRequiredService<ILoggerFactory>().CreateLogger("Wopi");
         var group = endpoints.MapGroup("/wopi");
         group.AddEndpointFilter(
             async (context, next) =>

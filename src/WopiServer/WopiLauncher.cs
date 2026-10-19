@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+namespace WopiServer;
 
 /// <summary>
 /// Opens files in a WOPI client: issues the access token and builds the URL of the action from the discovery of the

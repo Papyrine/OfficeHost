@@ -1,5 +1,3 @@
-using System.Xml.Linq;
-
 /// <summary>
 /// Microsoft's WOPI validator (https://github.com/microsoft/wopi-validator-core) against the WOPI endpoints: each test
 /// group on a fresh storage holding a .wopitest file. WOPI_VALIDATOR is the path of the validator's
@@ -9,13 +7,13 @@ using System.Xml.Linq;
 /// </summary>
 public partial class ValidatorTests
 {
-    static readonly string[] excludedGroups = ["ProofKeys"];
+    static string[] excludedGroups = ["ProofKeys"];
 
-    [System.Text.RegularExpressions.GeneratedRegex(@"(?m)^\s+Pass: ")]
-    private static partial System.Text.RegularExpressions.Regex Passed();
+    [GeneratedRegex(@"(?m)^\s+Pass: ")]
+    private static partial Regex Passed();
 
-    [System.Text.RegularExpressions.GeneratedRegex(@"(?m)^\s+Fail: (\S+)")]
-    private static partial System.Text.RegularExpressions.Regex Failed();
+    [GeneratedRegex(@"(?m)^\s+Fail: (\S+)")]
+    private static partial Regex Failed();
 
     [Test]
     [Timeout(600_000)]

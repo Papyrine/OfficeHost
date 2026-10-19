@@ -9,6 +9,7 @@
   <ItemGroup>
     <Using Include="System.IO.Compression" />
     <Using Include="System.Net" />
+    <Using Include="WopiServer" />
     <PackageReference Include="ProjectDefaults" PrivateAssets="all" />
     <ProjectReference Include="..\WopiServer\WopiServer.csproj" />
   </ItemGroup>

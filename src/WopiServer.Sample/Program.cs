@@ -9,9 +9,10 @@ SampleFiles.AddWelcome(folder);
 // begin-snippet: Registration
 // the storage of the files, here a folder: implement IWopiStorage for any other
 var storage = new FileSystemStorage(folder);
-builder.Services.AddSingleton(storage);
-builder.Services.AddSingleton<IWopiStorage>(storage);
-builder.Services.AddWopi(
+var services = builder.Services;
+services.AddSingleton(storage);
+services.AddSingleton<IWopiStorage>(storage);
+services.AddWopi(
     options =>
     {
         // SigningKey, BaseUrl and DiscoveryUrls come from appsettings.json

@@ -32,17 +32,18 @@ the web) open, edit and save the files of any storage the application has.
 
 ## Usage
 
-The code below is from [the sample](#sample). Register a storage and the WOPI services, map the WOPI endpoints, and
-add the pages that open a file:
+The code below is from [the sample](#sample), which imports the `WopiServer` namespace. Register a storage and the WOPI
+services, map the WOPI endpoints, and add the pages that open a file:
 
 <!-- snippet: Registration -->
 <a id='snippet-Registration'></a>
 ```cs
 // the storage of the files, here a folder: implement IWopiStorage for any other
 var storage = new FileSystemStorage(folder);
-builder.Services.AddSingleton(storage);
-builder.Services.AddSingleton<IWopiStorage>(storage);
-builder.Services.AddWopi(
+var services = builder.Services;
+services.AddSingleton(storage);
+services.AddSingleton<IWopiStorage>(storage);
+services.AddWopi(
     options =>
     {
         // SigningKey, BaseUrl and DiscoveryUrls come from appsettings.json
@@ -71,7 +72,7 @@ app.MapGet(
     "/view/{fileId}",
     (string fileId, HttpRequest request, WopiLauncher launcher) => Open(fileId, "view", request, launcher));
 ```
-<sup><a href='/src/WopiServer.Sample/Program.cs#L9-L42' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/WopiServer.Sample/Program.cs#L9-L43' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 A page decides what the user may do with the file, gets the URL of the editor and an access token from `WopiLauncher`,
@@ -119,7 +120,7 @@ static async Task<IResult> Open(string fileId, string action, HttpRequest reques
     }
 }
 ```
-<sup><a href='/src/WopiServer.Sample/Program.cs#L48-L86' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/WopiServer.Sample/Program.cs#L49-L87' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The WOPI clients call back the application: they must reach it at the URL of the request that launched the editor, or

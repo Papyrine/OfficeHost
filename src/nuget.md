@@ -3,6 +3,8 @@ WOPI clients such as Collabora Online, ONLYOFFICE and Microsoft 365 for the web 
 storage the application has.
 
 ```csharp
+using WopiServer;
+
 builder.Services.AddSingleton<IWopiStorage>(new FileSystemStorage("/var/documents"));
 builder.Services.AddWopi(options => options.SigningKey = builder.Configuration["Wopi:SigningKey"]);
 
