@@ -3,7 +3,7 @@
   <PropertyGroup>
     <NoWarn>CS1591;CS1573;NU1608;NU1109;NU1901;IDE0005</NoWarn>
     <!-- Builds of a tag take its version instead, see .github/workflows/build.yml. -->
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <AssemblyVersion>1.0.0</AssemblyVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
