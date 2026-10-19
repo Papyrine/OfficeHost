@@ -37,7 +37,10 @@ public sealed class LocalStorage(WopiConfig config, ILogger log, TimeProvider ti
 
     long Now => time.GetUtcNow().ToUnixTimeSeconds();
 
-    int ChunkSize => Math.Max(config.GetInt("io", "chunksize"), 1);
+    /// <summary>
+    /// The read and write buffer size, defaulting to the 4 MiB of the shipped configuration.
+    /// </summary>
+    int ChunkSize => Math.Max(config.GetInt("io", "chunksize", 4 * 1024 * 1024), 1);
 
     /// <summary>
     /// Maps the given storage path into the local file system, below the storagehomepath.

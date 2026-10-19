@@ -320,6 +320,20 @@ public class StorageTests : IDisposable
         await storage.RemoveFile(endpoint, "/test.txt", userId);
     }
 
+    /// <summary>
+    /// chunksize defaults to the shipped value, for configurations built without the defaults file.
+    /// </summary>
+    [Test]
+    public async Task ChunkSize_Default()
+    {
+        var config = Helpers.Ini($"[local]\nstoragehomepath = {folder.Path}");
+        var defaults = new LocalStorage(new(config), NullLogger.Instance, time);
+        await defaults.WriteFile(endpoint, "/test.txt", userId, Helpers.Stream(databuf), databuf.Length, null);
+        await using var stream = await defaults.ReadFile(endpoint, "/test.txt", userId, null);
+        using var reader = new StreamReader(stream);
+        await Assert.That(await reader.ReadToEndAsync()).IsEqualTo(databuf);
+    }
+
     [Test]
     public async Task Path_OutsideStorage()
     {
