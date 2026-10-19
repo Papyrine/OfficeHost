@@ -122,10 +122,11 @@ at `BaseUrl` when it differs, as when the editor runs in a container or behind a
 
 [src/WopiServer.Sample](src/WopiServer.Sample) is this setup as a running application: it lists the files of a folder
 and opens them in Collabora Online, with a host page that loads the editor in an iframe. To try it, start Collabora
-Online (CODE) in Docker, allowing it to call back the sample:
+Online (CODE) in Docker, allowing it to call back the sample. Home mode turns off its welcome dialog, and caps it at 20
+connections and 10 documents, which is plenty for trying the sample:
 
 ```pwsh
-docker run --rm --publish 9980:9980 --add-host host.docker.internal:host-gateway --env "domain=host\.docker\.internal.*" --env "extra_params=--o:ssl.enable=false --o:ssl.termination=false --o:welcome.enable=false" collabora/code
+docker run --rm --publish 9980:9980 --add-host host.docker.internal:host-gateway --env "domain=host\.docker\.internal.*" --env "extra_params=--o:ssl.enable=false --o:ssl.termination=false --o:home_mode.enable=true" collabora/code
 ```
 
 Then run the sample, and open http://localhost:5000:

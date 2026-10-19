@@ -40,8 +40,9 @@ public class EditorTests
             {
                 // the WOPI hosts Collabora may call back, a regex matched against the host and port of the WOPISrc
                 ["domain"] = @"host\.docker\.internal.*",
-                // no TLS for the test, and no welcome dialog over the document
-                ["extra_params"] = "--o:ssl.enable=false --o:ssl.termination=false --o:welcome.enable=false"
+                // no TLS for the test, and home mode, which is the only way to turn off the welcome dialog over the
+                // document (it also caps Collabora at 20 connections and 10 documents)
+                ["extra_params"] = "--o:ssl.enable=false --o:ssl.termination=false --o:home_mode.enable=true"
             },
             TimeSpan.FromMinutes(3),
             cancel);
@@ -68,18 +69,8 @@ public class EditorTests
                     Timeout = 120_000
                 });
             await page.WaitForTimeoutAsync(2000);
-            // a dialog over the document, as Collabora's welcome on first use, would take the click
-            var welcome = page.Locator(".iframe-welcome-modal");
-            if (await welcome.IsVisibleAsync())
-            {
-                await page.Keyboard.PressAsync("Escape");
-                await welcome.WaitForAsync(
-                    new()
-                    {
-                        State = WaitForSelectorState.Hidden,
-                        Timeout = 10_000
-                    });
-            }
+            // home mode keeps Collabora's welcome dialog, which would take the click, off the document
+            await Assert.That(await page.Locator(".iframe-welcome-modal").IsVisibleAsync()).IsFalse();
 
             await canvas.ClickAsync(
                 new()
