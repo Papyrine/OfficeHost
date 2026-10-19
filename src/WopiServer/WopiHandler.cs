@@ -217,7 +217,7 @@ sealed class WopiHandler(
                 return WopiResult.Text($"The file is larger than X-WOPI-MaxExpectedSize ({maxExpectedSize} bytes)", StatusCodes.Status412PreconditionFailed);
             }
 
-            var result = new WopiResult(StatusCodes.Status200OK)
+            return new WopiResult(StatusCodes.Status200OK)
             {
                 ContentType = "application/octet-stream",
                 BodyStream = await storage.OpenRead(fileId, cancel),
@@ -227,7 +227,6 @@ sealed class WopiHandler(
                     ["X-WOPI-ItemVersion"] = file.Version
                 }
             };
-            return result;
         }
         catch (FileNotFoundException)
         {
