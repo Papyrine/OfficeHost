@@ -6,6 +6,7 @@ var folder = Path.Combine(builder.Environment.ContentRootPath, sample["Files"]!)
 Directory.CreateDirectory(folder);
 SampleFiles.AddWelcome(folder);
 
+// begin-snippet: Registration
 // the storage of the files, here a folder: implement IWopiStorage for any other
 var storage = new FileSystemStorage(folder);
 builder.Services.AddSingleton(storage);
@@ -29,12 +30,20 @@ builder.Services.AddWopi(
     });
 
 var app = builder.Build();
+// the WOPI endpoints the WOPI client calls: /wopi/files/{fileId}
 app.MapWopi();
+// the pages that open a file in the WOPI client
+app.MapGet(
+    "/edit/{fileId}",
+    (string fileId, HttpRequest request, WopiLauncher launcher) => Open(fileId, "edit", request, launcher));
+app.MapGet(
+    "/view/{fileId}",
+    (string fileId, HttpRequest request, WopiLauncher launcher) => Open(fileId, "view", request, launcher));
+// end-snippet
 app.MapGet("/", () => Results.Content(SamplePages.Files(storage), "text/html"));
-app.MapGet("/edit/{fileId}", (string fileId, HttpRequest request, WopiLauncher launcher) => Open(fileId, "edit", request, launcher));
-app.MapGet("/view/{fileId}", (string fileId, HttpRequest request, WopiLauncher launcher) => Open(fileId, "view", request, launcher));
 app.Run();
 
+// begin-snippet: Launch
 static async Task<IResult> Open(string fileId, string action, HttpRequest request, WopiLauncher launcher)
 {
     // the access of the user to the file: an application decides it from its own users and permissions
@@ -58,6 +67,10 @@ static async Task<IResult> Open(string fileId, string action, HttpRequest reques
     catch (InvalidOperationException exception)
     {
         // no WOPI client offers the action for this type of file
-        return Results.Content(SamplePages.Message(exception.Message), "text/html", statusCode: StatusCodes.Status400BadRequest);
+        return Results.Content(
+            SamplePages.Message(exception.Message),
+            "text/html",
+            statusCode: StatusCodes.Status400BadRequest);
     }
 }
+// end-snippet

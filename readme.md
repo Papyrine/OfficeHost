@@ -32,45 +32,87 @@ the web) open, edit and save the files of any storage the application has.
 
 ## Usage
 
-```csharp
-var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddSingleton<IWopiStorage>(new FileSystemStorage("/var/documents"));
+The code below is from [the sample](#sample). Register a storage and the WOPI services, map the WOPI endpoints, and
+add the pages that open a file:
+
+<!-- snippet: Registration -->
+<a id='snippet-Registration'></a>
+```cs
+// the storage of the files, here a folder: implement IWopiStorage for any other
+var storage = new FileSystemStorage(folder);
+builder.Services.AddSingleton(storage);
+builder.Services.AddSingleton<IWopiStorage>(storage);
 builder.Services.AddWopi(
     options =>
     {
-        options.SigningKey = builder.Configuration["Wopi:SigningKey"];
-        options.DiscoveryUrls.Add("http://collabora:9980/hosting/discovery");
-        options.HostEditUrl = (file, _) => $"https://app.example/edit/{file.Id}";
-        options.HostViewUrl = (file, _) => $"https://app.example/view/{file.Id}";
+        // SigningKey, BaseUrl and DiscoveryUrls come from appsettings.json
+        builder.Configuration.GetSection("Wopi").Bind(options);
+        // the pages below, which the WOPI client links to, as after a Save As
+        options.HostEditUrl = (file, _) => $"{appUrl}/edit/{Uri.EscapeDataString(file.Id)}";
+        options.HostViewUrl = (file, _) => $"{appUrl}/view/{Uri.EscapeDataString(file.Id)}";
+        options.OnCheckFileInfo = context =>
+        {
+            // back to the file list when the user closes the editor
+            context.Properties["CloseUrl"] = appUrl;
+            context.Properties["BreadcrumbBrandName"] = "WopiServer sample";
+            context.Properties["BreadcrumbBrandUrl"] = appUrl;
+            return Task.CompletedTask;
+        };
     });
 
 var app = builder.Build();
+// the WOPI endpoints the WOPI client calls: /wopi/files/{fileId}
 app.MapWopi();
+// the pages that open a file in the WOPI client
 app.MapGet(
     "/edit/{fileId}",
-    async (string fileId, HttpRequest request, WopiLauncher launcher) =>
-    {
-        // what the signed in user may do with the file is the application's call
-        var access = new WopiAccess(fileId, "alice")
-        {
-            UserName = "Alice",
-            CanWrite = true,
-            CanWriteRelative = true,
-            CanRename = true
-        };
-        var launch = await launcher.Launch(access, "edit", request);
-        return Results.Content(
-            $"""
-             <form id="wopi" method="post" action="{WebUtility.HtmlEncode(launch.Url)}">
-               <input type="hidden" name="access_token" value="{WebUtility.HtmlEncode(launch.AccessToken)}" />
-               <input type="hidden" name="access_token_ttl" value="{launch.AccessTokenTtl}" />
-             </form>
-             <script>document.getElementById('wopi').submit();</script>
-             """,
-            "text/html");
-    });
-app.Run();
+    (string fileId, HttpRequest request, WopiLauncher launcher) => Open(fileId, "edit", request, launcher));
+app.MapGet(
+    "/view/{fileId}",
+    (string fileId, HttpRequest request, WopiLauncher launcher) => Open(fileId, "view", request, launcher));
 ```
+<sup><a href='/src/WopiServer.Sample/Program.cs#L9-L42' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+A page decides what the user may do with the file, gets the URL of the editor and an access token from `WopiLauncher`,
+and returns a page that posts the token to the editor in an iframe
+([`SamplePages.Editor`](src/WopiServer.Sample/SamplePages.cs)):
+
+<!-- snippet: Launch -->
+<a id='snippet-Launch'></a>
+```cs
+static async Task<IResult> Open(string fileId, string action, HttpRequest request, WopiLauncher launcher)
+{
+    // the access of the user to the file: an application decides it from its own users and permissions
+    var canWrite = action == "edit";
+    var access = new WopiAccess(fileId, "demo")
+    {
+        UserName = "Demo User",
+        CanWrite = canWrite,
+        CanWriteRelative = canWrite,
+        CanRename = canWrite
+    };
+    try
+    {
+        var launch = await launcher.Launch(access, action, request);
+        return Results.Content(SamplePages.Editor(launch), "text/html");
+    }
+    catch (FileNotFoundException)
+    {
+        return Results.NotFound();
+    }
+    catch (InvalidOperationException exception)
+    {
+        // no WOPI client offers the action for this type of file
+        return Results.Content(
+            SamplePages.Message(exception.Message),
+            "text/html",
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+}
+```
+<sup><a href='/src/WopiServer.Sample/Program.cs#L46-L76' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
 
 The WOPI clients call back the application: they must reach it at the URL of the request that launched the editor, or
 at `BaseUrl` when it differs, as when the editor runs in a container or behind a reverse proxy.

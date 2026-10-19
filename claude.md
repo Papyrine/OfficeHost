@@ -18,6 +18,8 @@ Core, with no CS3, Reva or container specifics.
 - WOPI validator: `pwsh src/wopi-validator.ps1` (runs `ValidatorTests` of `src/WopiServer.E2ETests`).
 - Editor tests (Docker, Playwright): `src/WopiServer.E2ETests`, `EditorTests`, see the readme.
 - Sample: `dotnet run --project src/WopiServer.Sample` (an application hosting the library, tested by `SampleTests`).
+- Readme snippets: the Usage code of `readme.md` comes from the `begin-snippet` regions of the sample. Edit the code, not
+  the readme, then run `mdsnippets .` (the `on-push-do-docs.yml` workflow also does on push).
 - CI: `.github/workflows/build.yml` (build, tests with coverage on Ubuntu and Windows, validator), `e2e.yml` (editors,
   nightly).
 
