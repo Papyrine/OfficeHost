@@ -1,4 +1,4 @@
-# WopiServer
+#  <img src="/src/icon.png" height="30px"> WopiServer
 
 [![Build](https://github.com/Papyrine/WopiServer/actions/workflows/build.yml/badge.svg)](https://github.com/Papyrine/WopiServer/actions/workflows/build.yml)
 [![NuGet Status](https://img.shields.io/nuget/v/WopiServer.svg?label=WopiServer)](https://www.nuget.org/packages/WopiServer/)
