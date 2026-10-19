@@ -43,7 +43,8 @@ public class EditorTests
             {
                 // the WOPI hosts Collabora may call back, a regex matched against the host and port of the WOPISrc
                 ["domain"] = @"host\.docker\.internal.*",
-                ["extra_params"] = "--o:ssl.enable=false --o:ssl.termination=false"
+                // no TLS for the test, and no welcome dialog over the document
+                ["extra_params"] = "--o:ssl.enable=false --o:ssl.termination=false --o:welcome.enable=false"
             },
             TimeSpan.FromMinutes(3),
             cancel);
@@ -66,6 +67,19 @@ public class EditorTests
                     Timeout = 120_000
                 });
             await page.WaitForTimeoutAsync(2000);
+            // a dialog over the document, as Collabora's welcome on first use, would take the click
+            var welcome = page.Locator(".iframe-welcome-modal");
+            if (await welcome.IsVisibleAsync())
+            {
+                await page.Keyboard.PressAsync("Escape");
+                await welcome.WaitForAsync(
+                    new()
+                    {
+                        State = WaitForSelectorState.Hidden,
+                        Timeout = 10_000
+                    });
+            }
+
             await canvas.ClickAsync(
                 new()
                 {
