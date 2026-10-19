@@ -278,3 +278,8 @@ Presti (CERN) and its contributors. Like it, this library is under the Apache 2.
 [license.txt](license.txt).
 
 [MS-WOPI]: https://learn.microsoft.com/en-us/openspecs/office_protocols/ms-wopi/
+
+
+## Icon
+
+https://thenounproject.com/icon/fountain-pen-8154546/
