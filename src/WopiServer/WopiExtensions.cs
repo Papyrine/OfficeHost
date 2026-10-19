@@ -9,6 +9,7 @@ public static class WopiExtensions
     /// Registers the WOPI services. An <see cref="IWopiStorage"/> must be registered too; <see cref="IWopiLockStore"/>
     /// defaults to <see cref="MemoryLockStore"/>, <see cref="IWopiTokens"/> to tokens signed with
     /// <see cref="WopiOptions.SigningKey"/>, and PutUserInfo is supported when an <see cref="IWopiUserInfoStore"/> is.
+    /// These can have any lifetime, as a scoped storage over a database context.
     /// </summary>
     public static IServiceCollection AddWopi(this IServiceCollection services, Action<WopiOptions> configure)
     {
@@ -19,8 +20,9 @@ public static class WopiExtensions
         services.TryAddSingleton<IWopiTokens, SignedWopiTokens>();
         services.TryAddSingleton<WopiDiscovery>();
         services.TryAddSingleton<ProofKeys>();
-        services.TryAddSingleton<WopiHandler>();
-        services.TryAddSingleton(
+        // transient, so that they take the lifetime of the storage and the stores rather than capture them
+        services.TryAddTransient<WopiHandler>();
+        services.TryAddTransient(
             _ => new WopiLauncher(
                 _.GetRequiredService<IWopiStorage>(),
                 _.GetRequiredService<IWopiTokens>(),
@@ -36,15 +38,20 @@ public static class WopiExtensions
     public static RouteGroupBuilder MapWopi(this IEndpointRouteBuilder endpoints)
     {
         var services = endpoints.ServiceProvider;
-        if (services.GetService<IWopiStorage>() == null)
+        if (!services.GetRequiredService<IServiceProviderIsService>().IsService(typeof(IWopiStorage)))
         {
             throw new InvalidOperationException($"No {nameof(IWopiStorage)} is registered: register one alongside {nameof(AddWopi)}");
         }
 
         // fails now rather than on the first request when the signing key is missing
-        services.GetRequiredService<IWopiTokens>();
+        using (var scope = services.CreateScope())
+        {
+            scope.ServiceProvider.GetRequiredService<IWopiTokens>();
+        }
+
         var options = services.GetRequiredService<IOptions<WopiOptions>>().Value;
         var serverVersion = options.ServerVersion ?? typeof(WopiExtensions).Assembly.GetName().Version?.ToString() ?? "1.0";
+        var machineName = Environment.MachineName;
         var log = services.GetRequiredService<ILoggerFactory>().CreateLogger("Wopi");
         var group = endpoints.MapGroup("/wopi");
         group.AddEndpointFilter(
@@ -53,7 +60,7 @@ public static class WopiExtensions
                 var http = context.HttpContext;
                 // [MS-WOPI] 2.2.1 requires these on all WOPI responses
                 http.Response.Headers["X-WOPI-ServerVersion"] = serverVersion;
-                http.Response.Headers["X-WOPI-MachineName"] = Environment.MachineName;
+                http.Response.Headers["X-WOPI-MachineName"] = machineName;
                 try
                 {
                     return await next(context);

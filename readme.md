@@ -191,7 +191,8 @@ they expire. To keep tokens in a database, or tie them to the application's sess
 
 The storage is the application's: implement `IWopiStorage` over a database, blob storage or a document management
 system. File ids are chosen by the storage, and must not change when a file is saved or renamed, as WOPI clients keep
-using them. A missing file throws `FileNotFoundException`.
+using them. A missing file throws `FileNotFoundException`. The storage, the stores below and `IWopiTokens` can be
+registered with any lifetime, as scoped for a storage over a database context.
 
 ```csharp
 public interface IWopiStorage
@@ -222,7 +223,8 @@ PutUserInfo, where the editors keep per-user data such as the tips a user has se
 WOPI clients that publish a `proof-key` in their discovery sign their requests ([MS-WOPI] 2.2.1). The requests that
 carry `X-WOPI-Proof` are validated against the keys of `DiscoveryUrls`: the current and the old key, for clients that
 rotate theirs. The keys are cached for an hour, and refetched on a mismatch when over a minute old, so forged requests
-do not turn into a discovery request each.
+do not turn into a discovery request each. When a client is down, its last keys are kept, and its discovery is attempted
+again once a minute.
 
 Requests without proof are accepted unless `RequireProof` is set. The signed URL is `BaseUrl` (or the request's) and the
 path and query of the request, so `BaseUrl` must be the URL the clients call.

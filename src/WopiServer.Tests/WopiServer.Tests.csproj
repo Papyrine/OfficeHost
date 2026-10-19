@@ -16,6 +16,7 @@
     <Using Include="Microsoft.AspNetCore.Hosting.Server.Features" />
     <Using Include="Microsoft.AspNetCore.TestHost" />
     <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
     <Using Include="Microsoft.Extensions.Logging" />
     <Using Include="Microsoft.Extensions.Logging.Abstractions" />
     <Using Include="WopiServer" />

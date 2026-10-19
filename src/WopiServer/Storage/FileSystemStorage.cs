@@ -173,9 +173,12 @@ public sealed class FileSystemStorage :
         return full;
     }
 
-    WopiFile Info(string fileId, string full)
+    /// <summary>
+    /// The file, from a <see cref="FileInfo"/> that exists: its properties are read once, so that a file deleted
+    /// meanwhile does not fail.
+    /// </summary>
+    WopiFile Info(string fileId, FileInfo info)
     {
-        var info = new FileInfo(full);
         var modified = info.LastWriteTimeUtc;
         return new(
             fileId,
@@ -189,24 +192,29 @@ public sealed class FileSystemStorage :
     public Task<WopiFile?> GetFile(string fileId, Cancel cancel = default)
     {
         var full = GetPath(fileId);
-        if (full == null ||
-            !File.Exists(full))
+        if (full == null)
         {
             return Task.FromResult<WopiFile?>(null);
         }
 
-        return Task.FromResult<WopiFile?>(Info(fileId, full));
+        var info = new FileInfo(full);
+        if (!info.Exists)
+        {
+            return Task.FromResult<WopiFile?>(null);
+        }
+
+        return Task.FromResult<WopiFile?>(Info(fileId, info));
     }
 
     public Task<WopiFile?> GetSibling(string fileId, string name, Cancel cancel = default)
     {
-        var full = SiblingPath(fileId, name);
-        if (!File.Exists(full))
+        var info = new FileInfo(SiblingPath(fileId, name));
+        if (!info.Exists)
         {
             return Task.FromResult<WopiFile?>(null);
         }
 
-        return Task.FromResult<WopiFile?>(Info(IdOf(full), full));
+        return Task.FromResult<WopiFile?>(Info(IdOf(info.FullName), info));
     }
 
     public Task<Stream> OpenRead(string fileId, Cancel cancel = default)
@@ -232,7 +240,7 @@ public sealed class FileSystemStorage :
 
         var temp = await WriteTemp(content, cancel);
         Replace(temp, full);
-        return Info(fileId, full);
+        return Info(fileId, new(full));
     }
 
     public async Task<WopiFile?> CreateSibling(string fileId, string name, Stream content, bool overwrite, Cancel cancel = default)
@@ -263,7 +271,7 @@ public sealed class FileSystemStorage :
             }
         }
 
-        return Info(IdOf(full), full);
+        return Info(IdOf(full), new(full));
     }
 
     async Task<string> WriteTemp(Stream content, Cancel cancel)
@@ -299,6 +307,25 @@ public sealed class FileSystemStorage :
 
         try
         {
+            Move(temp, full);
+        }
+        catch
+        {
+            File.Delete(temp);
+            throw;
+        }
+
+        if (previous != null &&
+            File.GetLastWriteTimeUtc(full) <= previous)
+        {
+            File.SetLastWriteTimeUtc(full, previous.Value.AddTicks(1));
+        }
+    }
+
+    void Move(string temp, string full)
+    {
+        try
+        {
             File.Move(temp, full, true);
         }
         catch (Exception exception) when (OperatingSystem.IsWindows() && exception is UnauthorizedAccessException or IOException)
@@ -306,14 +333,18 @@ public sealed class FileSystemStorage :
             // Windows does not replace a file that is open, as by a GetFile, but lets it be moved away and deleted
             var replaced = Path.Combine(metaPath, "tmp", Guid.NewGuid().ToString("N"));
             File.Move(full, replaced);
-            File.Move(temp, full);
-            File.Delete(replaced);
-        }
+            try
+            {
+                File.Move(temp, full);
+            }
+            catch
+            {
+                // the file stays as it was, rather than left in the temporary folder
+                File.Move(replaced, full);
+                throw;
+            }
 
-        if (previous != null &&
-            File.GetLastWriteTimeUtc(full) <= previous)
-        {
-            File.SetLastWriteTimeUtc(full, previous.Value.AddTicks(1));
+            File.Delete(replaced);
         }
     }
 
@@ -334,17 +365,32 @@ public sealed class FileSystemStorage :
             return Task.FromResult<WopiFile?>(null);
         }
 
-        File.Move(full, target, false);
+        try
+        {
+            File.Move(full, target, false);
+        }
+        catch (IOException) when (!sameFile && File.Exists(target))
+        {
+            // created meanwhile
+            return Task.FromResult<WopiFile?>(null);
+        }
+
         lock (sync)
         {
             ids.Remove(Key(Relative(full)));
             var relative = Relative(target);
+            // a file deleted from the new path outside of the storage leaves its id, which would name this file too
+            if (ids.TryGetValue(Key(relative), out var previous))
+            {
+                paths.Remove(previous);
+            }
+
             paths[fileId] = relative;
             ids[Key(relative)] = fileId;
             SaveIndex();
         }
 
-        return Task.FromResult<WopiFile?>(Info(fileId, target));
+        return Task.FromResult<WopiFile?>(Info(fileId, new(target)));
     }
 
     public Task Delete(string fileId, Cancel cancel = default)

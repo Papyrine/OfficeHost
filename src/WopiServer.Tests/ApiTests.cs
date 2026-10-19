@@ -221,6 +221,94 @@ public class ApiTests
     }
 
     /// <summary>
+    /// A scoped storage and scoped tokens, as over a database context: each request has its own.
+    /// </summary>
+    [Test]
+    public async Task ScopedServices()
+    {
+        using var folder = new TempDirectory();
+        await File.WriteAllTextAsync(Path.Combine(folder, "test.docx"), "content");
+        var storage = new FileSystemStorage(folder);
+        var builder = WebApplication.CreateSlimBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Host.UseDefaultServiceProvider(
+            _ =>
+            {
+                _.ValidateScopes = true;
+                _.ValidateOnBuild = true;
+            });
+        var storages = 0;
+        var services = builder.Services;
+        services.AddScoped<IWopiStorage>(
+            _ =>
+            {
+                Interlocked.Increment(ref storages);
+                return new ForwardingStorage(storage);
+            });
+        services.AddSingleton<OpaqueTokens>();
+        services.AddScoped<IWopiTokens>(_ => _.GetRequiredService<OpaqueTokens>());
+        services.AddWopi(_ => { });
+        await using var app = builder.Build();
+        app.MapWopi();
+        await app.StartAsync();
+        string token;
+        using (var scope = app.Services.CreateScope())
+        {
+            scope.ServiceProvider.GetRequiredService<WopiLauncher>();
+            token = (await scope.ServiceProvider.GetRequiredService<IWopiTokens>().Issue(TestServerHost.Access(storage.GetFileId("test.docx")))).Value;
+        }
+
+        var before = storages;
+        using var client = app.GetTestClient();
+        var fileId = storage.GetFileId("test.docx");
+        using (var info = await client.GetAsync($"/wopi/files/{fileId}?access_token={token}"))
+        {
+            await Assert.That(info.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        }
+
+        using (var content = await client.GetAsync($"/wopi/files/{fileId}/contents?access_token={token}"))
+        {
+            await Assert.That(await content.Content.ReadAsStringAsync()).IsEqualTo("content");
+        }
+
+        await Assert.That(storages).IsEqualTo(before + 2);
+    }
+
+    /// <summary>
+    /// A WOPI client that is slow to answer delays only the requests that need its discovery.
+    /// </summary>
+    [Test]
+    public async Task Discovery_SlowClient()
+    {
+        const string slowUrl = "https://slow/hosting/discovery";
+        var slow = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var host = await TestServerHost.Start(_ => _.DiscoveryUrls.Add(discoveryUrl));
+        host.Http = request =>
+        {
+            if (request.RequestUri!.ToString() == slowUrl)
+            {
+                return slow.Task;
+            }
+
+            return Discovery(request);
+        };
+        await File.WriteAllTextAsync(host.PathOf("/test.odt"), "content");
+        var access = TestServerHost.Access(host.Storage.GetFileId("test.odt"));
+        var launcher = host.Service<WopiLauncher>();
+        await launcher.Launch(access, "edit");
+        var pending = launcher.Launch(access, "edit", discoveryUrl: slowUrl);
+        var launch = await launcher.Launch(access, "edit").WaitAsync(TimeSpan.FromSeconds(10));
+        await Assert.That(launch.Url).StartsWith("https://collabora/");
+        await Assert.That(pending.IsCompleted).IsFalse();
+        slow.SetResult(
+            new(HttpStatusCode.OK)
+            {
+                Content = new StringContent(discovery)
+            });
+        await Assert.That((await pending).Url).StartsWith("https://collabora/");
+    }
+
+    /// <summary>
     /// The application adds properties to CheckFileInfo, and gives the host pages of the files.
     /// </summary>
     [Test]

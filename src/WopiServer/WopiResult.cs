@@ -81,6 +81,12 @@ class WopiResult(int status) :
         {
             await using (BodyStream)
             {
+                // a length rather than a chunked response, when the stream knows it
+                if (BodyStream.CanSeek)
+                {
+                    response.ContentLength = BodyStream.Length - BodyStream.Position;
+                }
+
                 await BodyStream.CopyToAsync(response.Body, httpContext.RequestAborted);
             }
 

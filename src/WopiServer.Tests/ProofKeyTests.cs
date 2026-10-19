@@ -14,11 +14,18 @@ public class ProofKeyTests
         public RSA? Old { get; set; } = RSA.Create(2048);
         public bool CspBlobsOnly { get; init; }
         public bool Unreachable { get; set; }
+        public string Url { get; init; } = discoveryUrl;
         public int Fetches { get; private set; }
+
+        /// <summary>
+        /// The fetches, and the attempts while unreachable.
+        /// </summary>
+        public int Attempts { get; private set; }
 
         public Task<HttpResponseMessage> Handle(HttpRequestMessage request)
         {
-            if (request.RequestUri!.ToString() != discoveryUrl ||
+            Attempts++;
+            if (request.RequestUri!.ToString() != Url ||
                 Unreachable)
             {
                 throw new HttpRequestException($"Unreachable {request.RequestUri}");
@@ -114,7 +121,8 @@ public class ProofKeyTests
         }
     }
 
-    static async Task<Context> Start(bool required = false, bool cspBlobsOnly = false)
+    /// <param name="other">Another trusted WOPI client, listed before the one of the context.</param>
+    static async Task<Context> Start(bool required = false, bool cspBlobsOnly = false, WopiClient? other = null)
     {
         var time = new ManualTime();
         var client = new WopiClient
@@ -124,11 +132,25 @@ public class ProofKeyTests
         var host = await TestServerHost.Start(
             _ =>
             {
+                if (other != null)
+                {
+                    _.DiscoveryUrls.Add(other.Url);
+                }
+
                 _.DiscoveryUrls.Add(discoveryUrl);
                 _.RequireProof = required;
             },
             time);
-        host.Http = client.Handle;
+        host.Http = request =>
+        {
+            if (other != null &&
+                request.RequestUri!.ToString() == other.Url)
+            {
+                return other.Handle(request);
+            }
+
+            return client.Handle(request);
+        };
         await File.WriteAllTextAsync(host.PathOf("/test.docx"), "content");
         var (fileId, token) = await host.Open("/test.docx");
         return new(host, client, time, fileId, token);
@@ -366,7 +388,8 @@ public class ProofKeyTests
     }
 
     /// <summary>
-    /// Keys fetched before the discovery became unreachable keep being used.
+    /// Keys fetched before the discovery became unreachable keep being used, and the discovery is attempted again once a
+    /// minute rather than on each request.
     /// </summary>
     [Test]
     public async Task DiscoveryUnreachable_KeepsPreviousKeys()
@@ -379,7 +402,42 @@ public class ProofKeyTests
 
         context.Client.Unreachable = true;
         context.Time.Advance(TimeSpan.FromHours(2));
-        using var response = await context.CheckFileInfo(context.Client.Current);
-        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            using var response = await context.CheckFileInfo(context.Client.Current);
+            await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        }
+
+        await Assert.That(context.Client.Attempts).IsEqualTo(2);
+        context.Time.Advance(TimeSpan.FromMinutes(2));
+        using (var later = await context.CheckFileInfo(context.Client.Current))
+        {
+            await Assert.That(later.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        }
+
+        await Assert.That(context.Client.Attempts).IsEqualTo(3);
+    }
+
+    /// <summary>
+    /// A request is checked against the cached keys of all the WOPI clients before a discovery is refetched, so that
+    /// the requests of one client do not refetch the discovery of another.
+    /// </summary>
+    [Test]
+    public async Task SeveralClients()
+    {
+        using var other = new WopiClient
+        {
+            Url = "https://other/hosting/discovery"
+        };
+        await using var context = await Start(other: other);
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            using var response = await context.CheckFileInfo(context.Client.Current);
+            await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+            context.Time.Advance(TimeSpan.FromMinutes(2));
+        }
+
+        await Assert.That(other.Fetches).IsEqualTo(1);
+        await Assert.That(context.Client.Fetches).IsEqualTo(1);
     }
 }

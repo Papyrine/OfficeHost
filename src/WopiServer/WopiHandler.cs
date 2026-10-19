@@ -656,11 +656,11 @@ sealed class WopiHandler(
             }
 
             AllowFileSize(context);
-            // the content may be written more than once, when another file takes the name meanwhile
-            request.EnableBuffering();
             WopiFile? created;
             if (!string.IsNullOrEmpty(suggested))
             {
+                // the content may be written more than once, when another file takes the name meanwhile
+                request.EnableBuffering();
                 created = await CreateSuggested(request, file, FileNames.DecodeUtf7(suggested), cancel);
                 if (created == null)
                 {
@@ -822,9 +822,11 @@ sealed class WopiHandler(
         }
 
         var cancel = context.RequestAborted;
+        // one character more than the longest user info tells it is too long, without reading the whole body
+        var buffer = new char[maxUserInfoLength + 1];
         using var reader = new StreamReader(context.Request.Body, Encoding.UTF8);
-        var userInfo = await reader.ReadToEndAsync(cancel);
-        if (userInfo.Length > maxUserInfoLength)
+        var length = await reader.ReadBlockAsync(buffer, cancel);
+        if (length > maxUserInfoLength)
         {
             return WopiResult.Text($"The user info is longer than {maxUserInfoLength} characters", StatusCodes.Status400BadRequest);
         }
@@ -834,7 +836,7 @@ sealed class WopiHandler(
             return WopiResult.NotFound();
         }
 
-        await userInfoStore.Set(access.UserId, userInfo, cancel);
+        await userInfoStore.Set(access.UserId, new(buffer, 0, length), cancel);
         return WopiResult.Ok();
     }
 }

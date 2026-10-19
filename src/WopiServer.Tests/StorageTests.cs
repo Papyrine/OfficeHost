@@ -215,6 +215,21 @@ public class StorageTests : IDisposable
         await Assert.That(storage.GetFileId("Test.docx")).IsEqualTo(id);
     }
 
+    /// <summary>
+    /// The id of a file deleted outside of the storage does not name the file renamed to its path.
+    /// </summary>
+    [Test]
+    public async Task Rename_OverDeletedFile()
+    {
+        var id = Create("test.docx");
+        var deleted = Create("other.docx", "other");
+        File.Delete(Path.Combine(folder, "other.docx"));
+        await storage.Rename(id, "other.docx");
+        await Assert.That((await storage.GetFile(id))!.Name).IsEqualTo("other.docx");
+        await Assert.That(await storage.GetFile(deleted)).IsNull();
+        await Assert.That(storage.GetFileId("other.docx")).IsEqualTo(id);
+    }
+
     [Test]
     public async Task Delete()
     {

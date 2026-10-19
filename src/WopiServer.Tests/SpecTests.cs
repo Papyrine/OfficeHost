@@ -431,8 +431,10 @@ public class SpecTests
         new Random(42).NextBytes(content);
         await File.WriteAllBytesAsync(host.PathOf("/test.docx"), content);
         var (fileId, token) = await host.Open("/test.docx");
-        using var response = await host.Client.GetAsync($"/wopi/files/{fileId}/contents?access_token={token}");
+        // the headers only, so that the length is the one of the response rather than of the buffered content
+        using var response = await host.Client.GetAsync($"/wopi/files/{fileId}/contents?access_token={token}", HttpCompletionOption.ResponseHeadersRead);
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await Assert.That(response.Content.Headers.ContentLength).IsEqualTo(content.Length);
         await Assert.That((await response.Content.ReadAsByteArrayAsync()).SequenceEqual(content)).IsTrue();
     }
 
