@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+  End-to-end tests against real WOPI clients (Collabora, ONLYOFFICE) in Docker, driven with Playwright.
+  Not part of the regular test run: see readme.md for how to run it. It needs Docker and the Playwright browsers.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+  <ItemGroup>
+    <Using Include="System.Net" />
+    <Using Include="System.Text.Json.Nodes" />
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Playwright" />
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="Microsoft.Playwright" />
+    <PackageReference Include="ProjectDefaults" PrivateAssets="all" />
+    <ProjectReference Include="..\WopiServer\WopiServer.csproj" />
+  </ItemGroup>
+</Project>

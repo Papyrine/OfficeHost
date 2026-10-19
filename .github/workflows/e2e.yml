@@ -1,0 +1,59 @@
+name: E2E
+
+# Real WOPI clients (Collabora, ONLYOFFICE) in Docker, driven with Playwright: see src/WopiServer.E2ETests.
+# Nightly and on demand only, as the editors are heavy images and fail mostly for upstream reasons.
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  DOTNET_NOLOGO: true
+
+jobs:
+  e2e:
+    name: ${{ matrix.test }}
+    strategy:
+      fail-fast: false
+      matrix:
+        test: [Collabora_OpenEditSave, OnlyOffice_OpenWithProofKeys]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Build
+        run: dotnet build src/WopiServer.E2ETests --configuration Release
+
+      - name: Install the Playwright browser
+        shell: pwsh
+        run: ./src/WopiServer.E2ETests/bin/Release/net10.0/playwright.ps1 install --with-deps chromium
+
+      - name: Test
+        run: dotnet run --project src/WopiServer.E2ETests --configuration Release --no-build -- --treenode-filter "/*/*/EditorTests/${{ matrix.test }}"
+
+      - name: Upload screenshots
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: screenshots-${{ matrix.test }}
+          path: src/WopiServer.E2ETests/bin/Release/net10.0/screenshots
+          if-no-files-found: ignore

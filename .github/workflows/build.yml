@@ -76,6 +76,38 @@ jobs:
           path: '**/*.received.*'
           if-no-files-found: ignore
 
+  # The Docker image builds and serves.
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build the image
+        run: docker build --tag wopiserver .
+
+      - name: Run the image
+        run: |
+          mkdir -p etc-wopi storage
+          printf 'smokewopisecret' > etc-wopi/wopisecret
+          printf 'smokeiopsecret' > etc-wopi/iopsecret
+          printf '[general]\nstoragetype = local\nwopiurl = http://localhost:8880\n' > etc-wopi/wopiserver.conf
+          printf 'content' > storage/test.docx
+          # the server runs as the image's app user
+          chmod -R a+rwX storage
+          docker run --detach --name wopiserver --publish 8880:8880 \
+            --volume "$PWD/etc-wopi:/etc/wopi:ro" --volume "$PWD/storage:/var/wopi_local_storage" \
+            wopiserver
+          for i in $(seq 1 30); do curl --silent --fail http://localhost:8880/wopi > /dev/null && break; sleep 1; done
+          curl --silent --fail http://localhost:8880/wopi | grep 'Health status: <span style="font-family:monospace">Warning</span>'
+          curl --silent --fail -H 'Authorization: Bearer smokeiopsecret' -H 'TokenHeader: x' \
+            'http://localhost:8880/wopi/iop/openinapp?fileid=/test.docx&viewmode=VIEW_MODE_READ_WRITE&appname=Office&appurl=https://office/edit' | grep 'access_token'
+
+      - name: Server log
+        if: always()
+        run: docker logs wopiserver || true
+
   # Microsoft's WOPI validator against the running server, see src/wopi-validator.ps1.
   wopi-validator:
     runs-on: ubuntu-latest

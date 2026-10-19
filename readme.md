@@ -82,6 +82,17 @@ The response gives the URL to open the editor with, and the token to post to it 
 ```
 
 
+### Docker
+
+```pwsh
+docker build -t wopiserver .
+docker run -p 8880:8880 -v /path/to/etc-wopi:/etc/wopi:ro -v /path/to/storage:/var/wopi_local_storage wopiserver
+```
+
+`/etc/wopi` holds `wopiserver.conf` and the `wopisecret` and `iopsecret` files. In the image, the server logs to stdout
+and the local storage is `/var/wopi_local_storage`, which the image's `app` user must be able to write.
+
+
 ## Configuration
 
 The main options, by section. `wopiserver.defaults.conf` describes them all, with their defaults.
@@ -219,6 +230,16 @@ The test project is a TUnit executable: run it, rather than `dotnet test`. It ho
 * `StartupTests`: configuration errors, HTTPS, the log destinations, the WOPI proxy and the command line.
 * `WopiTests`, `UtilsTests`: the protocol end to end, and the helpers.
 
+`src/WopiServer.E2ETests` opens documents in real editors, Collabora and ONLYOFFICE, in Docker, driven with Playwright:
+Collabora opens, edits and saves a document, and ONLYOFFICE opens one with every request validated against its proof
+keys. It needs Docker and the Playwright browser, and pulls the editor images on the first run (about 1.5 and 4.3 GB):
+
+```pwsh
+dotnet build src/WopiServer.E2ETests
+pwsh src/WopiServer.E2ETests/bin/Debug/net10.0/playwright.ps1 install chromium
+dotnet run --project src/WopiServer.E2ETests --no-build
+```
+
 Code coverage of the server, with a per-file table:
 
 ```pwsh
@@ -231,8 +252,8 @@ Microsoft's [WOPI validator](https://github.com/microsoft/wopi-validator-core) r
 the server over a temporary storage, and runs each test group. The ProofKeys group is left out: the validator's command
 line sends no proofs, so `ProofKeyTests` covers them instead.
 
-CI builds and runs the tests on Linux and Windows, with the coverage in the job summary, and the WOPI validator on
-Linux.
+CI builds and runs the tests on Linux and Windows, with the coverage in the job summary, builds and runs the Docker
+image, and runs the WOPI validator on Linux. The E2E tests run nightly and on demand (`e2e.yml`), not on every push.
 
 
 ## Credits and license

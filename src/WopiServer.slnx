@@ -11,4 +11,5 @@
   </Folder>
   <Project Path="WopiServer/WopiServer.csproj" />
   <Project Path="WopiServer.Tests/WopiServer.Tests.csproj" />
+  <Project Path="WopiServer.E2ETests/WopiServer.E2ETests.csproj" />
 </Solution>
