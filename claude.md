@@ -20,8 +20,8 @@ Core, with no CS3, Reva or container specifics.
 - Sample: `dotnet run --project src/WopiServer.Sample` (an application hosting the library, tested by `SampleTests`).
 - Readme snippets: the Usage code of `readme.md` comes from the `begin-snippet` regions of the sample. Edit the code, not
   the readme, then run `mdsnippets .` (the `on-push-do-docs.yml` workflow also does on push).
-- CI: `.github/workflows/build.yml` (build, tests with coverage on Ubuntu and Windows, validator), `e2e.yml` (editors,
-  nightly).
+- CI: `.github/workflows/build.yml` (build, tests with coverage on Ubuntu and Windows, validator, and on a tag the
+  nuget.org push through trusted publishing, the tag being the version), `e2e.yml` (editors, nightly).
 
 ## Layout
 

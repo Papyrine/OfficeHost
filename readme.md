@@ -255,6 +255,10 @@ pwsh src/coverage-summary.ps1 TestResults/coverage.cobertura.xml
 CI builds and runs the tests on Linux and Windows, with the coverage in the job summary, and runs the WOPI validator on
 Linux. The editor tests run nightly and on demand (`e2e.yml`), not on every push.
 
+A Release build packs the library into `nugets/`. Pushing a tag releases it: the tag is the version (`1.2.3` or
+`v1.2.3`), and the `publish` job of `build.yml` pushes the package to nuget.org through trusted publishing, once the
+tests and the validator pass.
+
 
 ## Credits and license
 

@@ -3,9 +3,11 @@ name: Build
 on:
   push:
     branches: [main]
+    tags: ['*']
   pull_request:
   workflow_dispatch:
 
+# Read only by default. The publish job asks for the OIDC token it needs itself.
 permissions:
   contents: read
 
@@ -44,8 +46,16 @@ jobs:
           key: nuget-${{ runner.os }}-${{ hashFiles('global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj') }}
           restore-keys: nuget-${{ runner.os }}-
 
+      # The tag is the version: tag 1.2.3 (or v1.2.3) builds 1.2.3. Other builds use the Version in
+      # src/Directory.Build.props.
+      - name: Resolve the version from the tag
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: echo "VERSION_ARGUMENT=-p:Version=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
       - name: Build
-        run: dotnet build src --configuration Release
+        # Packs as a side effect (GeneratePackageOnBuild), populating ./nugets.
+        run: dotnet build src --configuration Release ${{ env.VERSION_ARGUMENT }}
 
       # TUnit runs on Microsoft.Testing.Platform: run the test executable rather than `dotnet test`.
       - name: Test
@@ -76,6 +86,16 @@ jobs:
           path: '**/*.received.*'
           if-no-files-found: ignore
 
+      # The package is the same on both: publish the Linux one.
+      - name: Upload packages
+        if: success() && matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v7
+        with:
+          name: nupkgs
+          path: nugets/WopiServer.*.nupkg
+          if-no-files-found: error
+          retention-days: 30
+
   # Microsoft's WOPI validator against the endpoints, see src/wopi-validator.ps1.
   wopi-validator:
     runs-on: ubuntu-latest
@@ -102,3 +122,34 @@ jobs:
       - name: WOPI validator
         shell: pwsh
         run: ./src/wopi-validator.ps1 -Configuration Release
+
+  # Trusted publishing: no stored API key. nuget.org validates GitHub's OIDC token against the policy naming this
+  # repository and this workflow file, and returns a key good for an hour.
+  publish:
+    needs: [build, wopi-validator]
+    environment: nuget
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v8
+        with:
+          name: nupkgs
+          path: packages
+
+      - name: NuGet login
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: SimonCropp
+
+      - name: Push to nuget.org
+        run: >
+          dotnet nuget push "packages/**/*.nupkg"
+          --api-key ${{ steps.login.outputs.NUGET_API_KEY }}
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate

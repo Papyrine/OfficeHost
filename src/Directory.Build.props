@@ -1,17 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project>
   <PropertyGroup>
-    <NoWarn>CS1591;NU1608;NU1109;NU1901;IDE0005</NoWarn>
+    <NoWarn>CS1591;CS1573;NU1608;NU1109;NU1901;IDE0005</NoWarn>
+    <!-- Builds of a tag take its version instead, see .github/workflows/build.yml. -->
+    <Version>0.1.0</Version>
+    <AssemblyVersion>0.1.0</AssemblyVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <SuppressNETCoreSdkPreviewMessage>true</SuppressNETCoreSdkPreviewMessage>
-    <!--
-    No nupkg and no strong name yet: ProjectDefaults packs with an icon.png and signs with a key.snk, which this repo
-    does not have. Both have to be set here rather than in the projects, as ProjectDefaults evaluates them before the
-    project body.
-    -->
-    <IsPackageProject>false</IsPackageProject>
-    <SignAssembly>false</SignAssembly>
+    <!-- The WOPI logic started as a port of the CS3 WOPI server, which is under the Apache 2.0 license. -->
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageTags>wopi;ms-wopi;collabora;onlyoffice;office-online;aspnetcore</PackageTags>
     <Verify_SponsorshipExemption>OpenSource</Verify_SponsorshipExemption>
     <Verify_SponsorshipExemptionUntil>2027-08</Verify_SponsorshipExemptionUntil>
   </PropertyGroup>
