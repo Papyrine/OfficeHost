@@ -1,6 +1,7 @@
 # WopiServer
 
 [![Build](https://github.com/Papyrine/WopiServer/actions/workflows/build.yml/badge.svg)](https://github.com/Papyrine/WopiServer/actions/workflows/build.yml)
+[![NuGet Status](https://img.shields.io/nuget/v/WopiServer.svg?label=WopiServer)](https://www.nuget.org/packages/WopiServer/)
 
 The host side of the Web Application Open Platform Interface
 ([WOPI](https://learn.microsoft.com/en-us/microsoft-365/cloud-storage-partner-program/online/)) as a library for
