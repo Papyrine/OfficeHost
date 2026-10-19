@@ -68,12 +68,14 @@ app.MapWopi();
 // the pages that open a file in the WOPI client
 app.MapGet(
     "/edit/{fileId}",
-    (string fileId, HttpRequest request, WopiLauncher launcher) => Open(fileId, "edit", request, launcher));
+    (string fileId, HttpRequest request, WopiLauncher launcher) =>
+        Open(fileId, "edit", request, launcher));
 app.MapGet(
     "/view/{fileId}",
-    (string fileId, HttpRequest request, WopiLauncher launcher) => Open(fileId, "view", request, launcher));
+    (string fileId, HttpRequest request, WopiLauncher launcher) =>
+        Open(fileId, "view", request, launcher));
 ```
-<sup><a href='/src/WopiServer.Sample/Program.cs#L9-L43' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/WopiServer.Sample/Program.cs#L9-L45' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 A page decides what the user may do with the file, gets the URL of the editor and an access token from `WopiLauncher`,
@@ -83,7 +85,11 @@ and returns a page that posts the token to the editor in an iframe
 <!-- snippet: Launch -->
 <a id='snippet-Launch'></a>
 ```cs
-static async Task<IResult> Open(string fileId, string action, HttpRequest request, WopiLauncher launcher)
+static async Task<IResult> Open(
+    string fileId,
+    string action,
+    HttpRequest request,
+    WopiLauncher launcher)
 {
     // the access of the user to the file: an application decides it from its own users and permissions
     var canWrite = action == "edit";
@@ -121,7 +127,7 @@ static async Task<IResult> Open(string fileId, string action, HttpRequest reques
     }
 }
 ```
-<sup><a href='/src/WopiServer.Sample/Program.cs#L49-L87' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/WopiServer.Sample/Program.cs#L51-L93' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The WOPI clients call back the application: they must reach it at the URL of the request that launched the editor, or
