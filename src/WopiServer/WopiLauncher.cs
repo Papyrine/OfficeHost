@@ -28,6 +28,7 @@ public sealed partial class WopiLauncher
     /// </summary>
     /// <param name="request">The current request, for the URL of the application when <see cref="WopiOptions.BaseUrl"/> is not set.</param>
     /// <param name="discoveryUrl">The WOPI client to use, one of <see cref="WopiOptions.DiscoveryUrls"/>, or null for the first that offers the action.</param>
+    /// <exception cref="InvalidOperationException">No WOPI client offers the action for the type of the file: a <see cref="WopiClientUnreachableException"/> when the discovery of some could not be fetched.</exception>
     public async Task<WopiLaunch> Launch(WopiAccess access, string action, HttpRequest? request = null, string? discoveryUrl = null, Cancel cancel = default)
     {
         var settings = options.Value;
@@ -97,11 +98,23 @@ public sealed partial class WopiLauncher
         var message = $"No WOPI client offers the {action} action for .{extension} files";
         if (unreachable.Count > 0)
         {
-            message += $", and the discovery of {string.Join(", ", unreachable)} could not be fetched";
+            throw new WopiClientUnreachableException($"{message}, and the discovery of {string.Join(", ", unreachable)} could not be fetched", unreachable);
         }
 
         throw new InvalidOperationException(message);
     }
+}
+
+/// <summary>
+/// No reachable WOPI client offers the action: the discovery of some could not be fetched, as when a WOPI client is down.
+/// </summary>
+public class WopiClientUnreachableException(string message, IReadOnlyList<string> discoveryUrls) :
+    InvalidOperationException(message)
+{
+    /// <summary>
+    /// The discovery URLs that could not be fetched.
+    /// </summary>
+    public IReadOnlyList<string> DiscoveryUrls { get; } = discoveryUrls;
 }
 
 /// <summary>

@@ -87,8 +87,9 @@ public class ApiTests
     {
         await using var host = await TestServerHost.Start(_ => _.DiscoveryUrls.Add(discoveryUrl));
         await File.WriteAllTextAsync(host.PathOf("/test.odt"), "content");
-        var exception = await Helpers.Throws<InvalidOperationException>(() => host.Service<WopiLauncher>().Launch(TestServerHost.Access(host.Storage.GetFileId("test.odt")), "edit"));
+        var exception = await Helpers.Throws<WopiClientUnreachableException>(() => host.Service<WopiLauncher>().Launch(TestServerHost.Access(host.Storage.GetFileId("test.odt")), "edit"));
         await Assert.That(exception.Message).IsEqualTo($"No WOPI client offers the edit action for .odt files, and the discovery of {discoveryUrl} could not be fetched");
+        await Assert.That(exception.DiscoveryUrls).IsEquivalentTo([discoveryUrl]);
     }
 
     /// <summary>

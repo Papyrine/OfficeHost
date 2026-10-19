@@ -41,6 +41,8 @@ app.MapGet(
     (string fileId, HttpRequest request, WopiLauncher launcher) => Open(fileId, "view", request, launcher));
 // end-snippet
 app.MapGet("/", () => Results.Content(SamplePages.Files(storage), "text/html"));
+// the server listens on 0.0.0.0 for the WOPI client in Docker, which is not an address to browse
+app.Lifetime.ApplicationStarted.Register(() => app.Logger.LogInformation("Open {AppUrl} in a browser", appUrl));
 app.Run();
 
 // begin-snippet: Launch
@@ -63,6 +65,14 @@ static async Task<IResult> Open(string fileId, string action, HttpRequest reques
     catch (FileNotFoundException)
     {
         return Results.NotFound();
+    }
+    catch (WopiClientUnreachableException exception)
+    {
+        // the WOPI client is down, or not started
+        return Results.Content(
+            SamplePages.Unreachable(exception.Message),
+            "text/html",
+            statusCode: StatusCodes.Status503ServiceUnavailable);
     }
     catch (InvalidOperationException exception)
     {

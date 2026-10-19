@@ -101,6 +101,14 @@ static async Task<IResult> Open(string fileId, string action, HttpRequest reques
     {
         return Results.NotFound();
     }
+    catch (WopiClientUnreachableException exception)
+    {
+        // the WOPI client is down, or not started
+        return Results.Content(
+            SamplePages.Unreachable(exception.Message),
+            "text/html",
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
     catch (InvalidOperationException exception)
     {
         // no WOPI client offers the action for this type of file
@@ -111,7 +119,7 @@ static async Task<IResult> Open(string fileId, string action, HttpRequest reques
     }
 }
 ```
-<sup><a href='/src/WopiServer.Sample/Program.cs#L46-L76' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/WopiServer.Sample/Program.cs#L48-L86' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The WOPI clients call back the application: they must reach it at the URL of the request that launched the editor, or

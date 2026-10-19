@@ -111,6 +111,23 @@ public partial class SampleTests : IAsyncDisposable
         await Assert.That(await response.Content.ReadAsStringAsync()).Contains("No WOPI client offers the edit action for .txt files");
     }
 
+    /// <summary>
+    /// When the WOPI client is down, the page says how to start Collabora Online.
+    /// </summary>
+    [Test]
+    public async Task Launch_ClientUnreachable()
+    {
+        await using var unreachable = factory.WithWebHostBuilder(_ => _.UseSetting("Wopi:DiscoveryUrls:0", "https://down/hosting/discovery"));
+        using var client = unreachable.CreateClient();
+        var fileId = await WelcomeId(client);
+        using var response = await client.GetAsync($"/edit/{Uri.EscapeDataString(fileId)}");
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.ServiceUnavailable);
+        var page = WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync());
+        await Assert.That(page).Contains("the discovery of https://down/hosting/discovery could not be fetched");
+        await Assert.That(page).Contains("Is Collabora Online running?");
+        await Assert.That(page).Contains("docker run --rm --publish 9980:9980");
+    }
+
     [Test]
     public async Task Launch_UnknownFile()
     {

@@ -16,6 +16,7 @@ static class SamplePages
               main { max-width: 48rem; margin: 2rem auto; padding: 0 1rem; }
               td { padding: 0.25rem 1rem 0.25rem 0; }
               code { overflow-wrap: anywhere; }
+              pre { white-space: pre-wrap; overflow-wrap: anywhere; }
             </style>
           </head>
           <body>{{body}}</body>
@@ -69,6 +70,26 @@ static class SamplePages
                      style="position: fixed; inset: 0; width: 100%; height: 100%; border: none"></iframe>
              <script>document.getElementById('wopi').submit();</script>
              """);
+
+    /// <summary>
+    /// The error page when the WOPI client cannot be reached, with how to start Collabora Online.
+    /// </summary>
+    public static string Unreachable(string message) =>
+        Page(
+            "Cannot open the file",
+            $"""
+             <main>
+               <h1>Cannot open the file</h1>
+               <p>{WebUtility.HtmlEncode(message)}</p>
+               <p>Is Collabora Online running? Start it in Docker, as the Sample section of the readme shows:</p>
+               <pre>{WebUtility.HtmlEncode(collaboraCommand)}</pre>
+               <p>Then try again: the sample fetches the discovery of Collabora as soon as it answers.</p>
+               <p><a href="/">Back to the files</a></p>
+             </main>
+             """);
+
+    const string collaboraCommand =
+        """docker run --rm --publish 9980:9980 --add-host host.docker.internal:host-gateway --env "domain=host\.docker\.internal.*" --env "extra_params=--o:ssl.enable=false --o:ssl.termination=false --o:home_mode.enable=true" collabora/code""";
 
     public static string Message(string message) =>
         Page(
