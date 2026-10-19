@@ -36,10 +36,12 @@ app.MapWopi();
 // the pages that open a file in the WOPI client
 app.MapGet(
     "/edit/{fileId}",
-    (string fileId, HttpRequest request, WopiLauncher launcher) => Open(fileId, "edit", request, launcher));
+    (string fileId, HttpRequest request, WopiLauncher launcher) =>
+        Open(fileId, "edit", request, launcher));
 app.MapGet(
     "/view/{fileId}",
-    (string fileId, HttpRequest request, WopiLauncher launcher) => Open(fileId, "view", request, launcher));
+    (string fileId, HttpRequest request, WopiLauncher launcher) =>
+        Open(fileId, "view", request, launcher));
 // end-snippet
 app.MapGet("/", () => Results.Content(SamplePages.Files(storage), "text/html"));
 // the server listens on 0.0.0.0 for the WOPI client in Docker, which is not an address to browse
@@ -47,7 +49,11 @@ app.Lifetime.ApplicationStarted.Register(() => app.Logger.LogInformation("Open {
 app.Run();
 
 // begin-snippet: Launch
-static async Task<IResult> Open(string fileId, string action, HttpRequest request, WopiLauncher launcher)
+static async Task<IResult> Open(
+    string fileId,
+    string action,
+    HttpRequest request,
+    WopiLauncher launcher)
 {
     // the access of the user to the file: an application decides it from its own users and permissions
     var canWrite = action == "edit";
