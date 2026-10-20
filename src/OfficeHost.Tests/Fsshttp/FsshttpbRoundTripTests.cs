@@ -33,7 +33,7 @@ public class FsshttpbRoundTripTests
         new ObjectGroup(
             Id(20),
             Serial(20),
-            new DataElementHash(1, Data(20)),
+            new(1, Data(20)),
             [new ObjectDeclaration(Id(21), 1, 600, 2, 1), new ObjectDataBlobDeclaration(Id(22), Id(23), 1, 0, 0)],
             [1, 0x4000],
             [
@@ -116,7 +116,7 @@ public class FsshttpbRoundTripTests
         yield return (
             "RequestFull",
             new FsshttpbRequest(
-                new UserAgent(guid, "msword", "win", 0x39A0F666),
+                new(guid, "msword", "win", 0x39A0F666),
                 [
                     new QueryAccessRequest(1, 2, other),
                     FullQueryChanges(),
@@ -239,7 +239,7 @@ public class FsshttpbRoundTripTests
         var none = new PutChangesRequest(1, Id(1), ExtendedGuid.Null, 0);
         await Assert.That((none.ImplyNullExpectedIfNoMapping, none.Partial, none.PartialLast, none.FavorCoherencyFailureOverNotFound, none.LastWriterWinsOnNextChange, none.AdditionalFlagBits))
             .IsEqualTo((false, false, false, false, false, (ushort) 0));
-        var all = new PutChangesRequest(1, Id(1), ExtendedGuid.Null, 0xFF, AdditionalFlags: new byte[] { 0x3F, 0x00 });
+        var all = new PutChangesRequest(1, Id(1), ExtendedGuid.Null, 0xFF, AdditionalFlags: "?\0"u8.ToArray());
         await Assert.That((all.ImplyNullExpectedIfNoMapping, all.Partial, all.PartialLast, all.FavorCoherencyFailureOverNotFound, all.LastWriterWinsOnNextChange, all.AdditionalFlagBits))
             .IsEqualTo((true, true, true, true, true, (ushort) 0x3F));
         // Additional Flags shorter than its two bytes have none
@@ -256,6 +256,6 @@ public class FsshttpbRoundTripTests
         await Assert.That(new FailedSubResponse(1, RequestType.PutChanges, ResponseError.Success).Type).IsEqualTo(RequestType.PutChanges);
         await Assert.That(new VersionTokenKnowledge(Data(1)).Kind).IsEqualTo(SpecializedKnowledge.VersionTokenKnowledgeKind);
         await Assert.That(new UnknownKnowledge(other, Data(0)).Kind).IsEqualTo(other);
-        await Assert.That(ResponseError.Success).IsEqualTo(new ResponseError(ResponseErrorType.HResult, 0));
+        await Assert.That(ResponseError.Success).IsEqualTo(new(ResponseErrorType.HResult, 0));
     }
 }

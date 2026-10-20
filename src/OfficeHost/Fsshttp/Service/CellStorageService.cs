@@ -551,7 +551,15 @@ class CellStorageService(IOfficeStorage storage, FsshttpCells cells, CoauthSessi
                         var expires = sessions.Now.AddSeconds(client.TimeoutSeconds);
                         return new(success, _ with
                         {
-                            Clients = _.Clients.Where(_ => _.ClientId != clientId).Append(client with { Expires = expires }).ToList()
+                            Clients =
+                            [
+                                .. _.Clients
+                                    .Where(_ => _.ClientId != clientId),
+                                client with
+                                {
+                                    Expires = expires
+                                }
+                            ]
                         });
                     },
                     null,
@@ -747,7 +755,7 @@ class CellStorageService(IOfficeStorage storage, FsshttpCells cells, CoauthSessi
                         var entry = new SessionEditor(clientId, site.Access.UserId, site.Access.UserName, asEditor, sessions.Now.AddSeconds(timeout), editor?.Metadata ?? []);
                         return new(success, _ with
                         {
-                            Editors = others.Append(entry).ToList()
+                            Editors = [.. others, entry]
                         });
                     case "LeaveEditingSession":
                         return new(success, _ with
@@ -790,7 +798,13 @@ class CellStorageService(IOfficeStorage storage, FsshttpCells cells, CoauthSessi
 
                         return new(success, _ with
                         {
-                            Editors = others.Append(editor with { Metadata = metadata }).ToList()
+                            Editors =
+                            [
+                                .. others, editor with
+                                {
+                                    Metadata = metadata
+                                }
+                            ]
                         });
                     default:
                         return new("InvalidArgument", _);

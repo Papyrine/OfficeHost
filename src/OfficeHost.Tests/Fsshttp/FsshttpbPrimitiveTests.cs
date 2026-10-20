@@ -370,7 +370,7 @@ public class FsshttpbPrimitiveTests
     public async Task Header_Start(string hex, ushort code, ulong length)
     {
         var type = (StreamObjectType) code;
-        await Assert.That(ReadHeader(hex)).IsEqualTo(new StreamObjectHeader(type, type.IsCompound(), false, length));
+        await Assert.That(ReadHeader(hex)).IsEqualTo(new(type, type.IsCompound(), false, length));
         var written = Fsshttpb.Bytes((ref FsshttpbWriter _) => _.WriteStart(type, length));
         await Assert.That(Fsshttpb.Hex(written)).IsEqualTo(hex);
     }
@@ -396,7 +396,7 @@ public class FsshttpbPrimitiveTests
     public async Task Header_End(string hex, ushort code)
     {
         var type = (StreamObjectType) code;
-        await Assert.That(ReadHeader(hex)).IsEqualTo(new StreamObjectHeader(type, true, true, 0));
+        await Assert.That(ReadHeader(hex)).IsEqualTo(new(type, true, true, 0));
         var written = Fsshttpb.Bytes((ref FsshttpbWriter _) => _.WriteEnd(type));
         await Assert.That(Fsshttpb.Hex(written)).IsEqualTo(hex);
     }
@@ -415,7 +415,7 @@ public class FsshttpbPrimitiveTests
         var type = (StreamObjectType) code;
         var written = Fsshttpb.Bytes((ref FsshttpbWriter _) => _.WriteStart(type, length));
         await Assert.That(Fsshttpb.Hex(written)).IsEqualTo(hex);
-        await Assert.That(ReadHeader(written)).IsEqualTo(new StreamObjectHeader(type, type.IsCompound(), false, length));
+        await Assert.That(ReadHeader(written)).IsEqualTo(new(type, type.IsCompound(), false, length));
     }
 
     /// <summary>
@@ -429,7 +429,7 @@ public class FsshttpbPrimitiveTests
     {
         var written = Fsshttpb.Bytes((ref FsshttpbWriter _) => _.WriteStart(StreamObjectType.ObjectDataBlob, length));
         await Assert.That(Fsshttpb.Hex(written)).IsEqualTo(hex);
-        await Assert.That(ReadHeader(hex)).IsEqualTo(new StreamObjectHeader(StreamObjectType.ObjectDataBlob, false, false, length));
+        await Assert.That(ReadHeader(hex)).IsEqualTo(new(StreamObjectType.ObjectDataBlob, false, false, length));
     }
 
     /// <summary>

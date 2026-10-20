@@ -38,7 +38,7 @@ public class StorageTests : IDisposable
         await Assert.That(file.Name).IsEqualTo("test.docx");
         await Assert.That(file.Size).IsEqualTo(5);
         await Assert.That(file.OwnerId).IsEqualTo("owner");
-        await Assert.That(file.LastModified).IsEqualTo(new DateTimeOffset(File.GetLastWriteTimeUtc(Path.Combine(folder, "sub/test.docx"))));
+        await Assert.That(file.LastModified).IsEqualTo(new(File.GetLastWriteTimeUtc(Path.Combine(folder, "sub/test.docx"))));
         await Assert.That(storage.GetPath(id)).IsEqualTo(Path.Combine(folder, "sub", "test.docx"));
     }
 

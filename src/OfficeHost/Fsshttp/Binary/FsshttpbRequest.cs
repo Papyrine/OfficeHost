@@ -1,5 +1,3 @@
-using System.Text;
-
 /// <summary>
 /// The request types of [MS-FSSHTTPB] 2.2.1.6.
 /// </summary>

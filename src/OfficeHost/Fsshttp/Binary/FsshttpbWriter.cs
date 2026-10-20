@@ -1,5 +1,3 @@
-using System.Text;
-
 /// <summary>
 /// Writes FSSHTTPB ([MS-FSSHTTPB] 2.2.1) to a buffer writer, in the shortest encodings: compact integers and Extended
 /// GUIDs at their smallest, 16-bit stream object headers where the type and length allow it, 32-bit otherwise.

@@ -23,15 +23,15 @@ public class FsshttpbVectorTests
     public async Task Spec_QueryChangesRequest()
     {
         var request = FsshttpbRequest.Read(Fsshttpb.Hex(FsshttpbVectors.SpecQueryChangesRequest));
-        await Assert.That(request.ProtocolVersion).IsEqualTo((ushort) 12);
-        await Assert.That(request.MinimumVersion).IsEqualTo((ushort) 11);
+        await Assert.That(request.ProtocolVersion).IsEqualTo((ushort)12);
+        await Assert.That(request.MinimumVersion).IsEqualTo((ushort)11);
         await Assert.That(request.UserAgent!.Guid).IsEqualTo(Fsshttpb.Guid("E731B87E-DD45-44AA-AB80-0C75FBD1530E"));
         await Assert.That(request.UserAgent.Client).IsNull();
         await Assert.That(request.UserAgent.Version).IsEqualTo(0x0FA127C4u);
-        var query = (QueryChangesRequest) request.SubRequests.Single();
+        var query = (QueryChangesRequest)request.SubRequests.Single();
         await Assert.That(query.RequestId).IsEqualTo(1ul);
         await Assert.That(query.Priority).IsEqualTo(0ul);
-        await Assert.That(query.Flags).IsEqualTo((ushort) 0);
+        await Assert.That(query.Flags).IsEqualTo((ushort)0);
         await Assert.That(query.AllowFragments).IsFalse();
         await Assert.That(query.Arguments!.IncludeStorageManifest).IsTrue();
         await Assert.That(query.Arguments.IncludeCellChanges).IsTrue();
@@ -49,21 +49,21 @@ public class FsshttpbVectorTests
     public async Task Spec_QueryChangesSubResponse()
     {
         var bytes = Fsshttpb.Hex(FsshttpbVectors.SpecQueryChangesSubResponse);
-        var response = (QueryChangesResponse) Fsshttpb.Read(bytes, (ref FsshttpbReader _) => SubResponse.Read(ref _));
+        var response = (QueryChangesResponse)Fsshttpb.Read(bytes, (ref FsshttpbReader _) => SubResponse.Read(ref _));
         await Assert.That(response.RequestId).IsEqualTo(1ul);
-        await Assert.That(response.StorageIndex).IsEqualTo(new ExtendedGuid(Fsshttpb.Guid("A00D98FD-40FD-4D99-930A-6322D7689136"), 1));
+        await Assert.That(response.StorageIndex).IsEqualTo(new(Fsshttpb.Guid("A00D98FD-40FD-4D99-930A-6322D7689136"), 1));
         await Assert.That(response.Partial).IsFalse();
-        var cell = (CellKnowledge) response.Knowledge.Items[0];
-        var first = (CellKnowledgeRange) cell.Items[0];
+        var cell = (CellKnowledge)response.Knowledge.Items[0];
+        var first = (CellKnowledgeRange)cell.Items[0];
         await Assert.That(first.Guid).IsEqualTo(Fsshttpb.Guid("E20A9380-FD55-BCA5-9037-451C9D86E949"));
         await Assert.That(first.From).IsEqualTo(0ul);
         await Assert.That(first.To).IsEqualTo(73507ul);
-        var second = (CellKnowledgeRange) cell.Items[1];
+        var second = (CellKnowledgeRange)cell.Items[1];
         await Assert.That(second.Guid).IsEqualTo(Fsshttpb.Guid("1DF56C7F-02AA-435A-9037-451C9D86E949"));
         // the spec text says 75503: the bytes FC F8 08 are 73503
         await Assert.That(second.To).IsEqualTo(73503ul);
-        var waterline = ((WaterlineKnowledge) response.Knowledge.Items[1]).Entries.Single();
-        await Assert.That(waterline.CellStorage).IsEqualTo(new ExtendedGuid(Fsshttpb.Guid("1DF56C7F-02AA-435A-9037-451C9D86E949"), 1));
+        var waterline = ((WaterlineKnowledge)response.Knowledge.Items[1]).Entries.Single();
+        await Assert.That(waterline.CellStorage).IsEqualTo(new(Fsshttpb.Guid("1DF56C7F-02AA-435A-9037-451C9D86E949"), 1));
         await Assert.That(waterline.Waterline).IsEqualTo(73503ul);
     }
 
@@ -77,15 +77,15 @@ public class FsshttpbVectorTests
         var response = FsshttpbResponse.Read(Fsshttpb.Hex(FsshttpbVectors.SpecPutChangesResponse));
         await Assert.That(response.Error).IsNull();
         await Assert.That(response.DataElements).IsNull();
-        var put = (PutChangesResponse) response.SubResponses.Single();
+        var put = (PutChangesResponse)response.SubResponses.Single();
         await Assert.That(put.HasResponseObject).IsFalse();
-        var ranges = ((CellKnowledge) put.Knowledge.Items[0]).Items.Cast<CellKnowledgeRange>().ToList();
+        var ranges = ((CellKnowledge)put.Knowledge.Items[0]).Items.Cast<CellKnowledgeRange>().ToList();
         await Assert.That(ranges[0].Guid).IsEqualTo(Fsshttpb.Guid("92699222-AD46-B353-9489-C24F5ACFA09A"));
         await Assert.That(ranges[0].To).IsEqualTo(116ul);
         await Assert.That(ranges[1].Guid).IsEqualTo(Fsshttpb.Guid("6D966DDD-52B9-4CAC-9489-C24F5ACFA09A"));
         await Assert.That(ranges[1].To).IsEqualTo(111ul);
-        var tag = ((ContentTagKnowledge) put.Knowledge.Items[1]).Entries.Single();
-        await Assert.That(tag.Blob).IsEqualTo(new ExtendedGuid(Fsshttpb.Guid("37410BF9-D16F-4499-A6C3-27232EDCA711"), 1));
+        var tag = ((ContentTagKnowledge)put.Knowledge.Items[1]).Entries.Single();
+        await Assert.That(tag.Blob).IsEqualTo(new(Fsshttpb.Guid("37410BF9-D16F-4499-A6C3-27232EDCA711"), 1));
         await Assert.That(Fsshttpb.Hex(tag.ClockData.Span)).IsEqualTo("33000000");
     }
 
@@ -98,17 +98,17 @@ public class FsshttpbVectorTests
     public async Task Spec_PutChangesRequest()
     {
         var request = FsshttpbRequest.Read(FsshttpbVectors.SpecPutChangesRequest);
-        var put = (PutChangesRequest) request.SubRequests.Single();
+        var put = (PutChangesRequest)request.SubRequests.Single();
         var storageIndexId = new ExtendedGuid(Fsshttpb.Guid("052E2E8E-C0D1-4886-9C51-29D661714F67"), 1);
         await Assert.That(put.StorageIndex).IsEqualTo(storageIndexId);
         await Assert.That(put.ExpectedStorageIndex).IsEqualTo(ExtendedGuid.Null);
-        await Assert.That(put.Flags).IsEqualTo((byte) 0x48);
+        await Assert.That(put.Flags).IsEqualTo((byte)0x48);
         await Assert.That(put.FavorCoherencyFailureOverNotFound).IsTrue();
         await Assert.That(put.ImplyNullExpectedIfNoMapping).IsFalse();
         var elements = request.DataElements!.Elements;
         await Assert.That(elements.Select(_ => _.Type).ToList()).IsEquivalentTo(
             [DataElementType.StorageManifest, DataElementType.CellManifest, DataElementType.RevisionManifest, DataElementType.StorageIndex]);
-        var storageIndex = (StorageIndex) elements[3];
+        var storageIndex = (StorageIndex)elements[3];
         await Assert.That(storageIndex.Id).IsEqualTo(storageIndexId);
         await Assert.That(storageIndex.Entries.Count).IsEqualTo(3);
     }
@@ -119,15 +119,16 @@ public class FsshttpbVectorTests
     [Test]
     public async Task Spec_StorageManifest()
     {
-        var manifest = (StorageManifest) Fsshttpb.Read(Fsshttpb.Hex(FsshttpbVectors.SpecStorageManifest), (ref FsshttpbReader _) => DataElement.Read(ref _));
-        await Assert.That(manifest.Id).IsEqualTo(new ExtendedGuid(Fsshttpb.Guid("D730FA99-122C-4288-B722-0A125CFDA7E5"), 1));
-        await Assert.That(manifest.SerialNumber).IsEqualTo(new SerialNumber(Fsshttpb.Guid("5430AF47-6E71-409B-9806-707E818DC102"), 0x32));
+        var manifest = (StorageManifest)Fsshttpb.Read(Fsshttpb.Hex(FsshttpbVectors.SpecStorageManifest), (ref FsshttpbReader _) => DataElement.Read(ref _));
+        await Assert.That(manifest.Id).IsEqualTo(new(Fsshttpb.Guid("D730FA99-122C-4288-B722-0A125CFDA7E5"), 1));
+        await Assert.That(manifest.SerialNumber).IsEqualTo(new(Fsshttpb.Guid("5430AF47-6E71-409B-9806-707E818DC102"), 0x32));
         await Assert.That(manifest.SchemaId).IsEqualTo(Fsshttpb.Guid("0EB93394-571D-41E9-AAD3-880D92D31955"));
         var root = manifest.Roots.Single();
-        await Assert.That(root.RootId).IsEqualTo(new ExtendedGuid(Fsshttpb.Guid("84DEFAB9-AAA3-4A0D-A3A8-520C77AC7073"), 2));
-        await Assert.That(root.Cell).IsEqualTo(new CellId(
-            new(Fsshttpb.Guid("84DEFAB9-AAA3-4A0D-A3A8-520C77AC7073"), 1),
-            new(Fsshttpb.Guid("6F2A4665-42C8-46C7-BAB4-E28FDCE1E32B"), 1)));
+        await Assert.That(root.RootId).IsEqualTo(new(Fsshttpb.Guid("84DEFAB9-AAA3-4A0D-A3A8-520C77AC7073"), 2));
+        await Assert.That(root.Cell).IsEqualTo(
+            new(
+                new(Fsshttpb.Guid("84DEFAB9-AAA3-4A0D-A3A8-520C77AC7073"), 1),
+                new(Fsshttpb.Guid("6F2A4665-42C8-46C7-BAB4-E28FDCE1E32B"), 1)));
     }
 
     /// <summary>
@@ -136,9 +137,9 @@ public class FsshttpbVectorTests
     [Test]
     public async Task Spec_CellManifest()
     {
-        var manifest = (CellManifest) Fsshttpb.Read(Fsshttpb.Hex(FsshttpbVectors.SpecCellManifest), (ref FsshttpbReader _) => DataElement.Read(ref _));
-        await Assert.That(manifest.Id).IsEqualTo(new ExtendedGuid(Fsshttpb.Guid("2C0BFC8E-9B04-4C61-AB49-4845E603ECA0"), 0x31));
-        await Assert.That(manifest.CurrentRevision).IsEqualTo(new ExtendedGuid(Fsshttpb.Guid("7128FE3A-DCBE-4301-BD84-716C456C808A"), 1));
+        var manifest = (CellManifest)Fsshttpb.Read(Fsshttpb.Hex(FsshttpbVectors.SpecCellManifest), (ref FsshttpbReader _) => DataElement.Read(ref _));
+        await Assert.That(manifest.Id).IsEqualTo(new(Fsshttpb.Guid("2C0BFC8E-9B04-4C61-AB49-4845E603ECA0"), 0x31));
+        await Assert.That(manifest.CurrentRevision).IsEqualTo(new(Fsshttpb.Guid("7128FE3A-DCBE-4301-BD84-716C456C808A"), 1));
     }
 
     /// <summary>
@@ -149,13 +150,13 @@ public class FsshttpbVectorTests
     [Test]
     public async Task Spec_RevisionManifest()
     {
-        var manifest = (RevisionManifest) Fsshttpb.Read(Fsshttpb.Hex(FsshttpbVectors.SpecRevisionManifest), (ref FsshttpbReader _) => DataElement.Read(ref _));
-        await Assert.That(manifest.RevisionId).IsEqualTo(new ExtendedGuid(Fsshttpb.Guid("7128FE3A-DCBE-4301-BD84-716C456C808A"), 1));
+        var manifest = (RevisionManifest)Fsshttpb.Read(Fsshttpb.Hex(FsshttpbVectors.SpecRevisionManifest), (ref FsshttpbReader _) => DataElement.Read(ref _));
+        await Assert.That(manifest.RevisionId).IsEqualTo(new(Fsshttpb.Guid("7128FE3A-DCBE-4301-BD84-716C456C808A"), 1));
         await Assert.That(manifest.BaseRevisionId).IsEqualTo(ExtendedGuid.Null);
         var root = manifest.Roots.Single();
-        await Assert.That(root.RootId).IsEqualTo(new ExtendedGuid(Fsshttpb.Guid("84DEFAB9-AAA3-4A0D-A3A8-520C77AC7073"), 2));
+        await Assert.That(root.RootId).IsEqualTo(new(Fsshttpb.Guid("84DEFAB9-AAA3-4A0D-A3A8-520C77AC7073"), 2));
         await Assert.That(root.ObjectId.Value).IsEqualTo(0xDE0C3813u);
-        await Assert.That(manifest.ObjectGroups.Single()).IsEqualTo(new ExtendedGuid(Fsshttpb.Guid("2C0BFC8E-9B04-4C61-AB49-4845E603ECA0"), 1));
+        await Assert.That(manifest.ObjectGroups.Single()).IsEqualTo(new(Fsshttpb.Guid("2C0BFC8E-9B04-4C61-AB49-4845E603ECA0"), 1));
     }
 
     /// <summary>
@@ -164,15 +165,15 @@ public class FsshttpbVectorTests
     [Test]
     public async Task Spec_StorageIndex()
     {
-        var index = (StorageIndex) Fsshttpb.Read(Fsshttpb.Hex(FsshttpbVectors.SpecStorageIndex), (ref FsshttpbReader _) => DataElement.Read(ref _));
-        var manifest = (StorageIndexManifestMapping) index.Entries[0];
-        await Assert.That(manifest.MappingId).IsEqualTo(new ExtendedGuid(Fsshttpb.Guid("D730FA99-122C-4288-B722-0A125CFDA7E5"), 1));
+        var index = (StorageIndex)Fsshttpb.Read(Fsshttpb.Hex(FsshttpbVectors.SpecStorageIndex), (ref FsshttpbReader _) => DataElement.Read(ref _));
+        var manifest = (StorageIndexManifestMapping)index.Entries[0];
+        await Assert.That(manifest.MappingId).IsEqualTo(new(Fsshttpb.Guid("D730FA99-122C-4288-B722-0A125CFDA7E5"), 1));
         await Assert.That(manifest.MappingSerialNumber.Value).IsEqualTo(0x3Eul);
-        var cell = (StorageIndexCellMapping) index.Entries[1];
-        await Assert.That(cell.MappingId).IsEqualTo(new ExtendedGuid(Fsshttpb.Guid("2C0BFC8E-9B04-4C61-AB49-4845E603ECA0"), 0x31));
-        var revision = (StorageIndexRevisionMapping) index.Entries[2];
-        await Assert.That(revision.Revision).IsEqualTo(new ExtendedGuid(Fsshttpb.Guid("7128FE3A-DCBE-4301-BD84-716C456C808A"), 1));
-        await Assert.That(revision.MappingId).IsEqualTo(new ExtendedGuid(Fsshttpb.Guid("DFD1A905-9B9C-422E-B259-817AF3511454"), 1));
+        var cell = (StorageIndexCellMapping)index.Entries[1];
+        await Assert.That(cell.MappingId).IsEqualTo(new(Fsshttpb.Guid("2C0BFC8E-9B04-4C61-AB49-4845E603ECA0"), 0x31));
+        var revision = (StorageIndexRevisionMapping)index.Entries[2];
+        await Assert.That(revision.Revision).IsEqualTo(new(Fsshttpb.Guid("7128FE3A-DCBE-4301-BD84-716C456C808A"), 1));
+        await Assert.That(revision.MappingId).IsEqualTo(new(Fsshttpb.Guid("DFD1A905-9B9C-422E-B259-817AF3511454"), 1));
     }
 
     /// <summary>
@@ -186,7 +187,7 @@ public class FsshttpbVectorTests
         {
             var response = FsshttpbResponse.Read(Convert.FromBase64String(base64));
             await Assert.That(response.DataElements!.Elements.Count).IsGreaterThan(0);
-            var query = (QueryChangesResponse) response.SubResponses.Single();
+            var query = (QueryChangesResponse)response.SubResponses.Single();
             await Assert.That(query.StorageIndex.IsNull).IsFalse();
         }
     }
@@ -199,13 +200,13 @@ public class FsshttpbVectorTests
     public async Task Word_QueryChanges()
     {
         var request = FsshttpbRequest.Read(Convert.FromBase64String(FsshttpbVectors.WordRequests[0]));
-        await Assert.That(request.ProtocolVersion).IsEqualTo((ushort) 14);
+        await Assert.That(request.ProtocolVersion).IsEqualTo((ushort)14);
         await Assert.That(request.UserAgent!.Guid).IsEqualTo(Fsshttpb.Guid("1984108C-4B93-4EEB-B320-919432D6E593"));
         await Assert.That(request.UserAgent.Client).IsEqualTo("msword");
         await Assert.That(request.UserAgent.Platform).IsEqualTo("win");
-        var query = (QueryChangesRequest) request.SubRequests.Single();
+        var query = (QueryChangesRequest)request.SubRequests.Single();
         await Assert.That(query.FlagsLength).IsEqualTo(2);
-        await Assert.That(query.Flags).IsEqualTo((ushort) 0xAC00);
+        await Assert.That(query.Flags).IsEqualTo((ushort)0xAC00);
         await Assert.That(query.UserContentEquivalentVersionOk).IsFalse();
         await Assert.That(query.MaxDataElements).IsEqualTo(3670016ul);
     }
@@ -217,7 +218,7 @@ public class FsshttpbVectorTests
     public async Task Word_FileProperties()
     {
         var request = FsshttpbRequest.Read(Convert.FromBase64String(FsshttpbVectors.WordRequests[2]));
-        await Assert.That(request.CellRoundtripOptions).IsEqualTo((byte) 1);
+        await Assert.That(request.CellRoundtripOptions).IsEqualTo((byte)1);
     }
 
     /// <summary>
@@ -229,7 +230,7 @@ public class FsshttpbVectorTests
         var request = FsshttpbRequest.Read(Convert.FromBase64String(FsshttpbVectors.WordRequests[3]));
         await Assert.That(request.UserAgent).IsNull();
         await Assert.That(request.DataElements).IsNull();
-        var access = (QueryAccessRequest) request.SubRequests.Single();
+        var access = (QueryAccessRequest)request.SubRequests.Single();
         await Assert.That(access.RequestId).IsEqualTo(1ul);
     }
 }

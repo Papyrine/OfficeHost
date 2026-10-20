@@ -1,6 +1,3 @@
-using System.Buffers.Binary;
-using System.Security.Cryptography;
-
 /// <summary>
 /// The chunking of [MS-FSSHTTPD] 2.4: zip files at the boundaries of their items (2.4.1), any other file in chunks of
 /// 1 megabyte (2.4.3).

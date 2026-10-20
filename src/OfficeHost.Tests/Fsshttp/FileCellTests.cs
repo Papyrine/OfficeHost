@@ -709,7 +709,7 @@ public class FileCellTests
     public async Task ToArray_TooLarge()
     {
         var node = new IntermediateNode(ExtendedGuid.Null, ReadOnlyMemory<byte>.Empty, 3UL * 1024 * 1024 * 1024, []);
-        await Assert.That(() => node.ToArray()).Throws<FsshttpdException>();
+        await Assert.That(node.ToArray).Throws<FsshttpdException>();
     }
 
     /// <summary>
@@ -788,10 +788,10 @@ public class FileCellTests
     {
         var guid = Guid.NewGuid();
         var ids = new IdAllocator(guid, uint.MaxValue);
-        await Assert.That(ids.NewId()).IsEqualTo(new ExtendedGuid(guid, uint.MaxValue));
-        await Assert.That(ids.NewSerialNumber()).IsEqualTo(new SerialNumber(guid, (ulong) uint.MaxValue + 1));
+        await Assert.That(ids.NewId()).IsEqualTo(new(guid, uint.MaxValue));
+        await Assert.That(ids.NewSerialNumber()).IsEqualTo(new(guid, (ulong) uint.MaxValue + 1));
         await Assert.That(ids.Next).IsEqualTo((ulong) uint.MaxValue + 2);
         await Assert.That(ids.Guid).IsEqualTo(guid);
-        await Assert.That(() => ids.NewId()).Throws<InvalidOperationException>();
+        await Assert.That(ids.NewId).Throws<InvalidOperationException>();
     }
 }

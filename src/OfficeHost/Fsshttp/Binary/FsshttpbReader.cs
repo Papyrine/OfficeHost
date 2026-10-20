@@ -1,6 +1,3 @@
-using System.Numerics;
-using System.Text;
-
 /// <summary>
 /// Reads FSSHTTPB ([MS-FSSHTTPB] 2.2.1) from memory without copying: binary data comes back as slices of the input.
 /// Every read checks its bounds, so malformed or truncated input throws <see cref="FsshttpbException"/> and never reads

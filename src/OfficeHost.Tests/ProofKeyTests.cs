@@ -261,10 +261,8 @@ public class ProofKeyTests
             await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.InternalServerError);
         }
 
-        using (var garbage = await context.CheckFileInfo("not base64!"))
-        {
-            await Assert.That(garbage.StatusCode).IsEqualTo(HttpStatusCode.InternalServerError);
-        }
+        using var garbage = await context.CheckFileInfo("not base64!");
+        await Assert.That(garbage.StatusCode).IsEqualTo(HttpStatusCode.InternalServerError);
     }
 
     /// <summary>

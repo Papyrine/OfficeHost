@@ -98,7 +98,11 @@ public sealed partial class OfficeLauncher
 
         var token = await tokens.Issue(access, cancel);
         var command = "ofv";
-        if (access.CanWrite && !access.ViewOnly)
+        if (access is
+            {
+                CanWrite: true,
+                ViewOnly: false
+            })
         {
             command = "ofe";
         }

@@ -1,7 +1,3 @@
-using System.Text;
-using Microsoft.AspNetCore.WebUtilities;
-using Microsoft.Net.Http.Headers;
-
 /// <summary>
 /// Writes every request and response in full to a folder, one file each (<c>{sequence}-{method}-{path}.txt</c>), to see
 /// what desktop Office sends (docs/fsshttp-checklist.md). Text bodies are written as text, others as hex, and multipart
@@ -15,11 +11,10 @@ static class RequestLog
         // after the files of a previous run, rather than over them
         var sequence = Directory.EnumerateFiles(folder).Count();
         var logger = app.Logger;
-        app.Use(
-            async (context, next) =>
+        app.Use((context, next) =>
             {
                 var number = Interlocked.Increment(ref sequence);
-                await Log(context, next, folder, number, logger);
+                return Log(context, next, folder, number, logger);
             });
     }
 
@@ -84,26 +79,28 @@ static class RequestLog
         }
     }
 
-    static async Task AppendBody(StringBuilder log, byte[] body, string? contentType)
+    static Task AppendBody(StringBuilder log, byte[] body, string? contentType)
     {
         if (body.Length == 0)
         {
             log.AppendLine("(no body)");
-            return;
+            return Task.CompletedTask;
         }
 
         if (IsText(contentType))
         {
             log.AppendLine(Encoding.UTF8.GetString(body));
-            return;
+            return Task.CompletedTask;
         }
 
         AppendHex(log, body);
         if (contentType != null &&
             contentType.Contains("multipart/", StringComparison.OrdinalIgnoreCase))
         {
-            await AppendParts(log, body, contentType);
+            return AppendParts(log, body, contentType);
         }
+
+        return Task.CompletedTask;
     }
 
     static bool IsText(string? contentType)

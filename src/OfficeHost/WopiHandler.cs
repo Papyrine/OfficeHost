@@ -549,7 +549,7 @@ sealed class WopiHandler(
         // the file is gone: a state left behind is only unused, so its failure does not fail the delete
         try
         {
-            await fsshttp.Delete(fileId, CancellationToken.None);
+            await fsshttp.Delete(fileId, Cancel.None);
         }
         catch (Exception exception)
         {

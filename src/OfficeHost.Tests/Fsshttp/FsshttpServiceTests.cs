@@ -17,7 +17,8 @@ public class FsshttpServiceTests
         return (host, fileId, token);
     }
 
-    static async Task<byte[]> FileOf(TestServerHost host) => await File.ReadAllBytesAsync(host.PathOf("doc.docx"));
+    static Task<byte[]> FileOf(TestServerHost host) =>
+        File.ReadAllBytesAsync(host.PathOf("doc.docx"));
 
     [Test]
     public async Task Options()
@@ -269,7 +270,7 @@ public class FsshttpServiceTests
         var word = new WordClient(host, token);
         var other = new WordClient(host, token);
 
-        async Task<SubResult> Schema(WordClient client, string type, string schemaLockId = WordClient.SchemaLockId, params XAttribute[] attributes) =>
+        static async Task<SubResult> Schema(WordClient client, string type, string schemaLockId = WordClient.SchemaLockId, params XAttribute[] attributes) =>
             (await client.Send(WordClient.SubRequest("SchemaLock", "1", WordClient.Data(new XAttribute("SchemaLockRequestType", type), new XAttribute("SchemaLockID", schemaLockId), new XAttribute("ClientID", client.ClientId), new XAttribute("Timeout", 3600), attributes)))).Single();
 
         var get = await Schema(word, "GetLock");
@@ -581,9 +582,14 @@ public class FsshttpServiceTests
         File.WriteAllBytes(host.PathOf("deck.pptx"), []);
         File.WriteAllBytes(host.PathOf("notes.txt"), []);
         var launcher = host.Service<OfficeLauncher>();
-        var context = new DefaultHttpContext();
-        context.Request.Scheme = "https";
-        context.Request.Host = new("office.example");
+        var context = new DefaultHttpContext
+        {
+            Request =
+            {
+                Scheme = "https",
+                Host = new("office.example")
+            }
+        };
         var link = await launcher.LaunchDesktop(TestServerHost.Access(fileId), context.Request);
         await Assert.That(link).StartsWith("ms-word:ofe|u|https://office.example/fsshttp/");
         await Assert.That(link).EndsWith("/doc.docx");

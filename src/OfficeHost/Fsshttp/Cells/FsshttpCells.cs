@@ -96,7 +96,10 @@ class FsshttpCells(IFsshttpStore store, IOfficeStorage storage)
             FileVersion = file.Version
         };
         return await TryUpdate(fileId, ContentPartition, cell.Version, state, cancel) ??
-               new StoredCell(cell.Version, state);
+               cell with
+               {
+                   State = state
+               };
     }
 
     async Task<byte[]> ReadFile(string fileId, Cancel cancel)

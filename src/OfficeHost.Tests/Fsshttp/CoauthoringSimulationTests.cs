@@ -18,7 +18,8 @@ public class CoauthoringSimulationTests
         return (host, fileId, new(host, token), new(host, bobToken));
     }
 
-    static async Task<byte[]> FileOf(TestServerHost host) => await File.ReadAllBytesAsync(host.PathOf("doc.docx"));
+    static Task<byte[]> FileOf(TestServerHost host) =>
+        File.ReadAllBytesAsync(host.PathOf("doc.docx"));
 
     static async Task<int> StoredElements(TestServerHost host, string fileId) =>
         (await host.Service<FsshttpCells>().GetContent(fileId))!.State.Storage!.Elements.Count;

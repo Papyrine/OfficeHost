@@ -86,7 +86,7 @@ public class FsshttpCellsTests : IDisposable
         var first = (await cells.GetContent(id))!;
         await storage.Write(id, new MemoryStream(Zip("b")));
         var second = (await cells.GetContent(id))!;
-        await Assert.That(second.Version).IsNotEqualTo(first.Version);
+        await Assert.That(second.Version)!.IsNotEqualTo(first.Version);
         await Assert.That(FileCell.Read(second.State.Storage!).Root.ToArray().AsSpan().SequenceEqual(Zip("b"))).IsTrue();
         await Assert.That(second.State.IdGuid).IsEqualTo(first.State.IdGuid);
         await Assert.That(second.State.NextId).IsGreaterThan(first.State.NextId);

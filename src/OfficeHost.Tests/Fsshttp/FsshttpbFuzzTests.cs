@@ -376,7 +376,7 @@ public class FsshttpbFuzzTests
             ("error type", Fsshttpb.ParseError, UnknownError(), "Unknown error type"),
             ("object in Cell Knowledge", Fsshttpb.ParseKnowledge, CellKnowledgeWithBlob(), "in Cell Knowledge")
         };
-        foreach (var (name, parse, bytes, message) in cases)
+        foreach (var (_, parse, bytes, message) in cases)
         {
             var exception = Assert.Throws<FsshttpbException>(() => parse(bytes));
             await Assert.That(exception.Message).Contains(message);
