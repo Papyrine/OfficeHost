@@ -135,7 +135,8 @@ logs are in `src/OfficeHost.Sample/spike-logs`. The client is Word 16.0.20326 (M
 - **Word, two users on SharePoint Server:**
   - **The poll:** every 8 seconds, `Scenario: PollingSubscriptionNotConnected_TransitionToCoauthInHostMode`, three
     Cell queries plus Coauth `GetCoauthoringStatus`, 159 times in 21 minutes. There was no `RefreshCoauthoring`,
-    EditorsTable refresh or SchemaLock refresh in the 27 minutes after the open (`Timeout="2580"`).
+    EditorsTable refresh or SchemaLock refresh in the 27 minutes after the open (`Timeout="2580"`): Word refreshes 40
+    minutes after the join (see "Word refreshes its lock 40 minutes after the join", below).
   - **When the second user arrived:** Word sent `MarkTransitionComplete` with the Cell queries
     (`Scenario: GetChangesFile_MarkCoauthTransitionCompleteAndDownload`).
   - **Before saving:** Word uploaded the metadata partition alone
@@ -309,6 +310,31 @@ It opened the document, enabled editing, saved twice and closed, and the file ha
 
 The 199-byte stream of Word's second root (`{EDF48BAC-…},2`, above) starts with `1A 5A 3A 30 00 00 00 00`, the
 Editors Table Zip Stream Header of [MS-FSSHTTPB] 2.2.3.1.2.1.1: a DEFLATE-compressed XML of Word's.
+
+### Word refreshes its lock 40 minutes after the join
+
+- **Spec:** [MS-FSSHTTP] 3.1.4.3.3 has a client refresh its coauthoring session before its `Timeout`, without saying
+  when.
+- **Word, alone, editing and then idle for 65 minutes** (step 10 of [fsshttp-checklist.md](fsshttp-checklist.md)):
+  - **The polls:** `IsOnlyClient` of `sharedaccess.asmx` every 30 seconds
+    (`Scenario: PollingSubscriptionNotConnected_AmIAlone`), 140 in the hour. At 21, 49 and 58 minutes, a pair of Cell
+    queries of the content and the metadata (`Scenario: GetChangesFile_PowerAndPresenceStateChange`).
+  - **The refresh:** 2400 seconds after the join, 180 seconds before its `Timeout="2580"`, one request
+    (`Scenario: RefreshLock_LockRefresh`): Coauth `RefreshCoauthoring` with `Timeout="2580"`, SchemaLock `RefreshLock`
+    `OnNotSupported` it, and the three `UpdateEditorMetadata` of the join again.
+  - **The save** after the hour succeeded, with the same `BypassLockID`.
+- This fits the SharePoint captures, which ended 27 minutes after the open. The service keeps a client for at least an
+  hour from its last request, so the refresh only extends what the polls already do.
+
+### A restart of the server: Word goes on without joining again
+
+- **Word:** with the sample stopped for a minute and started again (step 9), Word did not join again or open the file
+  again. Its `IsOnlyClient` polls went on, then two Cell queries (`GetChangesFile_PowerAndPresenceStateChange`) and a
+  save, which succeeded.
+- **The service:** the coauthoring tracker was on disk (`FileSystemFsshttpStore`), the lock of the sample's
+  `MemoryLockStore` was not. The first poll after the restart refreshed the client, which wrote its lock again. Until
+  then, a WOPI client could have locked the file, and Word's save would have failed with `FileAlreadyLockedOnServer`:
+  an application keeps its `IOfficeLockStore` as long as its `IFsshttpStore`.
 
 
 ## Authentication

@@ -21,7 +21,8 @@ public interface IFsshttpStore
     Task<bool> CompareExchange(string fileId, Guid partition, string? comparand, FsshttpState value, Cancel cancel = default);
 
     /// <summary>
-    /// Forgets the states of all the partitions of the file.
+    /// Forgets the states of all the partitions of the file. A WOPI DeleteFile calls it; an application that deletes a
+    /// file itself calls it after.
     /// </summary>
     Task Delete(string fileId, Cancel cancel = default);
 }

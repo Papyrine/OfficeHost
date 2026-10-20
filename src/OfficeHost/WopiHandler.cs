@@ -5,6 +5,7 @@
 sealed class WopiHandler(
     IOfficeStorage storage,
     IOfficeLockStore locks,
+    IFsshttpStore fsshttp,
     IOfficeTokens tokens,
     ProofKeys proofKeys,
     IOptions<OfficeHostOptions> options,
@@ -534,7 +535,6 @@ sealed class WopiHandler(
         {
             await storage.Delete(fileId, cancel);
             log.LogInformation("Deleted {FileId}", fileId);
-            return WopiResult.Ok();
         }
         catch (FileNotFoundException)
         {
@@ -545,6 +545,18 @@ sealed class WopiHandler(
             log.LogError(exception, "DeleteFile of {FileId} failed", fileId);
             return WopiResult.ServerError("Failed to delete the file");
         }
+
+        // the file is gone: a state left behind is only unused, so its failure does not fail the delete
+        try
+        {
+            await fsshttp.Delete(fileId, CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            log.LogWarning(exception, "Deleting the desktop coauthoring state of {FileId} failed", fileId);
+        }
+
+        return WopiResult.Ok();
     }
 
     /// <summary>

@@ -53,14 +53,20 @@ app.MapGet(
         Open(fileId, "view", request, launcher));
 // the sites desktop Office edits and coauthors files through: /fsshttp/{token}/{name}
 app.MapFsshttp();
-// the page that opens a file in desktop Office, through an ms-word: (or ms-excel:, ms-powerpoint:) link
+// the page that opens a file in desktop Office, through an ms-word: (or ms-excel:, ms-powerpoint:) link; the user comes
+// from ?user= so that two people can coauthor the demo
 app.MapGet(
     "/desktop/{fileId}",
-    async (string fileId, HttpRequest request, OfficeLauncher launcher) =>
+    async (string fileId, string? user, HttpRequest request, OfficeLauncher launcher) =>
     {
-        var access = new OfficeAccess(fileId, "demo")
+        if (string.IsNullOrEmpty(user))
         {
-            UserName = "Demo User",
+            user = "demo";
+        }
+
+        var access = new OfficeAccess(fileId, user)
+        {
+            UserName = $"{char.ToUpperInvariant(user[0])}{user[1..]} User",
             CanWrite = true
         };
         var link = await launcher.LaunchDesktop(access, request);

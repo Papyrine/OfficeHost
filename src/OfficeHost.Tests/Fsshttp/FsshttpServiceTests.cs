@@ -607,15 +607,6 @@ public class FsshttpServiceTests
         var link = await host.Service<OfficeLauncher>().LaunchDesktop(TestServerHost.Access(host.Storage.GetFileId("doc.docx")));
         await Assert.That(link).StartsWith("ms-word:ofe|u|https://desktop.example/app/fsshttp/");
     }
-
-    sealed class ManualTime : TimeProvider
-    {
-        DateTimeOffset now = new(2026, 10, 20, 12, 0, 0, TimeSpan.Zero);
-
-        public void Advance(TimeSpan span) => now += span;
-
-        public override DateTimeOffset GetUtcNow() => now;
-    }
 }
 
 

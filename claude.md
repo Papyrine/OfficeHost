@@ -46,7 +46,8 @@ specifics.
   GET), SOAP and MTOM (`SoapMessage`), the sub-requests (`CellStorageService`), Query and Put Changes (`CellSync`), and
   the coauthoring tracker with its lock in the `IOfficeLockStore` (`CoauthSessions`).
 - Manual test with Word: the `desktop` launch profile of the sample (HTTPS, requests logged to `spike-logs`), then
-  `/desktop/{fileId}`.
+  `/desktop/{fileId}` (`?user=` for a second user); the steps are in docs/fsshttp-checklist.md. The simulated clients
+  are `WordClient` of `src/OfficeHost.Tests/Fsshttp`.
 
 ## Conventions
 

@@ -100,6 +100,29 @@ public partial class SampleTests : IAsyncDisposable
         await Assert.That((string?) info["HostEditUrl"]).IsEqualTo($"http://localhost:5000/edit/{Uri.EscapeDataString(fileId)}");
     }
 
+    [GeneratedRegex("""id="open" href="([^"]+)">""")]
+    private static partial Regex DesktopLink();
+
+    /// <summary>
+    /// The desktop page links to the file in Word, as the user of ?user=, so that two people can coauthor the demo.
+    /// </summary>
+    [Test]
+    [Arguments("", "demo", "Demo User")]
+    [Arguments("?user=bob", "bob", "Bob User")]
+    public async Task Desktop(string query, string userId, string userName)
+    {
+        using var client = factory.CreateClient();
+        var fileId = await WelcomeId(client);
+        var page = await client.GetStringAsync($"/desktop/{Uri.EscapeDataString(fileId)}{query}");
+        var link = WebUtility.HtmlDecode(DesktopLink().Match(page).Groups[1].Value);
+        await Assert.That(link).StartsWith("ms-word:ofe|u|http://localhost/fsshttp/");
+        await Assert.That(link).EndsWith("/Welcome.docx");
+        var token = link.Split('/')[^2];
+        var access = (await factory.Services.GetRequiredService<IOfficeTokens>().Validate(token))!.Access;
+        await Assert.That(access.UserId).IsEqualTo(userId);
+        await Assert.That(access.UserName).IsEqualTo(userName);
+    }
+
     [Test]
     public async Task Launch_UnsupportedFile()
     {

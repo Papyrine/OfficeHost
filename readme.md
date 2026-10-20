@@ -81,21 +81,27 @@ app.MapGet(
         Open(fileId, "view", request, launcher));
 // the sites desktop Office edits and coauthors files through: /fsshttp/{token}/{name}
 app.MapFsshttp();
-// the page that opens a file in desktop Office, through an ms-word: (or ms-excel:, ms-powerpoint:) link
+// the page that opens a file in desktop Office, through an ms-word: (or ms-excel:, ms-powerpoint:) link; the user comes
+// from ?user= so that two people can coauthor the demo
 app.MapGet(
     "/desktop/{fileId}",
-    async (string fileId, HttpRequest request, OfficeLauncher launcher) =>
+    async (string fileId, string? user, HttpRequest request, OfficeLauncher launcher) =>
     {
-        var access = new OfficeAccess(fileId, "demo")
+        if (string.IsNullOrEmpty(user))
         {
-            UserName = "Demo User",
+            user = "demo";
+        }
+
+        var access = new OfficeAccess(fileId, user)
+        {
+            UserName = $"{char.ToUpperInvariant(user[0])}{user[1..]} User",
             CanWrite = true
         };
         var link = await launcher.LaunchDesktop(access, request);
         return Results.Content(SamplePages.Desktop(link), "text/html");
     });
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L15-L69' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L15-L75' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 A page decides what the user may do with the file, gets the URL of the editor and an access token from `OfficeLauncher`,
@@ -147,7 +153,7 @@ static async Task<IResult> Open(
     }
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L80-L122' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L86-L128' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The WOPI clients call back the application: they must reach it at the URL of the request that launched the editor, or
@@ -242,7 +248,8 @@ PutUserInfo, where the editors keep per-user data such as the tips a user has se
 The state of desktop coauthoring (the data elements Office syncs, the coauthoring session) is kept by an
 `IFsshttpStore`: the default `MemoryFsshttpStore` for a single instance, `FileSystemFsshttpStore` for a single machine,
 or a shared store with an atomic compare and exchange. The file stays in the storage: a lost state only makes Office
-download the file again.
+download the file again. A WOPI DeleteFile deletes the state of the file too; an application that deletes files itself
+calls `IFsshttpStore.Delete` after them, or the state stays, unused.
 
 
 ## Desktop Office
@@ -260,7 +267,8 @@ coauthoring session, and keeps an editors table.
 
 The host must use HTTPS with a certificate Windows trusts. A host in the Internet zone opens in Protected View first, as
 SharePoint Online does. Tested with Word for Microsoft 365 16.0.20326 on Windows. Notes on what Word does that the
-specs do not say are in [docs/fsshttp-notes.md](docs/fsshttp-notes.md).
+specs do not say are in [docs/fsshttp-notes.md](docs/fsshttp-notes.md), and the check by hand with Word in
+[docs/fsshttp-checklist.md](docs/fsshttp-checklist.md).
 
 
 ## Proof keys
