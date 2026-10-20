@@ -56,6 +56,12 @@ class FsshttpCells(IFsshttpStore store, IOfficeStorage storage)
                 return cell;
             }
 
+            if (cell.State is { Storage: { } pending, FileVersion: null })
+            {
+                // a Put Changes stored the cell, but did not get to write the file
+                return await WriteFile(fileId, cell, FileCell.Read(pending).Root.ToArray(), cancel);
+            }
+
             var bytes = await ReadFile(fileId, cancel);
             var ids = cell.State.Ids();
             CellUpdate update;
@@ -76,6 +82,21 @@ class FsshttpCells(IFsshttpStore store, IOfficeStorage storage)
         }
 
         throw new InvalidOperationException($"The cell of the file {fileId} changed {maxAttempts} times while it was written");
+    }
+
+    /// <summary>
+    /// Writes the bytes of a content cell stored without a file version to the file, then stores the cell with the
+    /// version of the file. When another write stored the cell meanwhile, that one is kept.
+    /// </summary>
+    public async Task<StoredCell> WriteFile(string fileId, StoredCell cell, byte[] bytes, Cancel cancel = default)
+    {
+        var file = await storage.Write(fileId, new MemoryStream(bytes), cancel);
+        var state = cell.State with
+        {
+            FileVersion = file.Version
+        };
+        return await TryUpdate(fileId, ContentPartition, cell.Version, state, cancel) ??
+               new StoredCell(cell.Version, state);
     }
 
     async Task<byte[]> ReadFile(string fileId, Cancel cancel)

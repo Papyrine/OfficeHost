@@ -42,6 +42,11 @@ specifics.
   objects, and `FileCell`, which reads the file from data elements and writes a file as the next revision.
   `Fsshttp/Cells/`: `CellState`, the state of a partition of a file serialized for the `IFsshttpStore`, and `FsshttpCells`,
   which keeps the content partition in step with the file in the `IOfficeStorage`.
+  `Fsshttp/Service/`: the desktop sites of `MapFsshttp` (`FsshttpHandler`: OPTIONS, cellstorage.svc, sharedaccess.asmx,
+  GET), SOAP and MTOM (`SoapMessage`), the sub-requests (`CellStorageService`), Query and Put Changes (`CellSync`), and
+  the coauthoring tracker with its lock in the `IOfficeLockStore` (`CoauthSessions`).
+- Manual test with Word: the `desktop` launch profile of the sample (HTTPS, requests logged to `spike-logs`), then
+  `/desktop/{fileId}`.
 
 ## Conventions
 

@@ -205,7 +205,7 @@ static class FileCell
     /// have the same signature, size and bytes are kept with their objects, and the new revision lists their Object
     /// Groups again, as Word does, with no base revision. It has new Object Groups only for the new objects, one each,
     /// as in the example of 3.1. The other roots of the previous revision, streams opaque to [MS-FSSHTTPD] (2.3), are kept
-    /// the same way. The Storage Index, Storage Manifest and Cell Manifest keep their identifiers. The storage after the
+    /// the same way. The Storage Index and Storage Manifest keep their identifiers; the Cell Manifest is new, as Word makes it. The storage after the
     /// write has only the data elements reachable from its Storage Index. When the file has not changed, nothing is added.
     /// The data elements hold slices of <paramref name="file"/>, which must not change after.
     /// </summary>
@@ -299,18 +299,9 @@ static class FileCell
             manifestMapping = new(manifest.Id, ids.NewSerialNumber());
         }
 
-        var cellMapping = previousIndex?.Entries.OfType<StorageIndexCellMapping>().FirstOrDefault(_ => _.Cell == CellId);
-        ExtendedGuid cellManifestId;
-        if (cellMapping == null)
-        {
-            cellManifestId = ids.NewId();
-            cellMapping = new(CellId, cellManifestId, ids.NewSerialNumber());
-        }
-        else
-        {
-            cellManifestId = cellMapping.MappingId;
-        }
-
+        // a new Cell Manifest each revision, as Word makes: a client that expects the previous one fails coherency
+        var cellManifestId = ids.NewId();
+        var cellMapping = new StorageIndexCellMapping(CellId, cellManifestId, ids.NewSerialNumber());
         added.Add(new CellManifest(cellManifestId, ids.NewSerialNumber(), revisionId));
         added.Add(revision);
 

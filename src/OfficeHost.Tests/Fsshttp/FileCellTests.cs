@@ -160,7 +160,7 @@ public class FileCellTests
     /// <summary>
     /// A zip with one item changed: the chunks of the other items are kept with their objects, so the new revision has
     /// new Object Groups for the new root, the changed item and the central directory only, and lists those of the kept
-    /// chunks again, with no base revision. The Storage Index, Storage Manifest and Cell Manifest keep their identifiers,
+    /// chunks again, with no base revision. The Storage Index and Storage Manifest keep their identifiers, the Cell Manifest does not,
     /// and the data elements only the previous revision used go.
     /// </summary>
     [Test]
@@ -191,7 +191,8 @@ public class FileCellTests
         await Assert.That(second.Storage.Elements.Count).IsEqualTo(11 + 4);
         var firstCell = first.Added.OfType<CellManifest>().Single();
         var secondCell = second.Added.OfType<CellManifest>().Single();
-        await Assert.That(secondCell.Id).IsEqualTo(firstCell.Id);
+        // a new Cell Manifest each revision, so that a client that expects the previous one fails coherency
+        await Assert.That(secondCell.Id).IsNotEqualTo(firstCell.Id);
         await Assert.That(secondCell.SerialNumber).IsNotEqualTo(firstCell.SerialNumber);
 
         var kept = ((IntermediateNode) secondTree.Root).Children.Select(_ => _.Id)

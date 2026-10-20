@@ -141,4 +141,14 @@ static class HttpExtensions
 
         return $"{request.Scheme}://{request.Host}{request.PathBase}";
     }
+
+    public static string DesktopBaseUrl(this HttpRequest request, OfficeHostOptions options)
+    {
+        if (options.DesktopBaseUrl != null)
+        {
+            return options.DesktopBaseUrl.TrimEnd('/');
+        }
+
+        return $"{request.Scheme}://{request.Host}{request.PathBase}";
+    }
 }

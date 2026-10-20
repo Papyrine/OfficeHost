@@ -28,6 +28,19 @@ public class OfficeHostOptions
     public TimeSpan LockDuration { get; set; } = TimeSpan.FromMinutes(30);
 
     /// <summary>
+    /// The path the sites of desktop Office are under (<see cref="OfficeHostExtensions.MapFsshttp"/>): the site of a file
+    /// is this path followed by a token, as <see cref="OfficeLauncher.LaunchDesktop"/> builds it.
+    /// </summary>
+    public string DesktopPath { get; set; } = "/fsshttp";
+
+    /// <summary>
+    /// The scheme, host and path base desktop Office reaches the application by, which runs on the machine of the user
+    /// as the browser does: needed behind a reverse proxy, or when launching outside of a request. Defaults to those of
+    /// the current request, not to <see cref="BaseUrl"/>, which is for WOPI clients.
+    /// </summary>
+    public string? DesktopBaseUrl { get; set; }
+
+    /// <summary>
     /// The URL the WOPI clients reach this application at: the part of WOPISrc before <c>/wopi/files/</c>, and the base
     /// of the URL the proof keys sign. Needed when the WOPI clients reach the application by another URL than the
     /// requests do, as behind a reverse proxy, or when launching outside of a request. Defaults to the scheme, host and

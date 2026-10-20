@@ -68,6 +68,53 @@ public sealed partial class OfficeLauncher
         return new(url, token.Value, token.Expires.ToUnixTimeMilliseconds());
     }
 
+    /// <summary>
+    /// The link that opens the file of the access in desktop Office, through the site of
+    /// <see cref="OfficeHostExtensions.MapFsshttp"/>: an Office URI scheme (<c>ms-word:ofe|u|{url}</c>, ofv when the
+    /// access cannot write), with a token issued for the access in the path of the site.
+    /// </summary>
+    /// <param name="request">The current request, for the URL of the application when <see cref="OfficeHostOptions.BaseUrl"/> is not set.</param>
+    /// <exception cref="InvalidOperationException">The type of the file is not one of Word, Excel or PowerPoint.</exception>
+    public async Task<string> LaunchDesktop(OfficeAccess access, HttpRequest? request = null, Cancel cancel = default)
+    {
+        var settings = options.Value;
+        var file = await storage.GetFile(access.FileId, cancel) ??
+                   throw new FileNotFoundException($"No file {access.FileId}");
+        var scheme = DesktopScheme(FileNames.Extension(file.Name)) ??
+                     throw new InvalidOperationException($"Desktop Office does not open {file.Name}");
+        string baseUrl;
+        if (settings.DesktopBaseUrl != null)
+        {
+            baseUrl = settings.DesktopBaseUrl.TrimEnd('/');
+        }
+        else if (request != null)
+        {
+            baseUrl = request.DesktopBaseUrl(settings);
+        }
+        else
+        {
+            throw new InvalidOperationException($"{nameof(OfficeHostOptions)}.{nameof(OfficeHostOptions.DesktopBaseUrl)} is needed to launch outside of a request");
+        }
+
+        var token = await tokens.Issue(access, cancel);
+        var command = "ofv";
+        if (access.CanWrite && !access.ViewOnly)
+        {
+            command = "ofe";
+        }
+
+        return $"{scheme}:{command}|u|{baseUrl}{settings.DesktopPath.TrimEnd('/')}/{token.Value}/{Uri.EscapeDataString(file.Name)}";
+    }
+
+    static string? DesktopScheme(string extension) =>
+        extension.ToLowerInvariant() switch
+        {
+            ".docx" or ".docm" or ".dotx" or ".dotm" or ".doc" or ".dot" or ".rtf" => "ms-word",
+            ".xlsx" or ".xlsm" or ".xlsb" or ".xltx" or ".xltm" or ".xls" or ".xlt" => "ms-excel",
+            ".pptx" or ".pptm" or ".potx" or ".potm" or ".ppsx" or ".ppsm" or ".ppt" or ".pps" => "ms-powerpoint",
+            _ => null
+        };
+
     async Task<string> UrlSrc(OfficeHostOptions settings, string? discoveryUrl, string action, string extension, Cancel cancel)
     {
         IEnumerable<string> urls = settings.DiscoveryUrls;

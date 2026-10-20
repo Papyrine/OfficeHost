@@ -94,6 +94,7 @@ sealed class TestServerHost : IAsyncDisposable
         configureServices?.Invoke(services);
         app = builder.Build();
         app.MapOfficeHost();
+        app.MapFsshttp();
         await app.StartAsync();
         if (kestrel)
         {

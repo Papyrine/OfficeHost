@@ -39,6 +39,7 @@ static class SamplePages
                    <td>{WebUtility.HtmlEncode(name)}</td>
                    <td><a href="/edit/{id}">Edit</a></td>
                    <td><a href="/view/{id}">View</a></td>
+                   <td><a href="/desktop/{id}">Open in desktop Office</a></td>
                  </tr>
                  """);
         }
@@ -90,6 +91,21 @@ static class SamplePages
 
     const string collaboraCommand =
         """docker run --rm --publish 9980:9980 --add-host host.docker.internal:host-gateway --env "domain=host\.docker\.internal.*" --env "extra_params=--o:ssl.enable=false --o:ssl.termination=false --o:home_mode.enable=true" collabora/code""";
+
+    /// <summary>
+    /// The link that opens a file in desktop Office, followed at once, and offered in case the browser asks first.
+    /// </summary>
+    public static string Desktop(string link) =>
+        Page(
+            "Open in desktop Office",
+            $"""
+             <main>
+               <h1>Open in desktop Office</h1>
+               <p><a id="open" href="{WebUtility.HtmlEncode(link)}">Open the file in desktop Office</a></p>
+               <p><a href="/">Back to the files</a></p>
+             </main>
+             <script>document.getElementById("open").click()</script>
+             """);
 
     public static string Message(string message) =>
         Page(

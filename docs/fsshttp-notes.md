@@ -276,6 +276,41 @@ repository: they were checked locally with the codec, which reads each and write
   an unchanged chunk keeps its signature, and its objects.
 
 
+## Word against OfficeHost
+
+Word 16.0.20326, on the `desktop` launch profile of the sample (`https://localhost:5001`), with every request logged.
+It opened the document, enabled editing, saved twice and closed, and the file had both edits.
+
+### The expected Storage Index of a Put Changes is Word's own copy
+
+- **Spec:** [MS-FSSHTTPB] 2.2.2.1.4 has the Expected Storage Index Extended GUID "that the client expects the server to
+  have", without saying how the server compares it.
+- **Word:** the id is a new one (`{GUID},1`), and the Data Element Package holds a Storage Index with that id: the
+  mappings of the Storage Index Word got from the server, with their data element ids, but with mapping Serial Numbers
+  of a GUID of Word's. Comparing the ids fails every save with a coherency failure, and Word then downloads the whole
+  file again. The service compares what the two Storage Indexes map the Storage Manifest and the cells to.
+- So that a change made outside Word still fails coherency, a revision written from a file gets a new Cell Manifest, as
+  Word makes one per save.
+
+### Protected View, then a second open
+
+- **Word:** on a host in the Internet zone, the open (join, queries) ends with `ExitCoauthoring`
+  (`Scenario: ReleaseLock_LockRelease`) and the document in Protected View. Enable Editing sends the open again, with
+  the join, and the editing goes on from there, polling `IsOnlyClient`.
+
+### What Word does without
+
+- `GetVersions` answered `RequestNotSupported`, `POST {site}/_api/web/GetFileByUrl(@v)/ListItemAllFields/GetSharingInformation`
+  and `POST /_vti_bin/webs.asmx` at the root answered 404: Word opened, edited and saved all the same.
+- The editors table partition and the metadata partition answered with nothing in them (a Storage Index with a null
+  Storage Manifest mapping), and the open went on.
+
+### The second root is a stream like the editors table
+
+The 199-byte stream of Word's second root (`{EDF48BAC-…},2`, above) starts with `1A 5A 3A 30 00 00 00 00`, the
+Editors Table Zip Stream Header of [MS-FSSHTTPB] 2.2.3.1.2.1.1: a DEFLATE-compressed XML of Word's.
+
+
 ## Authentication
 
 ### MS-OFBA is blocked by default, for SharePoint too

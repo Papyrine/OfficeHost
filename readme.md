@@ -29,6 +29,8 @@ ONLYOFFICE, Microsoft 365 for the web) open, edit and save the files of any stor
 * The discovery of the WOPI clients, to launch their actions and validate the proof keys of their requests
   (`X-WOPI-Proof`).
 * Pluggable storage and locks: `FileSystemStorage` and `MemoryLockStore` are included.
+* Desktop Office, in preview: Word opens, edits and saves files through the cell storage service of SharePoint
+  ([MS-FSSHTTP]), with the shared lock and coauthoring. See [Desktop Office](#desktop-office).
 
 
 ## Usage
@@ -44,6 +46,9 @@ var storage = new FileSystemStorage(folder);
 var services = builder.Services;
 services.AddSingleton(storage);
 services.AddSingleton<IOfficeStorage>(storage);
+// the state of desktop coauthoring, kept in a folder so that a restart does not make desktop Office download it all
+var states = Path.Combine(builder.Environment.ContentRootPath, "fsshttp-state");
+services.AddSingleton<IFsshttpStore>(new FileSystemFsshttpStore(states));
 services.AddOfficeHost(
     options =>
     {
@@ -74,8 +79,23 @@ app.MapGet(
     "/view/{fileId}",
     (string fileId, HttpRequest request, OfficeLauncher launcher) =>
         Open(fileId, "view", request, launcher));
+// the sites desktop Office edits and coauthors files through: /fsshttp/{token}/{name}
+app.MapFsshttp();
+// the page that opens a file in desktop Office, through an ms-word: (or ms-excel:, ms-powerpoint:) link
+app.MapGet(
+    "/desktop/{fileId}",
+    async (string fileId, HttpRequest request, OfficeLauncher launcher) =>
+    {
+        var access = new OfficeAccess(fileId, "demo")
+        {
+            UserName = "Demo User",
+            CanWrite = true
+        };
+        var link = await launcher.LaunchDesktop(access, request);
+        return Results.Content(SamplePages.Desktop(link), "text/html");
+    });
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L15-L51' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L15-L69' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 A page decides what the user may do with the file, gets the URL of the editor and an access token from `OfficeLauncher`,
@@ -127,7 +147,7 @@ static async Task<IResult> Open(
     }
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L62-L104' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L80-L122' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The WOPI clients call back the application: they must reach it at the URL of the request that launched the editor, or
@@ -170,6 +190,8 @@ Collabora reaches the sample (`host.docker.internal` from the container), and `S
 | `ServerVersion` | the library's | The `X-WOPI-ServerVersion` of the responses. |
 | `HostEditUrl`, `HostViewUrl` | | The pages of the application that open a file, returned by CheckFileInfo and PutRelativeFile. |
 | `OnCheckFileInfo` | | Adds or changes CheckFileInfo properties: `CloseUrl`, breadcrumbs, branding, CSPP+ properties. |
+| `DesktopPath` | `/fsshttp` | The path of the sites of desktop Office, `MapFsshttp`. |
+| `DesktopBaseUrl` | the request's | The URL desktop Office reaches the application at, which runs where the browser does. |
 
 
 ## Access
@@ -216,6 +238,29 @@ several instances need a shared store, such as one over Redis or a database, wit
 
 PutUserInfo, where the editors keep per-user data such as the tips a user has seen, is supported when an
 `IOfficeUserInfoStore` is registered.
+
+The state of desktop coauthoring (the data elements Office syncs, the coauthoring session) is kept by an
+`IFsshttpStore`: the default `MemoryFsshttpStore` for a single instance, `FileSystemFsshttpStore` for a single machine,
+or a shared store with an atomic compare and exchange. The file stays in the storage: a lost state only makes Office
+download the file again.
+
+
+## Desktop Office
+
+Preview. Desktop Word opens files as it opens those of a SharePoint site: through the cell storage service of
+[MS-FSSHTTP], which syncs a file in chunks ([MS-FSSHTTPB], [MS-FSSHTTPD]), shares the lock between the users of a
+coauthoring session, and keeps an editors table.
+
+* `MapFsshttp()` maps the sites: `{DesktopPath}/{token}/{name}` is the URL of a file, the token of `IOfficeTokens` in its
+  path standing for the file and the user, as Office blocks Basic and forms-based sign-in by default.
+* `OfficeLauncher.LaunchDesktop(access, request)` gives the link that opens the file: `ms-word:ofe|u|{url}` (or
+  `ms-excel:`, `ms-powerpoint:`; `ofv` without write access).
+* The lock of desktop editing is a lock of the `IOfficeLockStore`, so WOPI clients and desktop Office do not edit a file
+  at the same time. A file changed outside desktop Office is synced as a new revision, keeping the unchanged chunks.
+
+The host must use HTTPS with a certificate Windows trusts. A host in the Internet zone opens in Protected View first, as
+SharePoint Online does. Tested with Word for Microsoft 365 16.0.20326 on Windows. Notes on what Word does that the
+specs do not say are in [docs/fsshttp-notes.md](docs/fsshttp-notes.md).
 
 
 ## Proof keys
@@ -288,6 +333,9 @@ Presti (CERN) and its contributors. Like it, this library is under the Apache 2.
 [license.txt](license.txt).
 
 [MS-WOPI]: https://learn.microsoft.com/en-us/openspecs/office_protocols/ms-wopi/
+[MS-FSSHTTP]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fsshttp/
+[MS-FSSHTTPB]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fsshttpb/
+[MS-FSSHTTPD]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fsshttpd/
 
 
 ## Icon

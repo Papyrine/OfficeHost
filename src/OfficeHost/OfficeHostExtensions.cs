@@ -25,6 +25,9 @@ public static class OfficeHostExtensions
         // transient, so that they take the lifetime of the storage and the stores rather than capture them
         services.TryAddTransient<WopiHandler>();
         services.TryAddTransient<FsshttpCells>();
+        services.TryAddTransient<CoauthSessions>();
+        services.TryAddTransient<CellStorageService>();
+        services.TryAddTransient<FsshttpHandler>();
         services.TryAddTransient(
             _ => new OfficeLauncher(
                 _.GetRequiredService<IOfficeStorage>(),
@@ -85,6 +88,29 @@ public static class OfficeHostExtensions
         group.MapPost("/files/{fileId}/contents", (HttpContext context, string fileId, WopiHandler handler) => handler.PutFile(context, fileId));
         // the folder operations of [MS-WOPI] 3.3.5.4 and up, and the ecosystem ones, are not supported
         group.Map("/{**path}", () => WopiResult.NotImplemented("Unsupported WOPI endpoint"));
+        return group;
+    }
+
+    /// <summary>
+    /// Maps the sites desktop Office edits and coauthors files through, with [MS-FSSHTTP] as SharePoint has it, under
+    /// <see cref="OfficeHostOptions.DesktopPath"/>: <c>{DesktopPath}/{token}/{name}</c> is the URL of a file, and
+    /// <see cref="OfficeLauncher.LaunchDesktop"/> the link that opens it. The coauthoring state is kept in the
+    /// <see cref="IFsshttpStore"/>, and the lock of desktop editing in the <see cref="IOfficeLockStore"/>, so that WOPI
+    /// clients and desktop Office do not edit a file at the same time.
+    /// </summary>
+    public static RouteGroupBuilder MapFsshttp(this IEndpointRouteBuilder endpoints)
+    {
+        var services = endpoints.ServiceProvider;
+        if (!services.GetRequiredService<IServiceProviderIsService>().IsService(typeof(IOfficeStorage)))
+        {
+            throw new InvalidOperationException($"Register an {nameof(IOfficeStorage)} before mapping the desktop sites");
+        }
+
+        var path = services.GetRequiredService<IOptions<OfficeHostOptions>>().Value.DesktopPath;
+        var group = endpoints.MapGroup(path);
+        string[] verbs = ["OPTIONS", "POST", "GET", "HEAD"];
+        group.MapMethods("/{token}", verbs, (HttpContext context, string token, FsshttpHandler handler) => handler.Handle(context, token, null));
+        group.MapMethods("/{token}/{**rest}", verbs, (HttpContext context, string token, string? rest, FsshttpHandler handler) => handler.Handle(context, token, rest));
         return group;
     }
 }

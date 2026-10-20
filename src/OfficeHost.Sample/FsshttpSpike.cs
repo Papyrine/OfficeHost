@@ -51,7 +51,11 @@ static class FsshttpSpike
             .GetChildren()
             .ToDictionary(_ => _.Key, _ => _.Value ?? "");
         var negotiate = app.Configuration.GetValue<bool>("Spike:Negotiate");
-        app.Use((context, next) => Handle(context, next, storage, tokens, optionsHeaders, negotiate));
+        // Spike:LogOnly keeps the log of the requests, and leaves them to the library's /fsshttp sites
+        if (!app.Configuration.GetValue<bool>("Spike:LogOnly"))
+        {
+            app.Use((context, next) => Handle(context, next, storage, tokens, optionsHeaders, negotiate));
+        }
         app.MapGet("/spike", (HttpRequest request) => Launch(request, storage, tokens));
     }
 
@@ -316,7 +320,8 @@ static class FsshttpSpike
     {
         var path = context.Request.Path.Value ?? "/";
         var method = context.Request.Method;
-        if (path == "/spike")
+        if (path == "/spike" ||
+            path.StartsWith("/fsshttp", StringComparison.OrdinalIgnoreCase))
         {
             await next();
             return;
