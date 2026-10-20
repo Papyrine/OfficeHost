@@ -1,5 +1,6 @@
 /// <summary>
-/// The stream object types of [MS-FSSHTTPB] 2.2.1.5.1 (below 0x40, for 16-bit headers) and 2.2.1.5.2 (32-bit headers).
+/// The stream object types of [MS-FSSHTTPB] 2.2.1.5.1 (below 0x40, for 16-bit headers) and 2.2.1.5.2 (32-bit headers),
+/// and those of the node objects of [MS-FSSHTTPD] 2.2.
 /// </summary>
 enum StreamObjectType : ushort
 {
@@ -28,7 +29,14 @@ enum StreamObjectType : ushort
     ObjectGroupObjectDataBlobReference = 0x1C,
     ObjectGroupDeclarations = 0x1D,
     ObjectGroupData = 0x1E,
+    // [MS-FSSHTTPD] 2.2.2.1 and 2.2.3.1
+    LeafNode = 0x1F,
+    IntermediateNode = 0x20,
+    Signature = 0x21,
+    DataSize = 0x22,
     WaterlineKnowledge = 0x29,
+    // [MS-FSSHTTPD] 2.2.3.1
+    DataHash = 0x2F,
     ContentTagKnowledge = 0x2D,
     ContentTagKnowledgeEntry = 0x2E,
     QueryChangesVersioning = 0x30,
@@ -93,6 +101,8 @@ static class StreamObjectTypes
             StreamObjectType.DataElementPackage or
             StreamObjectType.ObjectGroupDeclarations or
             StreamObjectType.ObjectGroupData or
+            StreamObjectType.LeafNode or
+            StreamObjectType.IntermediateNode or
             StreamObjectType.WaterlineKnowledge or
             StreamObjectType.ContentTagKnowledge or
             StreamObjectType.Request or

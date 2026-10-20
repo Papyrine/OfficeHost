@@ -37,6 +37,8 @@ specifics.
 - `IOfficeStorage.cs` (with `IOfficeUserInfoStore`), `FileSystemStorage.cs`, `IOfficeLockStore.cs` (with
   `MemoryLockStore`), `FileNames.cs` (legal names, UTF-7 names of PutRelativeFile and RenameFile).
 - `Fsshttp/`: MS-FSSHTTP, internal. `Fsshttp/Binary/` is the FSSHTTPB codec ([MS-FSSHTTPB]), pure, with no ASP.NET.
+  `Fsshttp/Files/` is a file stream in a cell ([MS-FSSHTTPD]): `FileChunker` (zip and simple chunking), the node
+  objects, and `FileCell`, which reads the file from data elements and writes a file as the next revision.
 
 ## Conventions
 
@@ -52,3 +54,4 @@ specifics.
 
 [MS-WOPI]: https://learn.microsoft.com/en-us/openspecs/office_protocols/ms-wopi/
 [MS-FSSHTTPB]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fsshttpb/
+[MS-FSSHTTPD]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fsshttpd/

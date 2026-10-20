@@ -208,6 +208,74 @@ Two more places where the spec contradicts itself:
   it.
 
 
+## MS-FSSHTTPD
+
+The evidence here is the three Put Changes requests of Word's saves to SharePoint Server (17 to 20 KB each, the binary
+part of `Scenario: AutoSaveFile_Save`, see the saves above). They hold the document's content, so they are not in the
+repository: they were checked locally with the codec, which reads each and writes it back byte for byte.
+
+### Word's signatures: exclusive or, with no CRC of the compressed data
+
+- **Spec:** [MS-FSSHTTPD] 2.4.1: the signature of the data of a zip item is its CRC and sizes. The note <6> says Office
+  adds the CRC of the compressed data after the CRC from the Office 2010 March 2015 CU. For protocol version 2.2 and
+  later, the signature of an item of at most 4096 bytes is the exclusive or of those of its header and data.
+- **Word 16.0.20326:** the data signatures are 20 bytes, the CRC and the two sizes, with no CRC of the compressed data.
+  A small item's signature is the SHA-1 of its header exclusive or that, 20 bytes. A header chunk is the SHA-1 of the
+  header, and the central directory the SHA-1 of its bytes. All 27 leaves of the three saves whose data node is in the
+  same request match `ChunkingOptions.Default` (exclusive or, no CRC of the compressed data), which is what this host
+  writes.
+
+### How Word lays out the tree
+
+- **Spec:** the example of [MS-FSSHTTPD] 3.1 has one object per Object Group, no Object Group metadata, and leaves
+  with no Data Hash.
+- **Word:**
+  - each leaf is in one Object Group with its Data Node Object, and each Object Group has Object Group metadata
+    declarations ([MS-FSSHTTPB] 2.2.1.12.6.3), one per object;
+  - every leaf has a Data Hash of 20 bytes, whose algorithm the note <3> leaves incomplete ("without the introduction
+    of the length"), so this host keeps those it reads and writes none;
+  - a revision has no base revision: its Revision Manifest lists the Object Groups it keeps from earlier saves, by
+    their identifiers, with its new ones. `FileCell.Write` does the same.
+- This host writes the layout of the example, which its tests reproduce data element for data element. Word reads
+  layouts other than its own, as it reads SharePoint's; that is to be confirmed when the service serves files (Phase 4).
+
+### A second root: an opaque stream
+
+- **Spec:** [MS-FSSHTTPD] 2.3: "If other streams are present, additional roots MUST be specified by the protocol client
+  and are opaque to this protocol."
+- **Word:** every revision has a second root, `{EDF48BAC-3745-4416-A4C9-D5B71BB870F6},2`, a single leaf of 199 bytes
+  with an empty signature over a Data Node Object. `FileCell.Write` keeps the other roots of the previous revision with
+  their Object Groups.
+
+### Serial Numbers and the expected Storage Index
+
+- **Word:** every data element of a Put Changes has the null Serial Number; the server assigns them. The mappings of
+  the Storage Index do have Serial Numbers, of a GUID of Word's. The Data Element Package also holds the Storage Index
+  of `ExpectedStorageIndex`, with its Storage Manifest and Cell Manifest. Both matter to the Put Changes of the service
+  (Phase 4).
+
+### The order of the 32-bit Extended GUID
+
+- **Spec:** [MS-FSSHTTPB] 2.2.1.7.5 has the type 128, then the value (4 bytes), then the GUID. The description of the
+  example of [MS-FSSHTTPD] 3.1 decodes `80 EC BC 97 4D DC 28 … 6F 17 01 00 00 11` the other way, as the GUID
+  `{4D97BCEC-28DC-41C5-9274-26CB57966F17}` and the value `0x11000001`, and the bytes of both examples look made that way
+  (the values `0x11000001` and `0x12000002` to `0x12000007` under one GUID).
+- **Resolution:** the codec follows 2.2.1.7.5, as Microsoft's own protocol test suite does (OfficeDev/Interop-TestSuites,
+  `ExGuid.cs`, MIT; read, nothing copied). Word's saves use no 32-bit form (their values are below 0x20000), so no
+  capture settles it. This host only writes the 32-bit form after 131,071 identifiers in a file.
+
+### Gaps in the spec
+
+- **Leaves of 1 to 3 megabytes:** 2.4.1 creates a Data Node Object only for leaves of at most 1 megabyte, but chunks
+  are subchunked only above 3 megabytes, so a chunk in between has no defined data. This host gives every leaf a Data
+  Node Object.
+- **RDC analysis (2.4.2):** not done. A file that is not a zip is chunked by megabyte (2.4.3). The tree of any chunking
+  is read the same, so files Word chunks by RDC are read.
+- **Unique signatures:** the large final chunk and the subchunks need signatures that are only unique (Office makes
+  them random, notes <7> and <9>). This host uses the start of the SHA-1 of the position and bytes of the chunk, so that
+  an unchanged chunk keeps its signature, and its objects.
+
+
 ## Authentication
 
 ### MS-OFBA is blocked by default, for SharePoint too
@@ -282,6 +350,7 @@ Two more places where the spec contradicts itself:
 
 [MS-FSSHTTP]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fsshttp/05fa7efd-48ed-48d5-8d85-77995e17cc81
 [MS-FSSHTTPB]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fsshttpb/f59fc37d-2232-4b14-baac-25f98e9e7b5a
+[MS-FSSHTTPD]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fsshttpd/
 [MS-WDVME]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-wdvme/8cafdf55-ee5c-443e-bdb7-2cb2ab1fb2c3
 [MS-WEBDAVE]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-webdave/9fb175f3-f063-4389-a959-4457692e4b49
 [MS-OFBA]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-ofba/30c7bbe9-b284-421f-b866-4e7ed4866027

@@ -133,6 +133,7 @@ static class Fsshttpb
 /// - [MS-FSSHTTP] 4.1.1 and 4.1.2: the base64 of the Cell sub-requests and sub-responses of a file open.
 /// - Word 16.0.20326: the Cell sub-requests of its open, sent to the spike of the sample (docs/fsshttp-spike.md, runs 6
 ///   and 7). They are queries, with no document content.
+/// - [MS-FSSHTTPD] 3.1: a Put Changes request saving a zip file (<see cref="FsshttpdVectors"/>).
 /// </summary>
 static class FsshttpbVectors
 {
@@ -281,5 +282,7 @@ static class FsshttpbVectors
         {
             yield return ($"WordRequest{index}", Convert.FromBase64String(WordRequests[index]), Fsshttpb.ParseRequest);
         }
+
+        yield return ("FsshttpdPutChangesRequest", FsshttpdVectors.PutChangesRequestBytes, Fsshttpb.ParseRequest);
     }
 }
