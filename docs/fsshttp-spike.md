@@ -314,21 +314,60 @@ Signed in from an earlier session (a `FedAuth` cookie), Word opened the document
    SharePoint properties found", so Word did not get the library's property schema for this document. That is a matter
    of this library's setup, not of FSSHTTP. The unsaved changes were discarded.
 
+### SharePoint Server, fifth capture (two saves)
+
+This used another brief, whose property schema Word did load: it opened, in Compatibility Mode, with the same
+FSSHTTP open. The edits and saves went through Word's COM automation (`Range.InsertAfter`, `Document.Save`), about a
+minute apart. `Save()` returned within a second, because Word saves to its cache and uploads in the background.
+
+Each save is:
+1. **The upload: `POST /_vti_bin/cellstorage.svc/CellStorageService`.** It has `Scenario: AutoSaveFile_Save` and
+   18,506 bytes of body for the first save, 17,612 for the second. The body is:
+
+   ```xml
+   <Request Url="…" UseResourceID="true" … MetaData="7" ResourceID="…">
+     <SubRequest Type="Cell" SubRequestToken="1">
+       <SubRequestData Coalesce="true" CoauthVersioning="true" GetFileProps="true"
+           BypassLockID="{29358EC1-E813-4793-8E70-ED0344E7B73C}" SchemaLockID="{29358EC1-E813-4793-8E70-ED0344E7B73C}"
+           BinaryDataSize="17026">
+         <xop:Include href="cid:http://tempuri.org/0" xmlns:xop="http://www.w3.org/2004/08/xop/include"/>
+       </SubRequestData>
+     </SubRequest>
+   </Request>
+   ```
+
+   - **One sub-request:** a single Cell. There is no Coauth, refresh or lock sub-request with it.
+   - **The lock:** `BypassLockID` is the schema lock of the coauthoring session (MS-FSSHTTP 2.3.3.1).
+   - **`MetaData`:** `7`, where the open had `1031`.
+   - **The FSSHTTPB (PutChanges):** a binary XOP part (`Content-Transfer-Encoding: binary`), not inline base64 as at
+     open.
+   - **The response:** `200`, MTOM, `MinorVersion="3"`. The rest was cut by ETW.
+2. **The metadata: `POST cellstorage.svc`, `Scenario: GetMetadata_EnsureDocMetaInfo`.** It is a `GetDocMetaInfo`
+   sub-request alone, `MetaData="1031"`. SharePoint's `DocProps` are the `vti_*` properties of the file, mixed with the
+   library's columns:
+   - **The lock:** `vti_sourcecontrollockid` (the `SchemaLockID`), `vti_sourcecontrollocktype` (`1`),
+     `vti_sourcecontrollockexpires`, `vti_sourcecontrolcheckedoutby`, `vti_sourcecontrolmultiuserchkoutby`,
+     `vti_sourcecontroltimecheckedout`.
+   - **Versions:** `vti_contenttag` (`{ResourceID},<version>,<n>`), `vti_contentversionisdirty`,
+     `vti_TimeOfLastCobaltVersionCreation`, `vti_internalversion`, `vti_nextbsn`, `vti_metadatanextbsn`,
+     `vti_nextbsnallocated`.
+   - **The file:** `vti_filesize`, `vti_timecreated`, `vti_timelastmodified`, `vti_author`, `vti_modifiedby` (claims
+     logins), `vti_title`, `vti_replid` (`rid:{ResourceID}`), `vti_parentid`.
+   - **The store:** `vti_docstoretype`, `vti_docstoreversion`, `vti_streamschema`, `vti_parserversion`,
+     `vti_level`, `vti_canmaybeedit`, `vti_ZeroByteFileIsOverwriteable`, `ContentTypeId`.
+   - **The library's columns.**
+3. **REST:** the REST `GetSharingInformation` call again.
+
+No `RefreshCoauthoring` came in the four minutes of this capture.
+
 ### What later captures should do
 
-The open is captured. What SharePoint does after it is not:
-- the save (PutChanges);
-- the refresh cadence (`RefreshCoauthoring`, EditorsTable);
-- two users coauthoring.
-
-These need:
-1. **A library without required columns** (or whose property schema Word loads), so that Word uploads the save. The
-   spike has no columns, so from Phase 2 it gets Word's saves.
-2. **Run `src/fsshttp-capture.ps1`** with the document URL, signed in. Then:
-   1. Wait for edit mode.
-   2. Type a word and save.
-   3. Leave Word open for 15 minutes (`Timeout="2580"` suggests minutes, not seconds, between refreshes).
-3. **A second user** on the same document at the same time, editing another paragraph and saving.
+The open and the save are captured. Still missing:
+- **The refresh cadence** (`RefreshCoauthoring`, EditorsTable): leave Word open for 15 minutes; `Timeout="2580"`
+  suggests the refresh is minutes apart.
+- **Two users coauthoring:** a second user on the same document at the same time, editing another paragraph and
+  saving.
+- **Full response bodies.** From Phase 2, the spike gets Word's saves itself.
 
 What ETW gives here: WebIO logs only the start of large receive buffers, so long SharePoint responses come out cut.
 The spike logs everything Word sends it in full. So from Phase 1 on, Word against the spike is the main source for
@@ -361,8 +400,9 @@ What the later phases depend on, and what is still open:
    - Entra ID (Bearer) is untested.
 4. **Protected View.** It no longer gets in the way of the open: run 6 went to FSSHTTP from the Internet zone. Whether
    Word then edits, or stays read-only, shows once the open succeeds, in Phase 2.
-5. **Save and coauthoring traffic** (PutChanges, refresh intervals, two users) are not captured yet. See "What later
-   captures should do".
+5. **The save is captured** (fifth capture): one Cell sub-request with `Coalesce`, `CoauthVersioning`,
+   `GetFileProps` and `BypassLockID`, then a `GetDocMetaInfo`. Refresh intervals and two users are not captured yet;
+   see "What later captures should do".
 
 
 ## Licence note

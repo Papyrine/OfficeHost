@@ -109,6 +109,25 @@ logs are in `src/WopiServer.Sample/spike-logs`. The client is Word 16.0.20326 (M
   help. Neither did "Retry Save". Word's property pane said "No SharePoint properties found", so its check fails
   without the property schema of the library. Word checks this before uploading, with no request to the server.
 
+### A save is a Cell sub-request alone, with BypassLockID
+
+- **Spec:** [MS-FSSHTTP] 2.3.3.1 (CellSubRequestDataOptionalAttributes), and [MS-FSSHTTPB] PutChanges.
+- **Word:** a save is one cellstorage request (`Scenario: AutoSaveFile_Save`) with one Cell sub-request. Its
+  attributes are `Coalesce="true"`, `CoauthVersioning="true"`, `GetFileProps="true"`, `BypassLockID` and
+  `SchemaLockID` (both the coauthoring schema lock), and `BinaryDataSize`.
+  - **Encoding:** the FSSHTTPB is a binary XOP part, where the Cell queries of the open are inline base64.
+  - **`MetaData`:** `7` on the save, `1031` on the open and on `GetDocMetaInfo`.
+  - **Afterwards:** Word sends a separate `GetDocMetaInfo` (`Scenario: GetMetadata_EnsureDocMetaInfo`).
+
+### GetDocMetaInfo returns the vti properties of the file
+
+- **Spec:** [MS-FSSHTTP] 2.3.1.27 to 2.3.1.29 define `DocProps` and `FolderProps` as key/value properties without
+  naming them.
+- **SharePoint Server:** `DocProps` holds the `vti_*` metadata of the file, mixed with the library's columns. That
+  includes the lock (`vti_sourcecontrollockid`, `…locktype`, `…lockexpires`, `…multiuserchkoutby`), the version
+  (`vti_contenttag`, `vti_contentversionisdirty`, `vti_TimeOfLastCobaltVersionCreation`), and the file (`vti_filesize`,
+  `vti_timelastmodified`, `vti_author`, `vti_modifiedby`, `vti_replid`). The full list is in fsshttp-spike.md.
+
 ### Closing exits coauthoring
 
 - **Spec:** [MS-FSSHTTP] 3.1.4.3.2 (Exit Coauthoring Session), 3.1.4.4.2 (Release Lock).
