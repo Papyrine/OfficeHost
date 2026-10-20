@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="../.gitattributes" />
+    <File Path="../readme.md" />
+    <File Path="../claude.md" />
+    <File Path="../global.json" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="nuget.config" />
+    <File Path="mdsnippets.json" />
+  </Folder>
+  <Project Path="OfficeHost/OfficeHost.csproj" />
+  <Project Path="OfficeHost.Sample/OfficeHost.Sample.csproj" />
+  <Project Path="OfficeHost.Tests/OfficeHost.Tests.csproj" />
+  <Project Path="OfficeHost.E2ETests/OfficeHost.E2ETests.csproj" />
+</Solution>

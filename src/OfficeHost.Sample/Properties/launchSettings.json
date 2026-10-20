@@ -1,0 +1,15 @@
+{
+  "profiles": {
+    "sample": {
+      "commandName": "Project"
+    },
+    "desktop": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "URLS": "https://localhost:5001",
+        "Sample__AppUrl": "https://localhost:5001",
+        "Sample__RequestLog": "request-logs"
+      }
+    }
+  }
+}

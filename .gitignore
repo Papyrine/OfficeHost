@@ -26,4 +26,11 @@ Thumbs.db
 *.lnk
 
 ## Sample
-src/WopiServer.Sample/files/
+src/OfficeHost.Sample/files/
+## the request logs of the desktop launch profile, and of the Phase 0 spike: they hold tokens
+src/OfficeHost.Sample/request-logs/
+src/OfficeHost.Sample/spike-logs/
+## Word captures of src/fsshttp-capture.ps1: they hold credentials
+fsshttp-capture*.etl
+fsshttp-capture*.txt
+src/OfficeHost.Sample/fsshttp-state/

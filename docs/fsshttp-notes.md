@@ -1,0 +1,420 @@
+# FSSHTTP: where Word differs from the specs
+
+Each entry gives the spec section, what Word did, and the evidence: a run of the spike (docs/fsshttp-spike.md), whose
+logs are in `src/OfficeHost.Sample/spike-logs`, or a run of the library through the `desktop` launch profile of the
+sample, whose logs are in `src/OfficeHost.Sample/request-logs` (before Phase 5, in `spike-logs` too). The client is Word 16.0.20326 (Microsoft 365) on Windows 11 10.0.26200.
+
+
+## Discovery
+
+### No FrontPage RPC despite `MS-Author-Via: MS-FP/4.0`
+
+- **Spec:** [MS-WDVME] 3.2.5.1 and 4.1.2 have a FrontPage-compliant server advertise `MS-Author-Via: MS-FP/4.0,DAV`.
+  [MS-FPSE] defines `_vti_inf.html` and `author.dll` for clients that use it.
+- **Word:** in runs 1, 2 and 5 every OPTIONS answer had `MS-Author-Via: MS-FP/4.0,DAV`, `DocumentManagementServer`
+  and `MicrosoftSharePointTeamServices`. Word sent no FrontPage request at all (`_vti_inf.html`, `shtml.dll`,
+  `author.dll`), and no `webs.asmx` either. It used WebDAV only: OPTIONS, HEAD, LOCK, GET, PROPFIND, UNLOCK.
+
+### Undocumented OPTIONS request headers
+
+- **Spec:** nothing found in [MS-WDVME], [MS-WEBDAVE], [MS-OFBA] or [MS-FSSHTTP].
+- **Word:** every OPTIONS of runs 1 to 5 sent these headers:
+
+  ```
+  User-Agent: Microsoft Office Word 2014 (16.0.20326) Windows NT 10.0
+  Authorization: Bearer
+  X-Office-Major-Version: 16
+  X-MS-CookieUri-Requested: t
+  X-FeatureVersion: 1
+  X-MS-AuthDomainSupport: True
+  Accept-Auth: badger,Wlid1.1,Bearer,Basic,NTLM,Digest,Kerberos,Negotiate,Nego2
+  X-MSGETWEBURL: t
+  X-IDCRL_ACCEPTED: t
+  ```
+
+  Some OPTIONS used the user agent `Microsoft Office Word` alone. In each run, one OPTIONS replaced
+  `X-MSGETWEBURL` with `X-IDCRL_OPTIONS: force-auth-challenge` and `IgnoreCookieAuthentication: t`.
+- **Open:** the server's answer to `X-MSGETWEBURL` and `X-MS-CookieUri-Requested`. It needs a SharePoint Online
+  capture.
+
+### FSSHTTP is negotiated on OPTIONS: X-MSFSSHTTP and X-MSWEBURL
+
+- **Spec:** [MS-FSSHTTP] 1.7 (Versioning and Capability Negotiation) is "None", and 1.5 only says where the endpoint
+  is. Neither header is in [MS-FSSHTTP], [MS-WDVME], [MS-WEBDAVE] or [MS-OFBA].
+- **SharePoint Server 16.0.0.5522, signed in:**
+  - every OPTIONS answer had `X-MSFSSHTTP: 1.3`;
+  - the OPTIONS that carried `X-MSGETWEBURL: t` also got `X-MSWEBURL: /`, the server-relative path of the site;
+  - Word then POSTed to `<web url>/_vti_bin/cellstorage.svc/CellStorageService`, with no FrontPage or `webs.asmx`
+    request.
+- **The spike:**
+  - without these headers (runs 1 to 5), Word used plain WebDAV;
+  - with them (run 6, `X-MSWEBURL: /n`), Word POSTed to `/n/_vti_bin/cellstorage.svc/CellStorageService` the same
+    request it sent SharePoint.
+- **Before sign-in** SharePoint sends neither (see below), so a host must not answer OPTIONS with them unless the
+  request is authenticated, or Word would try FSSHTTP without credentials.
+
+### What Word does when the Cell sub-requests fail
+
+- **Spec:** [MS-FSSHTTP] 2.2.5.6 has `RequestNotSupported` for a sub-request the server does not support.
+- **Word,** with `RequestNotSupported` on the Cell sub-requests and success on the rest, sent `ExitCoauthoring` twice.
+  Then:
+  - **Run 6 (Windows sign-in, `/n`):** it showed "Sorry, we couldn't open '<url>'", with no GET, HEAD or LOCK.
+  - **Run 7 (token in the path, anonymous, `/t/{token}`):** it fell back. It did a GET of the document, then the old
+    discovery at the root of the host (`_vti_inf.html`, the FrontPage RPC, HEAD, `webs.asmx` `WebUrlFromPageUrl`,
+    `workflow.asmx` `GetWorkflowDataForItem`). Then it opened the document read-only, in Protected View.
+- **Why they differ:** unknown. The difference between the runs is the sign-in, and the site path.
+
+### The first request differs from the example of MS-FSSHTTP 4.1.1
+
+- **Spec:** [MS-FSSHTTP] 4.1.1 has Coauth, SchemaLock, three Cell, ServerTime and WhoAmI.
+- **Word 16.0.20326,** to SharePoint and to the spike alike:
+  - **Extra sub-requests:** three EditorsTable `UpdateEditorMetadata` (`OnSuccess` the join; keys `SupportsRename`,
+    `Capabilities`, `Platform`, base64 values), `GetDocMetaInfo` (`OnExecute` WhoAmI), `GetVersions`, and a fourth,
+    27-byte Cell sub-request with no dependency.
+  - **`Timeout`:** `2580`.
+  - **`Request` attributes:** `UseResourceID="true"` (plus `ResourceID` when Word knows it from an earlier open),
+    `UserAgent` (a GUID), `UserAgentClient="msword"`, `UserAgentPlatform="win"`, `Build`, `MetaData="1031"`.
+  - **HTTP headers:** besides SOAPAction, `Application`, `FileExtension`, `OSName`, `Scenario: OpenFile_Open`,
+    `ScenarioType`, `X-ClientRing` and `X-RequestStats`.
+  - **Encoding:** the body is MTOM, but the Cell data is inline base64 (with `BinaryDataSize`), not an XOP part.
+
+### SharePoint's response to it
+
+- **Spec:** [MS-FSSHTTP] 4.1.2 has `ResponseVersion MinorVersion="0"`, `WebUrlIsEncoded="false"`, and
+  `UrlIsEncoded="true"`.
+- **SharePoint Server 16.0.0.5522:**
+  - **Envelope:** `MinorVersion="3"`; `ResponseCollection WebUrl="https://<host>"` without `WebUrlIsEncoded`.
+  - **`Response`:** `Url` unencoded (with spaces) and without `UrlIsEncoded`; it echoes `ResourceID`.
+  - **The join:** `TransitionID` equals the `ResourceID`.
+  - **Cell sub-responses:** `ServerCorrelationId` (the `SPRequestGuid`). Their data is inline base64 for some and an
+    XOP part (`Content-Transfer-Encoding: binary`) for others, in the same response.
+  - **WhoAmI:** `UserLogin` is a claims login (`i:0#.w|<domain>\<user>`); `UserSIPAddress` is empty.
+
+### sharedaccess.asmx is polled from the open
+
+- **Spec:** [MS-SHDACCWS] `IsOnlyClient`.
+- **Word:**
+  - **Timing:** right after the cellstorage open, it POSTs `/_vti_bin/sharedaccess.asmx`
+    (`SOAPAction: "http://schemas.microsoft.com/sharepoint/soap/IsOnlyClient"`), every 8 seconds for a minute and
+    then every 30 seconds.
+  - **Body:** `<IsOnlyClient><id>` is the `ResourceID`, and SharePoint answered `true`.
+  - **HTTP headers:** `Scenario: PollingSubscriptionNotConnected_AmIAlone` and
+    `X-RequestStats: Operation=AmIAlone`.
+
+
+### Required columns block the save before any upload
+
+- **SharePoint Server, a library with required columns:** after an edit, Word's save showed "REQUIRED PROPERTIES: To
+  save to the server, correct the invalid or missing required properties", and sent no cellstorage request.
+- **Setting every required column through COM** (`ContentTypeProperties`, each one valid by `Validate()`) did not
+  help. Neither did "Retry Save". Word's property pane said "No SharePoint properties found", so its check fails
+  without the property schema of the library. Word checks this before uploading, with no request to the server.
+
+### A save is a Cell sub-request alone, with BypassLockID
+
+- **Spec:** [MS-FSSHTTP] 2.3.3.1 (CellSubRequestDataOptionalAttributes), and [MS-FSSHTTPB] PutChanges.
+- **Word:** a save is one cellstorage request (`Scenario: AutoSaveFile_Save`) with one Cell sub-request. Its
+  attributes are `Coalesce="true"`, `CoauthVersioning="true"`, `GetFileProps="true"`, `BypassLockID` and
+  `SchemaLockID` (both the coauthoring schema lock), and `BinaryDataSize`.
+  - **Encoding:** the FSSHTTPB is a binary XOP part, where the Cell queries of the open are inline base64.
+  - **`MetaData`:** `7` on the save, `1031` on the open and on `GetDocMetaInfo`.
+  - **Afterwards:** Word sends a separate `GetDocMetaInfo` (`Scenario: GetMetadata_EnsureDocMetaInfo`).
+
+### GetDocMetaInfo returns the vti properties of the file
+
+- **Spec:** [MS-FSSHTTP] 2.3.1.27 to 2.3.1.29 define `DocProps` and `FolderProps` as key/value properties without
+  naming them.
+- **SharePoint Server:** `DocProps` holds the `vti_*` metadata of the file, mixed with the library's columns. That
+  includes the lock (`vti_sourcecontrollockid`, `…locktype`, `…lockexpires`, `…multiuserchkoutby`), the version
+  (`vti_contenttag`, `vti_contentversionisdirty`, `vti_TimeOfLastCobaltVersionCreation`), and the file (`vti_filesize`,
+  `vti_timelastmodified`, `vti_author`, `vti_modifiedby`, `vti_replid`). The full list is in fsshttp-spike.md.
+
+### Coauthoring is a poll, not the refresh the spec describes
+
+- **Spec:** [MS-FSSHTTP] 3.1.4.3.3 (Refresh Coauthoring Session) keeps a client in the session before its `Timeout`,
+  and 3.1.4.3.7 (Get Coauthoring Session) reports who is in it.
+- **Word, two users on SharePoint Server:**
+  - **The poll:** every 8 seconds, `Scenario: PollingSubscriptionNotConnected_TransitionToCoauthInHostMode`, three
+    Cell queries plus Coauth `GetCoauthoringStatus`, 159 times in 21 minutes. There was no `RefreshCoauthoring`,
+    EditorsTable refresh or SchemaLock refresh in the 27 minutes after the open (`Timeout="2580"`): Word refreshes 40
+    minutes after the join (see "Word refreshes its lock 40 minutes after the join", below).
+  - **When the second user arrived:** Word sent `MarkTransitionComplete` with the Cell queries
+    (`Scenario: GetChangesFile_MarkCoauthTransitionCompleteAndDownload`).
+  - **Before saving:** Word uploaded the metadata partition alone
+    (`Scenario: Coauthoring_RequestUploadOnSecondaryMetadataPartition`).
+- **Alone:** Word polls `sharedaccess.asmx` `IsOnlyClient` instead ([MS-SHDACCWS]).
+
+### A remote change is pulled by the poll, merged at the next save
+
+- **Word:** the poll's Cell queries carry Word's knowledge. After the other user's save, one answer brought their
+  changes (and Etag version + 1), and Word's later queries changed with its knowledge. Word showed the changes as
+  pending updates, and merged them into the document at its next save. That save's PutChanges did not fail
+  coherency: Word merges before it uploads.
+
+### Closing exits coauthoring
+
+- **Spec:** [MS-FSSHTTP] 3.1.4.3.2 (Exit Coauthoring Session), 3.1.4.4.2 (Release Lock).
+- **Word:** closing the document sent one request: Coauth `ExitCoauthoring` (with `SchemaLockID` and `ClientID`),
+  and SchemaLock `ReleaseLock` `OnNotSupported` it. The same pair was sent twice when the open failed against the
+  spike.
+
+
+## FSSHTTPB
+
+The Cell sub-requests of Word below are in the tests as `FsshttpbVectors.WordRequests` (src/OfficeHost.Tests/Fsshttp),
+taken from run 7 of the spike. They are queries, with no document content.
+
+### Word sends a user agent GUID and a client and platform
+
+- **Spec:** [MS-FSSHTTPB] 2.2.2: the User Agent Client and Platform "replaces the User Agent GUID. If this is specified,
+  the User Agent GUID SHOULD NOT be specified."
+- **Word:** every Cell request with a user agent has both: the GUID `1984108C-4B93-4EEB-B320-919432D6E593`, then the
+  client `msword` and the platform `win`. The codec reads and writes either or both.
+
+### A lone Query Access request has no user agent
+
+- **Spec:** [MS-FSSHTTPB] 2.2.2 lists the User Agent Start, Version and End as required fields of a request.
+- **Word:** its fourth Cell sub-request of the open (27 bytes, `WordRequests[3]`) is a request start, one Query Access
+  sub-request and the request end, with no user agent and no Data Element Package. The codec reads the user agent as
+  optional.
+
+### Query Changes flags of two bytes, with reserved bits set
+
+- **Spec:** [MS-FSSHTTPB] 2.2.2.1.3: the flags A to H take a byte, and I (user content equivalent version OK) is in a
+  second byte with 7 reserved bits that "MUST be set to zero".
+- **Word:** sends the two bytes, with the first byte zero and the second `0xAC`, `0x50` and `0x10` in the three
+  queries of the open: reserved bits set, differing from query to query. The codec keeps the flags as sent, and their
+  length, so that it writes back what it read.
+
+### Errata of the examples of MS-FSSHTTPB 4
+
+The bytes of the examples are right where their descriptions are not. The tests use the bytes
+(`FsshttpbVectors.Spec*`), and each one reads and writes back byte for byte.
+
+| Section | The description says | The bytes are |
+|---|---|---|
+| 4.1, 4.3 | User Agent Version `0x0008027A` has the type 0x2F | 0x4F, as in the table of 2.2.1.5.2 |
+| 4.1, 4.3 | Sub-Request End `0x010B` has the type 0x21 | 0x42, the type of the sub-request start |
+| 4.2 | the Waterline `0xFCF808` is 75503, and 4 bytes | 73503, as the cell range before it says, in 3 bytes |
+| 4.3 | Put Changes Request `0x002602D2` has the length 9 | 19: two Extended GUIDs of 17 and 1 bytes, then the flags |
+| 4.3.5 | the Revision ID is the Extended GUID `14 B9FADE84…`, the Base Revision ID `80 13380CDE…` | those are the root and object of the first Revision Manifest Root Declare (`0x4C50`); the Revision ID is `0C 3AFE2871…` and the Base Revision ID is null (`00`) |
+| 4.4 | the signature is `0x9B069439F329CF9C`, of a request | `9D CF 29 F3 39 94 06 9B`: `0x9B069439F329CF9D`, of a response (2.2.3) |
+
+Two more places where the spec contradicts itself:
+
+- **Query Changes Request (0x51):** the table of 32-bit starts (2.2.1.5.2) has it as not compound, and the example of
+  4.1 has no end for it, but the table of 16-bit ends (2.2.1.5.4) lists it. The codec treats it as single.
+- **Put Changes Response (0x87):** 2.2.3.1.3 lists its header as a required field, with only the applied Storage Index
+  and the data elements added optional; the example of 4.4 has a Put Changes sub-response without it, the knowledge
+  right after the sub-response start. The codec reads the header as optional, and writes it only when the model has
+  it.
+
+
+## MS-FSSHTTPD
+
+The evidence here is the three Put Changes requests of Word's saves to SharePoint Server (17 to 20 KB each, the binary
+part of `Scenario: AutoSaveFile_Save`, see the saves above). They hold the document's content, so they are not in the
+repository: they were checked locally with the codec, which reads each and writes it back byte for byte.
+
+### Word's signatures: exclusive or, with no CRC of the compressed data
+
+- **Spec:** [MS-FSSHTTPD] 2.4.1: the signature of the data of a zip item is its CRC and sizes. The note <6> says Office
+  adds the CRC of the compressed data after the CRC from the Office 2010 March 2015 CU. For protocol version 2.2 and
+  later, the signature of an item of at most 4096 bytes is the exclusive or of those of its header and data.
+- **Word 16.0.20326:** the data signatures are 20 bytes, the CRC and the two sizes, with no CRC of the compressed data.
+  A small item's signature is the SHA-1 of its header exclusive or that, 20 bytes. A header chunk is the SHA-1 of the
+  header, and the central directory the SHA-1 of its bytes. All 27 leaves of the three saves whose data node is in the
+  same request match `ChunkingOptions.Default` (exclusive or, no CRC of the compressed data), which is what this host
+  writes.
+
+### How Word lays out the tree
+
+- **Spec:** the example of [MS-FSSHTTPD] 3.1 has one object per Object Group, no Object Group metadata, and leaves
+  with no Data Hash.
+- **Word:**
+  - each leaf is in one Object Group with its Data Node Object, and each Object Group has Object Group metadata
+    declarations ([MS-FSSHTTPB] 2.2.1.12.6.3), one per object;
+  - every leaf has a Data Hash of 20 bytes, whose algorithm the note <3> leaves incomplete ("without the introduction
+    of the length"), so this host keeps those it reads and writes none;
+  - a revision has no base revision: its Revision Manifest lists the Object Groups it keeps from earlier saves, by
+    their identifiers, with its new ones. `FileCell.Write` does the same.
+- This host writes the layout of the example, which its tests reproduce data element for data element. Word reads
+  layouts other than its own, as it reads SharePoint's; that is to be confirmed when the service serves files (Phase 4).
+
+### A second root: an opaque stream
+
+- **Spec:** [MS-FSSHTTPD] 2.3: "If other streams are present, additional roots MUST be specified by the protocol client
+  and are opaque to this protocol."
+- **Word:** every revision has a second root, `{EDF48BAC-3745-4416-A4C9-D5B71BB870F6},2`, a single leaf of 199 bytes
+  with an empty signature over a Data Node Object. `FileCell.Write` keeps the other roots of the previous revision with
+  their Object Groups.
+
+### Serial Numbers and the expected Storage Index
+
+- **Word:** every data element of a Put Changes has the null Serial Number; the server assigns them. The mappings of
+  the Storage Index do have Serial Numbers, of a GUID of Word's. The Data Element Package also holds the Storage Index
+  of `ExpectedStorageIndex`, with its Storage Manifest and Cell Manifest. Both matter to the Put Changes of the service
+  (Phase 4).
+
+### The order of the 32-bit Extended GUID
+
+- **Spec:** [MS-FSSHTTPB] 2.2.1.7.5 has the type 128, then the value (4 bytes), then the GUID. The description of the
+  example of [MS-FSSHTTPD] 3.1 decodes `80 EC BC 97 4D DC 28 … 6F 17 01 00 00 11` the other way, as the GUID
+  `{4D97BCEC-28DC-41C5-9274-26CB57966F17}` and the value `0x11000001`, and the bytes of both examples look made that way
+  (the values `0x11000001` and `0x12000002` to `0x12000007` under one GUID).
+- **Resolution:** the codec follows 2.2.1.7.5, as Microsoft's own protocol test suite does (OfficeDev/Interop-TestSuites,
+  `ExGuid.cs`, MIT; read, nothing copied). Word's saves use no 32-bit form (their values are below 0x20000), so no
+  capture settles it. This host only writes the 32-bit form after 131,071 identifiers in a file.
+
+### Gaps in the spec
+
+- **Leaves of 1 to 3 megabytes:** 2.4.1 creates a Data Node Object only for leaves of at most 1 megabyte, but chunks
+  are subchunked only above 3 megabytes, so a chunk in between has no defined data. This host gives every leaf a Data
+  Node Object.
+- **RDC analysis (2.4.2):** not done. A file that is not a zip is chunked by megabyte (2.4.3). The tree of any chunking
+  is read the same, so files Word chunks by RDC are read.
+- **Unique signatures:** the large final chunk and the subchunks need signatures that are only unique (Office makes
+  them random, notes <7> and <9>). This host uses the start of the SHA-1 of the position and bytes of the chunk, so that
+  an unchanged chunk keeps its signature, and its objects.
+
+
+## Word against OfficeHost
+
+Word 16.0.20326, on the `desktop` launch profile of the sample (`https://localhost:5001`), with every request logged.
+It opened the document, enabled editing, saved twice and closed, and the file had both edits.
+
+### The expected Storage Index of a Put Changes is Word's own copy
+
+- **Spec:** [MS-FSSHTTPB] 2.2.2.1.4 has the Expected Storage Index Extended GUID "that the client expects the server to
+  have", without saying how the server compares it.
+- **Word:** the id is a new one (`{GUID},1`), and the Data Element Package holds a Storage Index with that id: the
+  mappings of the Storage Index Word got from the server, with their data element ids, but with mapping Serial Numbers
+  of a GUID of Word's. Comparing the ids fails every save with a coherency failure, and Word then downloads the whole
+  file again. The service compares what the two Storage Indexes map the Storage Manifest and the cells to.
+- So that a change made outside Word still fails coherency, a revision written from a file gets a new Cell Manifest, as
+  Word makes one per save.
+
+### Protected View, then a second open
+
+- **Word:** on a host in the Internet zone, the open (join, queries) ends with `ExitCoauthoring`
+  (`Scenario: ReleaseLock_LockRelease`) and the document in Protected View. Enable Editing sends the open again, with
+  the join, and the editing goes on from there, polling `IsOnlyClient`.
+
+### What Word does without
+
+- `GetVersions` answered `RequestNotSupported`, `POST {site}/_api/web/GetFileByUrl(@v)/ListItemAllFields/GetSharingInformation`
+  and `POST /_vti_bin/webs.asmx` at the root answered 404: Word opened, edited and saved all the same.
+- The editors table partition and the metadata partition answered with nothing in them (a Storage Index with a null
+  Storage Manifest mapping), and the open went on.
+
+### The second root is a stream like the editors table
+
+The 199-byte stream of Word's second root (`{EDF48BAC-…},2`, above) starts with `1A 5A 3A 30 00 00 00 00`, the
+Editors Table Zip Stream Header of [MS-FSSHTTPB] 2.2.3.1.2.1.1: a DEFLATE-compressed XML of Word's.
+
+### Word refreshes its lock 40 minutes after the join
+
+- **Spec:** [MS-FSSHTTP] 3.1.4.3.3 has a client refresh its coauthoring session before its `Timeout`, without saying
+  when.
+- **Word, alone, editing and then idle for 65 minutes** (step 10 of [fsshttp-checklist.md](fsshttp-checklist.md)):
+  - **The polls:** `IsOnlyClient` of `sharedaccess.asmx` every 30 seconds
+    (`Scenario: PollingSubscriptionNotConnected_AmIAlone`), 140 in the hour. At 21, 49 and 58 minutes, a pair of Cell
+    queries of the content and the metadata (`Scenario: GetChangesFile_PowerAndPresenceStateChange`).
+  - **The refresh:** 2400 seconds after the join, 180 seconds before its `Timeout="2580"`, one request
+    (`Scenario: RefreshLock_LockRefresh`): Coauth `RefreshCoauthoring` with `Timeout="2580"`, SchemaLock `RefreshLock`
+    `OnNotSupported` it, and the three `UpdateEditorMetadata` of the join again.
+  - **The save** after the hour succeeded, with the same `BypassLockID`.
+- This fits the SharePoint captures, which ended 27 minutes after the open. The service keeps a client for at least an
+  hour from its last request, so the refresh only extends what the polls already do.
+
+### A restart of the server: Word goes on without joining again
+
+- **Word:** with the sample stopped for a minute and started again (step 9), Word did not join again or open the file
+  again. Its `IsOnlyClient` polls went on, then two Cell queries (`GetChangesFile_PowerAndPresenceStateChange`) and a
+  save, which succeeded.
+- **The service:** the coauthoring tracker was on disk (`FileSystemFsshttpStore`), the lock of the sample's
+  `MemoryLockStore` was not. The first poll after the restart refreshed the client, which wrote its lock again. Until
+  then, a WOPI client could have locked the file, and Word's save would have failed with `FileAlreadyLockedOnServer`:
+  an application keeps its `IOfficeLockStore` as long as its `IFsshttpStore`.
+
+
+## Authentication
+
+### MS-OFBA is blocked by default, for SharePoint too
+
+- **Spec:** [MS-OFBA] 2.2.1 has the client identify itself with `X-FORMS_BASED_AUTH_ACCEPTED: t` (or a listed user
+  agent). On a 403 with `X-FORMS_BASED_AUTH_REQUIRED` (2.2.2), the client MUST navigate to the login page.
+- **Word:** it sent no `X-FORMS_BASED_AUTH_ACCEPTED`. On the 403 of run 3 it did not open the login page. It showed
+  "Office has blocked this content because it uses a sign-in method that may be insecure. You can choose to not block
+  such content in the future by changing your settings in the Office Trust Center."
+- **SharePoint Server 16.0.0.5522 (forms-based sign-in), captured with `src/fsshttp-capture.ps1`:** Word sent the same
+  OPTIONS. SharePoint answered 403 with `X-Forms_Based_Auth_Required`, `X-Forms_Based_Auth_Return_Url`,
+  `X-MSDAVEXT_Error: 917656; Access denied. Before opening files in this location, you must first browse to the web
+  site and select the option to login automatically.` and `X-MS-InvokeApp: 1; RequireReadOnly`. Word showed the same
+  dialog and sent nothing more.
+- **The setting:** File > Options > Trust Center > Trust Center Settings > Form-based Sign-in. Its Group Policy is
+  "Control how Office handles form-based sign-in prompts". By default it blocks every prompt; it can be set to allow
+  listed hosts.
+
+### Word's forms sign-in dialog is the IE engine
+
+- **Spec:** [MS-OFBA] 3.2 leaves the login dialog to the client.
+- **Word:** with forms-based sign-in allowed for the host ("Ask me what to do for each host", then Yes), Word opened
+  the login page in a `TridentContainer` window. That is the IE engine (MSHTML), and its requests go through WinINet
+  inside the Word process. They carry the IE `Accept` header (`image/gif, image/jpeg, …, application/x-ms-xbap`).
+- **SharePoint Server's login page** lists "Windows Authentication" and "ADFS". Both failed on a PC that is not on the
+  SharePoint domain:
+  - **Windows:** `POST /_login/default.aspx` then 302 to `/_windows/default.aspx`. The 401 `WWW-Authenticate: NTLM`
+    led to an NTLM type 2 challenge, and the dialog stopped there.
+  - **ADFS:** 302 to `/_trust/default.aspx?trust=ADFS`, 302 to `https://<adfs>/adfs/ls/?wa=wsignin1.0&wtrealm=urn:…`.
+    ADFS answered with a 302 to `/adfs/ls/wia`, its Windows-integrated endpoint, because it treats IE as a browser
+    that can sign in with Windows. Chrome gets the ADFS password form instead.
+
+  In both cases the dialog showed "Can't reach this page" (titled `javascript:` the first time) and never asked for a
+  password.
+- **What it means for a host:** forms-based sign-in only works in Word if the login page works in the IE engine. Its
+  identity provider must not send IE to Windows sign-in on PCs outside the domain.
+
+### Word calls the SharePoint REST v2 API before sign-in
+
+- **Spec:** none: `/_api/v2.0` is the SharePoint REST API (OneDrive API shape), not an Open Specification.
+- **Word:** after the 403 of the OPTIONS, it sent `GET /_api/v2.0/shares/u!<base64url of the document URL>/driveitem/?$select=viewpoint`
+  through WebIO (WinHTTP). SharePoint Server answered `401 WWW-Authenticate: NTLM`.
+
+### SharePoint sends no capability headers before sign-in
+
+- **SharePoint Server 16.0.0.5522:** the 403 answer to an unauthenticated OPTIONS has no `DAV`, `MS-Author-Via`,
+  `Allow` or web URL; only `MicrosoftSharePointTeamServices` and the sign-in headers. So [MS-WDVME] 3.2.5.1 (which
+  advertises capabilities on OPTIONS) applies only after sign-in, and so does any answer to `X-MSGETWEBURL`.
+
+### Basic over HTTPS is blocked by default
+
+- **Spec:** none: Basic is [RFC7617], and the `Accept-Auth` Word sends lists `Basic`.
+- **Word:** on the 401 `WWW-Authenticate: Basic` of run 4 it showed no credential prompt. It showed "Microsoft Office
+  has blocked access to "https://localhost:5001/b/" because the source uses a sign-in method that may be unsecure."
+
+### Windows auth is silent
+
+- **Word:** on the 401 `WWW-Authenticate: Negotiate` of run 5, it authenticated with no prompt and went on as an
+  anonymous client would.
+
+
+## WebDAV
+
+### LOCK and UNLOCK around a read-only open
+
+- **Word:** in Protected View (all runs on `https://localhost`, which is in the Internet zone), it took an exclusive
+  LOCK (`Timeout: Second-600`, owner `AzureAD\<user>`), did a GET and a PROPFIND, and then an UNLOCK within a second.
+  After "Enable Editing" it repeated the sequence and stayed in Protected View, with a "We've refreshed this document
+  with the latest changes from others" bar.
+- **Open:** whether that is the fake LOCK answer of the spike or the zone. Retest with the host in the Local intranet
+  zone.
+
+[MS-FSSHTTP]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fsshttp/05fa7efd-48ed-48d5-8d85-77995e17cc81
+[MS-FSSHTTPB]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fsshttpb/f59fc37d-2232-4b14-baac-25f98e9e7b5a
+[MS-FSSHTTPD]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fsshttpd/
+[MS-WDVME]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-wdvme/8cafdf55-ee5c-443e-bdb7-2cb2ab1fb2c3
+[MS-WEBDAVE]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-webdave/9fb175f3-f063-4389-a959-4457692e4b49
+[MS-OFBA]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-ofba/30c7bbe9-b284-421f-b866-4e7ed4866027
+[MS-FPSE]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fpse/1bbae50a-7de9-45ea-830d-4e9caf8dfccd
+[RFC7617]: https://www.rfc-editor.org/rfc/rfc7617
