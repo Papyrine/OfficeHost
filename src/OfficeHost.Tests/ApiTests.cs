@@ -210,10 +210,18 @@ public class ApiTests
             Task.FromResult(tokens.GetValueOrDefault(token));
     }
 
+    /// <summary>
+    /// Without an <see cref="IOfficeStorage"/>, MapOfficeHost says so. In Production: in Development, Build validates the
+    /// services and fails first, whatever the environment of the test runner.
+    /// </summary>
     [Test]
     public async Task MapOfficeHost_NeedsStorage()
     {
-        var builder = WebApplication.CreateSlimBuilder();
+        var builder = WebApplication.CreateSlimBuilder(
+            new WebApplicationOptions
+            {
+                EnvironmentName = Environments.Production
+            });
         builder.Services.AddOfficeHost(_ => _.SigningKey = TestServerHost.SigningKey);
         await using var app = builder.Build();
         var exception = Assert.Throws<InvalidOperationException>(() => app.MapOfficeHost());
