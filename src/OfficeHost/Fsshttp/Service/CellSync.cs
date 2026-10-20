@@ -151,8 +151,8 @@ static class CellSync
         storage.StorageIndex.Entries.All(_ => _.MappingId.IsNull);
 
     /// <summary>
-    /// The data elements the client does not know of, by their Serial Numbers, up to <paramref name="maxBytes"/> of
-    /// them (at least one), leaves first: Object Data BLOBs and Object Groups, then the manifests, then the Storage Index.
+    /// The data elements the client does not know of, by their Serial Numbers, up to the Maximum Data Elements of the
+    /// <paramref name="query"/> in bytes (at least one), leaves first: Object Data BLOBs and Object Groups, then the manifests, then the Storage Index.
     /// When they do not all fit, the response is partial, and its knowledge is that of the client with the elements
     /// sent; otherwise it is the whole knowledge of the storage.
     /// </summary>
