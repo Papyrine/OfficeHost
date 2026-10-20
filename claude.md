@@ -34,11 +34,14 @@ specifics.
   the store's `CompareExchange`, so each lock operation is atomic.
 - `OfficeHostOptions.cs`, `OfficeAccess.cs` (the access a token grants, `IOfficeTokens` and the built-in signed tokens
   on `Jwt.cs`), `OfficeLauncher.cs` (action URLs from the discovery), `WopiDiscovery.cs` and `ProofKeys.cs`.
+- `IFsshttpStore.cs` (the state of desktop coauthoring, opaque to it), `MemoryFsshttpStore.cs`, `FileSystemFsshttpStore.cs`.
 - `IOfficeStorage.cs` (with `IOfficeUserInfoStore`), `FileSystemStorage.cs`, `IOfficeLockStore.cs` (with
   `MemoryLockStore`), `FileNames.cs` (legal names, UTF-7 names of PutRelativeFile and RenameFile).
 - `Fsshttp/`: MS-FSSHTTP, internal. `Fsshttp/Binary/` is the FSSHTTPB codec ([MS-FSSHTTPB]), pure, with no ASP.NET.
   `Fsshttp/Files/` is a file stream in a cell ([MS-FSSHTTPD]): `FileChunker` (zip and simple chunking), the node
   objects, and `FileCell`, which reads the file from data elements and writes a file as the next revision.
+  `Fsshttp/Cells/`: `CellState`, the state of a partition of a file serialized for the `IFsshttpStore`, and `FsshttpCells`,
+  which keeps the content partition in step with the file in the `IOfficeStorage`.
 
 ## Conventions
 

@@ -7,7 +7,8 @@ public static class OfficeHostExtensions
 {
     /// <summary>
     /// Registers the WOPI services. An <see cref="IOfficeStorage"/> must be registered too; <see cref="IOfficeLockStore"/>
-    /// defaults to <see cref="MemoryLockStore"/>, <see cref="IOfficeTokens"/> to tokens signed with
+    /// defaults to <see cref="MemoryLockStore"/>, <see cref="IFsshttpStore"/> to <see cref="MemoryFsshttpStore"/>,
+    /// <see cref="IOfficeTokens"/> to tokens signed with
     /// <see cref="OfficeHostOptions.SigningKey"/>, and PutUserInfo is supported when an <see cref="IOfficeUserInfoStore"/> is.
     /// These can have any lifetime, as a scoped storage over a database context.
     /// </summary>
@@ -17,11 +18,13 @@ public static class OfficeHostExtensions
         services.AddHttpClient(OfficeHostOptions.HttpClientName);
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IOfficeLockStore, MemoryLockStore>();
+        services.TryAddSingleton<IFsshttpStore, MemoryFsshttpStore>();
         services.TryAddSingleton<IOfficeTokens, SignedOfficeTokens>();
         services.TryAddSingleton<WopiDiscovery>();
         services.TryAddSingleton<ProofKeys>();
         // transient, so that they take the lifetime of the storage and the stores rather than capture them
         services.TryAddTransient<WopiHandler>();
+        services.TryAddTransient<FsshttpCells>();
         services.TryAddTransient(
             _ => new OfficeLauncher(
                 _.GetRequiredService<IOfficeStorage>(),
