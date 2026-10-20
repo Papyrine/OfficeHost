@@ -49,7 +49,25 @@ public class FsshttpSpikeTests : IAsyncDisposable
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
         await Assert.That(response.Headers.GetValues("MicrosoftSharePointTeamServices").Single()).IsEqualTo("16.0.0.0");
         await Assert.That(response.Headers.GetValues("MS-Author-Via").Single()).IsEqualTo("MS-FP/4.0,DAV");
+        await Assert.That(response.Headers.GetValues("X-MSFSSHTTP").Single()).IsEqualTo("1.3");
+        await Assert.That(response.Headers.Contains("X-MSWEBURL")).IsFalse();
         await Assert.That(Directory.EnumerateFiles(logs.Path).Count()).IsEqualTo(1);
+    }
+
+    /// <summary>
+    /// Word asks for the site of a document with X-MSGETWEBURL, and SharePoint answers with its path in X-MSWEBURL:
+    /// with X-MSFSSHTTP, that is what makes Word use cellstorage.svc (docs/fsshttp-spike.md).
+    /// </summary>
+    [Test]
+    public async Task Options_WebUrl()
+    {
+        var token = await Token();
+        using var client = factory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Options, $"/t/{token}/");
+        request.Headers.Add("X-MSGETWEBURL", "t");
+        using var response = await client.SendAsync(request);
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await Assert.That(response.Headers.GetValues("X-MSWEBURL").Single()).IsEqualTo($"/t/{token}");
     }
 
     [Test]

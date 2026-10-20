@@ -4,15 +4,22 @@ The question: will desktop Word use [MS-FSSHTTP] (`cellstorage.svc`) against a h
 does it need to see first? This note has what the specs say, what Word did against the spike of the sample, how to run
 the spike, how to capture Word's traffic with a real SharePoint, and what that capture has shown so far.
 
-**Answer so far: not yet.**
-- **Against the spike:** across five runs, with four kinds of authentication and the SharePoint headers that the specs
-  document, Word 16 (Microsoft 365, build 16.0.20326) opened the document over plain WebDAV. It never requested
-  `_vti_inf.html`, the FrontPage RPC, `webs.asmx`, `/_api` or `cellstorage.svc`.
-- **Against SharePoint Server:** a capture of the same Word on an on-premises SharePoint Server (forms-based sign-in)
-  stopped at the first OPTIONS. Office blocks forms-based sign-in by default, for SharePoint too.
+**Answer: yes.** Word uses MS-FSSHTTP against a host that is not SharePoint once the OPTIONS answer has two headers
+that no published spec documents:
+- `X-MSFSSHTTP: 1.3`;
+- `X-MSWEBURL: <path of the site>`, the answer to Word's `X-MSGETWEBURL: t`.
 
-The specs do not document the step that makes Word switch to FSSHTTP, so that step still has to come from a capture of
-Word getting past sign-in.
+Here is how that was found and confirmed:
+1. **Spike without them:** across five runs, with four kinds of authentication and the SharePoint headers that the
+   specs document, Word 16 (Microsoft 365, build 16.0.20326) opened the document over plain WebDAV.
+2. **SharePoint Server, signed in:** a capture of the same Word against an on-premises SharePoint Server showed both
+   headers on SharePoint's OPTIONS answer. Word POSTed to `/_vti_bin/cellstorage.svc` 50 ms later, with no FrontPage,
+   `webs.asmx` or `_vti_inf.html` step.
+3. **Spike with them (runs 6 and 7):** Word sent the spike the same first FSSHTTP request, `JoinCoauthoring` included.
+   That held with Windows sign-in and with only a token in the path. The spike cannot answer Cell sub-requests yet,
+   so Word then exited coauthoring and either failed the open (run 6) or fell back to a read-only GET (run 7).
+
+So FSSHTTPB (the Cell sub-requests) is mandatory for an editable open, which is Phases 1 and 2.
 
 
 ## What the specs say
@@ -83,6 +90,8 @@ The logs of each run are in `src/WopiServer.Sample/spike-logs/run*` (ignored by 
 | 3 | `/o/{token}/Welcome.docx`, [MS-OFBA] | 403 with `X-FORMS_BASED_AUTH_REQUIRED`/`_RETURN_URL`/`_DIALOG_SIZE` | 2 × OPTIONS, then a dialog: "Office has blocked this content because it uses a sign-in method that may be insecure", pointing to the Trust Center. It never opened the login page. |
 | 4 | `/b/Welcome.docx`, Basic over HTTPS | 401 `WWW-Authenticate: Basic` | 2 × OPTIONS, 2 × HEAD, then a dialog: "Microsoft Office has blocked access to `https://localhost:5001/b/` because the source uses a sign-in method that may be unsecure". There was no credential prompt. |
 | 5 | `/n/Welcome.docx`, Windows auth (Negotiate) | 401 `WWW-Authenticate: Negotiate`, then the run 2 headers | Word signed in silently (NTLM/Kerberos), then repeated run 1, in Protected View. After "Enable Editing" (pressed through UI Automation): LOCK, GET, PROPFIND, UNLOCK again, still in Protected View, and a "We've refreshed this document with the latest changes from others" bar. |
+| 6 | `/n/Welcome.docx`, Windows auth | as 5, plus `X-MSFSSHTTP: 1.3`, and `X-MSWEBURL: /n` when asked (from the SharePoint capture below) | 3 × OPTIONS, then `POST /n/_vti_bin/cellstorage.svc/CellStorageService`: the first FSSHTTP request, as to SharePoint. The spike answered the Cell sub-requests `RequestNotSupported`, then: `sharedaccess.asmx` (404), 2 × `ExitCoauthoring`, and "Sorry, we couldn't open 'https://localhost:5001/n/Welcome.docx'". No HEAD, GET or LOCK. |
+| 7 | `/t/{token}/Welcome.docx`, anonymous (token in the path) | as 6, with `X-MSWEBURL: /t/{token}` | 2 × OPTIONS, then the same FSSHTTP open, `JoinCoauthoring` included, with no HTTP sign-in. After the Cell refusal: `sharedaccess.asmx` (404), 2 × `ExitCoauthoring`, then a fallback: GET of the document, and at the host root `_vti_inf.html`, the FrontPage RPC, HEAD, `webs.asmx` `WebUrlFromPageUrl`, `workflow.asmx` `GetWorkflowDataForItem`. It opened read-only in Protected View. |
 
 Across all runs:
 - **`cellstorage.svc` was never reached**, so neither `JoinCoauthoring` nor any other FSSHTTP sub-request was ever
@@ -154,7 +163,7 @@ and the `spike` launch profile turns it on, with Windows auth, on `https://local
    start offer Safe Mode.
 
 What the spike answers:
-- **OPTIONS:** as in run 2.
+- **OPTIONS:** as in run 6: the headers of run 2, `X-MSFSSHTTP: 1.3`, and `X-MSWEBURL` (the site path) when asked.
 - **`_vti_inf.html`:** [MS-FPSE].
 - **FrontPage RPC:** "server version", "url to web url" and "open service".
 - **`webs.asmx`:** `WebUrlFromPageUrl`.
@@ -244,81 +253,101 @@ So no FSSHTTP traffic yet. Getting it needs Word to sign in, which means one of 
 - an ADFS that gives IE the password form;
 - SharePoint Online, where Word signs in with Entra ID.
 
-### What the next capture should do
+### SharePoint Server, third capture (signed in)
 
-1. **Close every Office app.** Then delete `HKCU\Software\Microsoft\Office\16.0\Common\Internet\Server Cache` (if it
-   exists), so that Word rediscovers the server.
-2. **Run `src/fsshttp-capture.ps1`** with the document URL. Sign in when Word asks.
-3. **Generate the coauthoring traffic:**
-   1. Wait until Word shows the document in edit mode.
+Signed in from an earlier session (a `FedAuth` cookie), Word opened the document in edit mode. In order:
+1. **3 × OPTIONS on the folder,** each answered 200 with the WebDAV and FrontPage headers of run 2 and `X-MSFSSHTTP: 1.3`.
+   The two that carried `X-MSGETWEBURL: t` also got `X-MSWEBURL: /` (the site is the root of the host).
+2. **`POST /_vti_bin/cellstorage.svc/CellStorageService`:** the URL is the web URL plus the service path, MS-FSSHTTP 1.5.
+   - **HTTP headers:** `SOAPAction: "http://schemas.microsoft.com/sharepoint/soap/ICellStorages/ExecuteCellStorageRequest"`,
+     plus `Application: Win32-Word`, `FileExtension: .docx`, `Scenario: OpenFile_Open`, `ScenarioType: AUO`, and
+     `X-RequestStats: Operation=Open;…`.
+   - **Body:** MTOM (`multipart/related; type="application/xop+xml"; start="<http://tempuri.org/xml/0>"`), with one XML
+     part.
+   - **`RequestVersion`:** `Version="2" MinorVersion="2"`.
+   - **`Request` attributes:** `Url`, `UseResourceID="true"`, `ResourceID` (from an earlier open), `UserAgent`,
+     `UserAgentClient="msword"`, `UserAgentPlatform="win"`, `Build`, `RequestToken="1"`, `MetaData="1031"`.
+   - **Sub-requests, in order:**
+     1. Coauth `JoinCoauthoring` (`SchemaLockID="{29358EC1-E813-4793-8E70-ED0344E7B73C}"`, `Timeout="2580"`,
+        `AllowFallbackToExclusive="true"`);
+     2. SchemaLock `GetLock`, `OnNotSupported` the join;
+     3. three Cell sub-requests, `OnExecute` the SchemaLock: the metadata partition `7808F4DD-…`, the content partition
+        `383ADC0B-…`, and one with `GetFileProps="true"`. Their FSSHTTPB is inline base64, not an XOP part;
+     4. three EditorsTable `UpdateEditorMetadata`, `OnSuccess` the join, with keys `SupportsRename` (`false`),
+        `Capabilities` (`{"CTID":null,"ENV":0,"SF":0}`) and `Platform` (`1`);
+     5. `WhoAmI`;
+     6. `GetDocMetaInfo` (`OnExecute` WhoAmI);
+     7. `GetVersions`;
+     8. `ServerTime`;
+     9. a last Cell sub-request of 27 bytes.
+3. **The response:** `multipart/related` MTOM, chunked.
+   - **Envelope:** `ResponseVersion Version="2" MinorVersion="3"`, and `ResponseCollection WebUrl="https://<host>"`
+     without `WebUrlIsEncoded`.
+   - **`Response`:** its `Url` is unencoded, spaces included, and it echoes `ResourceID`.
+   - **Sub-responses:** the join answered `LockType="SchemaLock" CoauthStatus="Alone"` with `TransitionID` equal to the
+     `ResourceID`. The SchemaLock got `DependentOnlyOnNotSupportedRequestGetSupported`, `HResult="2147500037"`, as in
+     MS-FSSHTTP 4.1.2. `WhoAmI` returned a claims login (`i:0#.w|<domain>\<user>`) and an empty `UserSIPAddress`.
+   - **Cell results** carry `ServerCorrelationId`. They come either inline as base64 or as an XOP part
+     (`<xop:Include href="cid:http://tempuri.org/1/…"/>`, `Content-Transfer-Encoding: binary`). ETW logs only the start
+     of large receive buffers, so the rest of this response was cut.
+4. **`POST /_vti_bin/sharedaccess.asmx`, `IsOnlyClient` ([MS-SHDACCWS]):**
+   - the body is `<id>` = the `ResourceID`, and the answer `true`;
+   - the headers are `Scenario: PollingSubscriptionNotConnected_AmIAlone` and `X-RequestStats: Operation=AmIAlone`;
+   - it repeats every 8 seconds for a minute, then every 30 seconds.
+5. **`OPTIONS /`, then REST** `POST /_api/web/GetFileByUrl(@v)/ListItemAllFields/GetSharingInformation`. That got
+   403 (no digest), then, with the `X-RequestDigest` it returned, 404. These are not needed for the open.
+6. **The save:** you typed a word and saved. Word showed "REQUIRED PROPERTIES: To save to the server, correct the invalid
+   or missing required properties", and sent no further cellstorage request. The library has required columns, and
+   Word checks them before uploading. So PutChanges is not in this capture.
+
+### What later captures should do
+
+The open is captured. What SharePoint does after it is not:
+- the save (PutChanges);
+- the refresh cadence (`RefreshCoauthoring`, EditorsTable);
+- two users coauthoring.
+
+These need:
+1. **A library without required columns,** so that Word uploads the save.
+2. **Run `src/fsshttp-capture.ps1`** with the document URL, signed in. Then:
+   1. Wait for edit mode.
    2. Type a word and save.
-   3. Wait two minutes (refresh timers).
-   4. Close Word, then press Enter.
-4. **Repeat with a second user,** for the coauthoring half: have a second user open the same document at the same
-   time, in a second Windows session or on a second machine, edit another paragraph and save.
+   3. Leave Word open for 15 minutes (`Timeout="2580"` suggests minutes, not seconds, between refreshes).
+3. **A second user** on the same document at the same time, editing another paragraph and saving.
 
-What to look for, in order of importance:
-- **The OPTIONS answer to `X-MSGETWEBURL: t`:** every response header, and especially any that carries the site URL
-  or a cookie URI (`X-MS-CookieUri-Requested`). Then put those headers into
-  `Spike:OptionsHeaders` and rerun run 5.
-- **The first request after the OPTIONS:**
-  - is it `cellstorage.svc` at the site or at the document URL?
-  - is it preceded by HEAD, PROPFIND or GET of the document?
-  - does any request go to `_vti_bin`, `/_api` or `/_layouts`?
-- **The auth exchange:**
-  - with forms-based sign-in: the login dialog's requests, and the cookie (`FedAuth`) set after it, and on which path;
-  - with Entra ID: the 401 with `WWW-Authenticate: Bearer …` (`client_id`, `trusted_issuers`, `authorization_uri`)
-    and `X-IDCRL_AUTH_PARAMS_V1`;
-  - whether the OPTIONS answer changes once Word is signed in.
-- **The first `ExecuteCellStorageRequest`:**
-  - the `RequestVersion` (`Version`, `MinorVersion`);
-  - the `Request` attributes (`UserAgent`, `UserAgentClient`, `UserAgentPlatform`, `Build`, `MetaData`,
-    `ShouldReturnDisambiguatedFileName`, …);
-  - the list of sub-requests with their `DependsOn` and `DependencyType`;
-  - the `SchemaLockID` and `ClientID` values;
-  - `CoauthRequestType` versus `ExclusiveLockRequestType`.
-- **The responses:**
-  - `ResponseVersion`, `WebUrl` and `Url`, `HealthScore`;
-  - `CoauthStatus`, `TransitionID`, and the SharePoint headers on the response (`SPRequestGuid`,
-    `X-SharePointHealthScore`, `MicrosoftSharePointTeamServices`).
-- **The refresh cadence:** how often `RefreshCoauthoring` and EditorsTable `RefreshSession` come, and with which
-  `Timeout`.
-- **The sizes of the Cell sub-requests:** QueryChanges at open, PutChanges at save (`BinaryDataSize`, the MTOM part
-  sizes, `Coalesce`).
-- **With two users:** `CoauthStatus="Coauthoring"`, the EditorsTable entries, and a PutChanges that fails coherency
-  and is retried.
+What ETW gives here: WebIO logs only the start of large receive buffers, so long SharePoint responses come out cut.
+The spike logs everything Word sends it in full. So from Phase 1 on, Word against the spike is the main source for
+requests, and SharePoint captures are the reference for responses.
+
+What to look for: the sizes and the FSSHTTPB of the Cell sub-requests at save (`BinaryDataSize`, `Coalesce`, XOP
+parts), `RefreshCoauthoring` and its interval, EditorsTable `RefreshSession`, and with two users
+`CoauthStatus="Coauthoring"` and a PutChanges that fails coherency and is retried.
 
 
 ## Go / no-go
 
-**No-go for Phase 1 until the capture is replayed.** Phases 1 to 5 are weeks of work, and nothing so far shows that
-Word will call `cellstorage.svc` on a host that is not SharePoint. The evidence above says the trigger is neither the
-documented OPTIONS headers nor authentication.
+**Go.** Word sends its FSSHTTP open, `JoinCoauthoring` included, to a host that is not SharePoint, as soon as OPTIONS
+answers with `X-MSFSSHTTP` and `X-MSWEBURL` (run 6). That leaves the Cell sub-requests (FSSHTTPB) as the
+missing piece, which is exactly what Phases 1 and 2 build.
 
-The remaining unknowns, and how each gets settled:
-1. **What answers `X-MSGETWEBURL`** (and `X-MS-CookieUri-Requested`).
-   - Settled by: a capture of Word signed in to SharePoint (the first SharePoint Server capture stopped at sign-in),
-     then a rerun of run 5 with those headers.
-   - If it works: Word reaches `cellstorage.svc`, and Phase 0 reruns to see the first request. Go.
-2. **Which sign-in a host can use.** Office blocks Basic and forms-based sign-in by default, for SharePoint as well.
-   Users or administrators can allow forms-based sign-in per host, but the option is being retired. The defaults
-   leave Windows sign-in and Entra ID (Bearer).
-   - Settled by: the signed-in capture, which shows whether Word gates FSSHTTP on how it signed in, then a spike that
-     answers Bearer for an Entra app registered in your tenant.
-   - Bearer works but nothing else does: go only for hosts whose users sign in with Entra ID or Windows, and add
-     OAuth to the plan.
-3. **Protected View** on a host in the Internet zone.
-   - Settled by: adding `https://localhost` to Local intranet or Trusted sites. It is a security setting, so it is your
-     call, and I have not changed it.
-   - What it changes: the spike is retested in edit mode. Production hosts would need the same zone assignment, by
-     policy.
-4. **If 1 to 3 still give WebDAV only:** no-go for an FSSHTTP host. The documented route to coauthoring with Microsoft
-   clients on third-party storage is then the Cloud Storage Partner Program "WOPI extensions for coauthoring" (CSPP
-   Plus). It needs Microsoft onboarding, and the coauthoring runs through Microsoft's service.
-
-Phase 1 can start in parallel only if you accept the risk. The FSSHTTPB codec is self-contained and tested against the
-spec vectors (the base64 bodies of [MS-FSSHTTP] 4.1 and the [MS-FSSHTTPB] examples). If Word never reaches
-`cellstorage.svc`, though, it has no user.
+What the later phases depend on, and what is still open:
+1. **Cell is mandatory.** With the Cell sub-requests refused, Word exits coauthoring. It then either fails the open
+   (run 6) or falls back to a read-only GET (run 7), but never edits. Phase 1 has real input: the base64 FSSHTTPB of
+   Word's Cell sub-requests is in the logs of runs 6 and 7 (no document content, they are queries), next to the
+   vectors of [MS-FSSHTTP] 4.1.
+2. **`sharedaccess.asmx` `IsOnlyClient` ([MS-SHDACCWS])** is polled from the open on. It is a small SOAP service, and
+   Phase 4 has to add it to `MapFsshttp()`.
+3. **Sign-in.**
+   - Office blocks Basic and forms-based sign-in by default (for SharePoint too), and the forms-based option is being
+     retired.
+   - Windows sign-in works (run 6).
+   - So does a token in the path with no HTTP sign-in (run 7). That maps directly onto `IWopiTokens`, as the token of
+     a WOPI launch does, and is the natural default for Phase 4 and the desktop launch URL of `WopiLauncher`.
+   - Entra ID (Bearer) is untested.
+4. **Protected View.** It no longer gets in the way of the open: run 6 went to FSSHTTP from the Internet zone. Whether
+   Word then edits, or stays read-only, shows once the open succeeds, in Phase 2.
+5. **Save and coauthoring traffic** (PutChanges, refresh intervals, two users) are not captured yet. See "What later
+   captures should do".
 
 
 ## Licence note

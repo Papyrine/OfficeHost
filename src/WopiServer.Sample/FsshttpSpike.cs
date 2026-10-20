@@ -410,7 +410,7 @@ static class FsshttpSpike
         response.Headers["X-SharePointHealthScore"] = "0";
         if (HttpMethods.IsOptions(method))
         {
-            Options(response);
+            Options(context.Request, response, site);
             foreach (var (name, value) in optionsHeaders)
             {
                 response.Headers[name] = value;
@@ -606,12 +606,21 @@ static class FsshttpSpike
 
     /// <summary>
     /// The OPTIONS answer of SharePoint: the WebDAV methods with GETLIB, MS-Author-Via, DocumentManagementServer and
-    /// Public-Extension ([MS-WDVME] 3.2.5.1, 4.1.2), and X-MSDAVEXT ([MS-WEBDAVE] 2.2.1).
+    /// Public-Extension ([MS-WDVME] 3.2.5.1, 4.1.2), and X-MSDAVEXT ([MS-WEBDAVE] 2.2.1). Then two headers that no
+    /// published spec has, from a capture of SharePoint Server 16.0.0.5522 (docs/fsshttp-notes.md): X-MSFSSHTTP, which
+    /// SharePoint sends on every OPTIONS once signed in, and X-MSWEBURL, the path of the site, which it sends when Word
+    /// asks with X-MSGETWEBURL: t.
     /// </summary>
-    static void Options(HttpResponse response)
+    static void Options(HttpRequest request, HttpResponse response, Site site)
     {
         const string methods = "GET, POST, OPTIONS, HEAD, MKCOL, PUT, PROPFIND, PROPPATCH, DELETE, MOVE, COPY, GETLIB, LOCK, UNLOCK";
         var headers = response.Headers;
+        headers["X-MSFSSHTTP"] = "1.3";
+        if (request.Headers["X-MSGETWEBURL"] == "t")
+        {
+            headers["X-MSWEBURL"] = site.Path.Length == 0 ? "/" : site.Path;
+        }
+
         headers.Allow = methods;
         headers["Public"] = methods;
         headers["DAV"] = "1,2";

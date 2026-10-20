@@ -59,7 +59,8 @@ if (-not $Etl) {
 if (-not $HostName -and $Url) { $HostName = ([uri] $Url).Host }
 
 function Redact([string] $text) {
-    $text -replace '(?im)^((?:Authorization|Proxy-Authorization|Cookie|Set-Cookie|AuthMsaDeviceTicket|X-IDCRL_AUTH_PARAMS_V1)\s*:\s*\S+)[^\r\n]{12,}', '$1 <redacted>'
+    # keeps the scheme or the cookie name only
+    $text -replace '(?im)^((?:Authorization|Proxy-Authorization|Cookie|Set-Cookie|AuthMsaDeviceTicket|X-IDCRL_AUTH_PARAMS_V1)\s*:\s*[\w-]+)[^\r\n]{8,}', '$1 <redacted>'
 }
 
 # text when the bytes are mostly printable, a hex dump otherwise

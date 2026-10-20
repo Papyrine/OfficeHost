@@ -36,11 +36,77 @@ logs are in `src/WopiServer.Sample/spike-logs`. The client is Word 16.0.20326 (M
 - **Open:** the server's answer to `X-MSGETWEBURL` and `X-MS-CookieUri-Requested`. It needs a SharePoint Online
   capture.
 
-### No capability negotiation for FSSHTTP
+### FSSHTTP is negotiated on OPTIONS: X-MSFSSHTTP and X-MSWEBURL
 
-- **Spec:** [MS-FSSHTTP] 1.7 is "None". 1.5 only says where the endpoint is.
-- **Word:** in five runs it never requested `cellstorage.svc`, so whatever makes Word use FSSHTTP is outside the
-  published specs.
+- **Spec:** [MS-FSSHTTP] 1.7 (Versioning and Capability Negotiation) is "None", and 1.5 only says where the endpoint
+  is. Neither header is in [MS-FSSHTTP], [MS-WDVME], [MS-WEBDAVE] or [MS-OFBA].
+- **SharePoint Server 16.0.0.5522, signed in:**
+  - every OPTIONS answer had `X-MSFSSHTTP: 1.3`;
+  - the OPTIONS that carried `X-MSGETWEBURL: t` also got `X-MSWEBURL: /`, the server-relative path of the site;
+  - Word then POSTed to `<web url>/_vti_bin/cellstorage.svc/CellStorageService`, with no FrontPage or `webs.asmx`
+    request.
+- **The spike:**
+  - without these headers (runs 1 to 5), Word used plain WebDAV;
+  - with them (run 6, `X-MSWEBURL: /n`), Word POSTed to `/n/_vti_bin/cellstorage.svc/CellStorageService` the same
+    request it sent SharePoint.
+- **Before sign-in** SharePoint sends neither (see below), so a host must not answer OPTIONS with them unless the
+  request is authenticated, or Word would try FSSHTTP without credentials.
+
+### What Word does when the Cell sub-requests fail
+
+- **Spec:** [MS-FSSHTTP] 2.2.5.6 has `RequestNotSupported` for a sub-request the server does not support.
+- **Word,** with `RequestNotSupported` on the Cell sub-requests and success on the rest, sent `ExitCoauthoring` twice.
+  Then:
+  - **Run 6 (Windows sign-in, `/n`):** it showed "Sorry, we couldn't open '<url>'", with no GET, HEAD or LOCK.
+  - **Run 7 (token in the path, anonymous, `/t/{token}`):** it fell back. It did a GET of the document, then the old
+    discovery at the root of the host (`_vti_inf.html`, the FrontPage RPC, HEAD, `webs.asmx` `WebUrlFromPageUrl`,
+    `workflow.asmx` `GetWorkflowDataForItem`). Then it opened the document read-only, in Protected View.
+- **Why they differ:** unknown. The difference between the runs is the sign-in, and the site path.
+
+### The first request differs from the example of MS-FSSHTTP 4.1.1
+
+- **Spec:** [MS-FSSHTTP] 4.1.1 has Coauth, SchemaLock, three Cell, ServerTime and WhoAmI.
+- **Word 16.0.20326,** to SharePoint and to the spike alike:
+  - **Extra sub-requests:** three EditorsTable `UpdateEditorMetadata` (`OnSuccess` the join; keys `SupportsRename`,
+    `Capabilities`, `Platform`, base64 values), `GetDocMetaInfo` (`OnExecute` WhoAmI), `GetVersions`, and a fourth,
+    27-byte Cell sub-request with no dependency.
+  - **`Timeout`:** `2580`.
+  - **`Request` attributes:** `UseResourceID="true"` (plus `ResourceID` when Word knows it from an earlier open),
+    `UserAgent` (a GUID), `UserAgentClient="msword"`, `UserAgentPlatform="win"`, `Build`, `MetaData="1031"`.
+  - **HTTP headers:** besides SOAPAction, `Application`, `FileExtension`, `OSName`, `Scenario: OpenFile_Open`,
+    `ScenarioType`, `X-ClientRing` and `X-RequestStats`.
+  - **Encoding:** the body is MTOM, but the Cell data is inline base64 (with `BinaryDataSize`), not an XOP part.
+
+### SharePoint's response to it
+
+- **Spec:** [MS-FSSHTTP] 4.1.2 has `ResponseVersion MinorVersion="0"`, `WebUrlIsEncoded="false"`, and
+  `UrlIsEncoded="true"`.
+- **SharePoint Server 16.0.0.5522:**
+  - **Envelope:** `MinorVersion="3"`; `ResponseCollection WebUrl="https://<host>"` without `WebUrlIsEncoded`.
+  - **`Response`:** `Url` unencoded (with spaces) and without `UrlIsEncoded`; it echoes `ResourceID`.
+  - **The join:** `TransitionID` equals the `ResourceID`.
+  - **Cell sub-responses:** `ServerCorrelationId` (the `SPRequestGuid`). Their data is inline base64 for some and an
+    XOP part (`Content-Transfer-Encoding: binary`) for others, in the same response.
+  - **WhoAmI:** `UserLogin` is a claims login (`i:0#.w|<domain>\<user>`); `UserSIPAddress` is empty.
+
+### sharedaccess.asmx is polled from the open
+
+- **Spec:** [MS-SHDACCWS] `IsOnlyClient`.
+- **Word:**
+  - **Timing:** right after the cellstorage open, it POSTs `/_vti_bin/sharedaccess.asmx`
+    (`SOAPAction: "http://schemas.microsoft.com/sharepoint/soap/IsOnlyClient"`), every 8 seconds for a minute and
+    then every 30 seconds.
+  - **Body:** `<IsOnlyClient><id>` is the `ResourceID`, and SharePoint answered `true`.
+  - **HTTP headers:** `Scenario: PollingSubscriptionNotConnected_AmIAlone` and
+    `X-RequestStats: Operation=AmIAlone`.
+
+
+### Required columns block the save before any upload
+
+- **SharePoint Server, a library with required columns:** after an edit, Word's save showed "REQUIRED PROPERTIES: To
+  save to the server, correct the invalid or missing required properties", and sent no cellstorage request. Word
+  checks the library's columns, from what it learnt at open (GetDocMetaInfo or the metadata partition), before it
+  uploads.
 
 
 ## Authentication
