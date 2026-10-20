@@ -1,7 +1,8 @@
 # FSSHTTP: where Word differs from the specs
 
 Each entry gives the spec section, what Word did, and the evidence: a run of the spike (docs/fsshttp-spike.md), whose
-logs are in `src/OfficeHost.Sample/spike-logs`. The client is Word 16.0.20326 (Microsoft 365) on Windows 11 10.0.26200.
+logs are in `src/OfficeHost.Sample/spike-logs`, or a run of the library through the `desktop` launch profile of the
+sample, whose logs are in `src/OfficeHost.Sample/request-logs` (before Phase 5, in `spike-logs` too). The client is Word 16.0.20326 (Microsoft 365) on Windows 11 10.0.26200.
 
 
 ## Discovery

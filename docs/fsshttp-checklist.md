@@ -12,7 +12,7 @@ with the requests that show it.
   the ASP.NET Core development certificate once (it asks before adding it to the Windows store):
   `dotnet dev-certs https --trust`.
 - **Run:** `dotnet run --project src/OfficeHost.Sample --launch-profile desktop`. The profile listens on
-  `https://localhost:5001` and logs every request and response to `src/OfficeHost.Sample/spike-logs`
+  `https://localhost:5001` and logs every request and response to `src/OfficeHost.Sample/request-logs`
   (`{sequence}-{method}-{path}.txt`). The state of the desktop sessions is in `src/OfficeHost.Sample/fsshttp-state`,
   the files in `src/OfficeHost.Sample/files`.
 - **Open:** `https://localhost:5001`, then "Open in desktop Office" for a `.docx`, or
@@ -27,7 +27,7 @@ with the requests that show it.
     organisation's CA, for instance), given to Kestrel with `Kestrel__Certificates__Default__Path` and
     `Kestrel__Certificates__Default__Password`, `URLS=https://0.0.0.0:5001`, and
     `OfficeHost__DesktopBaseUrl=https://{host}:5001` so that the links name the host rather than `localhost`.
-- **Before each run:** close Word, and clear `spike-logs` to make the logs of the run easy to read.
+- **Before each run:** close Word, and clear `request-logs` to make the logs of the run easy to read.
 
 
 ## One user

@@ -11,8 +11,6 @@
     <Using Include="System.Net" />
     <Using Include="OfficeHost" />
     <PackageReference Include="ProjectDefaults" PrivateAssets="all" />
-    <!-- the Windows auth of the throwaway FSSHTTP spike, FsshttpSpike.cs -->
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.Negotiate" />
     <ProjectReference Include="..\OfficeHost\OfficeHost.csproj" />
   </ItemGroup>
 </Project>

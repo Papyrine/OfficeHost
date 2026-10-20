@@ -100,6 +100,30 @@ public partial class SampleTests : IAsyncDisposable
         await Assert.That((string?) info["HostEditUrl"]).IsEqualTo($"http://localhost:5000/edit/{Uri.EscapeDataString(fileId)}");
     }
 
+    /// <summary>
+    /// Sample:RequestLog logs every request and response to a folder, after the files already there, with the token of
+    /// a desktop site out of the file names.
+    /// </summary>
+    [Test]
+    public async Task RequestLog()
+    {
+        using var logs = new TempDirectory();
+        await File.WriteAllTextAsync(Path.Combine(logs.Path, "0001-GET-earlier.txt"), "");
+        await using var logged = factory.WithWebHostBuilder(_ => _.UseSetting("Sample:RequestLog", logs.Path));
+        using var client = logged.CreateClient();
+        var fileId = await WelcomeId(client);
+        var token = (await logged.Services.GetRequiredService<IOfficeTokens>().Issue(new(fileId, "demo"))).Value;
+        using var options = await client.SendAsync(new(HttpMethod.Options, $"/fsshttp/{token}/Welcome.docx"));
+
+        var names = Directory.EnumerateFiles(logs.Path).Select(_ => Path.GetFileName(_)).Order().ToList();
+        await Assert.That(names).IsEquivalentTo(["0001-GET-earlier.txt", "0002-GET-.txt", "0003-OPTIONS-fsshttp_~_Welcome.docx.txt"]);
+        var files = await File.ReadAllTextAsync(Path.Combine(logs.Path, "0002-GET-.txt"));
+        await Assert.That(files).Contains("--- response 200");
+        await Assert.That(files).Contains("Welcome.docx");
+        var discovery = await File.ReadAllTextAsync(Path.Combine(logs.Path, "0003-OPTIONS-fsshttp_~_Welcome.docx.txt"));
+        await Assert.That(discovery).Contains("X-MSFSSHTTP: 1.3");
+    }
+
     [GeneratedRegex("""id="open" href="([^"]+)">""")]
     private static partial Regex DesktopLink();
 

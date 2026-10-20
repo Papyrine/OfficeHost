@@ -119,63 +119,15 @@ Three conclusions follow:
    this. Run 5 is the closest to that, with Windows auth and "Enable Editing", and still nothing reached `_vti_bin`.
 
 
-## Running the spike
+## The spike
 
-The spike is in the sample only (`src/OfficeHost.Sample/FsshttpSpike.cs`). It is off unless `Spike:Fsshttp` is true,
-and the `spike` launch profile turns it on, with Windows auth, on `https://localhost:5001`.
-
-1. **Trust the HTTPS development certificate.** It goes into the CurrentUser root store, which Word uses.
-
-   ```bash
-   dotnet dev-certs https --trust
-   ```
-2. **Start the sample with the spike profile:**
-
-   ```bash
-   dotnet run --project src/OfficeHost.Sample --launch-profile spike
-   ```
-3. **Open `https://localhost:5001/spike`.** It has an `ms-word:ofe|u|…` link for each site:
-
-   | Site | Auth |
-   | --- | --- |
-   | `/t/{token}` | token in the path |
-   | `/o/{token}` | MS-OFBA, signing in from the token without a prompt |
-   | `/b` | Basic, with the token as the password |
-   | `/n` | Windows auth |
-   | `/` | anonymous |
-
-   Click a link, or run it from PowerShell:
-
-   ```bash
-   pwsh -c "Start-Process 'ms-word:ofe|u|https://localhost:5001/n/Welcome.docx'"
-   ```
-4. **Read the logs.** Every request and response is written in full to `src/OfficeHost.Sample/spike-logs`, one file
-   each, numbered. Binary and multipart bodies are written as a hex dump, with the parts of an MTOM body decoded. The
-   console also logs one line per request.
-5. **Try headers from a capture without rebuilding.** Add them to every OPTIONS answer through configuration, as
-   environment variables in the launch profile or on the command line, for example:
-
-   ```bash
-   dotnet run --project src/OfficeHost.Sample --launch-profile spike -- --Spike:OptionsHeaders:X-Some-Header=value
-   ```
-6. **Clear Office's per-server cache between runs** if it exists: the key
-   `HKCU\Software\Microsoft\Office\16.0\Common\Internet\Server Cache`. Close Word normally. Killing it makes the next
-   start offer Safe Mode.
-
-What the spike answers:
-- **OPTIONS:** as in run 6: the headers of run 2, `X-MSFSSHTTP: 1.3`, and `X-MSWEBURL` (the site path) when asked.
-- **`_vti_inf.html`:** [MS-FPSE].
-- **FrontPage RPC:** "server version", "url to web url" and "open service".
-- **`webs.asmx`:** `WebUrlFromPageUrl`.
-- **WebDAV:** GET, HEAD and PUT of the document, PROPFIND, and a fake exclusive LOCK/UNLOCK.
-- **`cellstorage.svc`** (at the site or at the document URL), always in MTOM:
-  - **Success:** `WhoAmI`, `ServerTime` and `GetDocMetaInfo`.
-  - **Stub success:** Coauth (always `Alone`), SchemaLock, ExclusiveLock and EditorsTable.
-  - **`DependentOnlyOnNotSupportedRequestGetSupported`:** an `OnNotSupported` dependent whose dependency was
-    supported, as in [MS-FSSHTTP] 4.1.2.
-  - **`RequestNotSupported`:** Cell, because there is no FSSHTTPB codec yet.
-
-`FsshttpSpikeTests` posts the request of [MS-FSSHTTP] 4.1.1 to it and checks these answers.
+The spike was throwaway code in the sample (`src/OfficeHost.Sample/FsshttpSpike.cs`, the `spike` launch profile):
+SharePoint-like discovery answers, FrontPage RPC, WebDAV, and a cell storage service that answered WhoAmI, ServerTime
+and GetDocMetaInfo, stubbed the locks and refused Cell, on sites with a token in the path, MS-OFBA, Basic, Windows
+auth, or none. It was removed once the library served desktop Word (`MapFsshttp`); it is in the history of the
+`fsshttp` branch up to commit 4f7748f. What is left of it is the request log of the sample's `desktop` launch profile
+(`RequestLog.cs`, to `src/OfficeHost.Sample/request-logs`), and the check by hand with Word is
+[fsshttp-checklist.md](fsshttp-checklist.md).
 
 
 ## Capturing Word with a real SharePoint

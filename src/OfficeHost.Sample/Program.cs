@@ -5,12 +5,8 @@ var appUrl = sample["AppUrl"]!.TrimEnd('/');
 var folder = Path.Combine(builder.Environment.ContentRootPath, sample["Files"]!);
 Directory.CreateDirectory(folder);
 SampleFiles.AddWelcome(folder);
-// the throwaway FSSHTTP spike for desktop Word (docs/fsshttp-spike.md), off unless Spike:Fsshttp is true
-var spike = builder.Configuration.GetValue<bool>("Spike:Fsshttp");
-if (spike)
-{
-    builder.Services.AddFsshttpSpike(builder.Configuration);
-}
+// a folder to log every request and response to, as the desktop launch profile sets, to see what desktop Office sends
+var requestLog = sample["RequestLog"];
 
 // begin-snippet: Registration
 // the storage of the files, here a folder: implement IOfficeStorage for any other
@@ -73,9 +69,9 @@ app.MapGet(
         return Results.Content(SamplePages.Desktop(link), "text/html");
     });
 // end-snippet
-if (spike)
+if (!string.IsNullOrEmpty(requestLog))
 {
-    app.UseFsshttpSpike(storage);
+    app.UseRequestLog(Path.Combine(builder.Environment.ContentRootPath, requestLog));
 }
 
 app.MapGet("/", () => Results.Content(SamplePages.Files(storage), "text/html"));

@@ -101,7 +101,7 @@ app.MapGet(
         return Results.Content(SamplePages.Desktop(link), "text/html");
     });
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L15-L75' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L11-L71' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 A page decides what the user may do with the file, gets the URL of the editor and an access token from `OfficeLauncher`,
@@ -153,7 +153,7 @@ static async Task<IResult> Open(
     }
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L86-L128' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L82-L124' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The WOPI clients call back the application: they must reach it at the URL of the request that launched the editor, or

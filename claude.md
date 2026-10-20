@@ -45,7 +45,7 @@ specifics.
   `Fsshttp/Service/`: the desktop sites of `MapFsshttp` (`FsshttpHandler`: OPTIONS, cellstorage.svc, sharedaccess.asmx,
   GET), SOAP and MTOM (`SoapMessage`), the sub-requests (`CellStorageService`), Query and Put Changes (`CellSync`), and
   the coauthoring tracker with its lock in the `IOfficeLockStore` (`CoauthSessions`).
-- Manual test with Word: the `desktop` launch profile of the sample (HTTPS, requests logged to `spike-logs`), then
+- Manual test with Word: the `desktop` launch profile of the sample (HTTPS, requests logged to `request-logs` by `RequestLog.cs`), then
   `/desktop/{fileId}` (`?user=` for a second user); the steps are in docs/fsshttp-checklist.md. The simulated clients
   are `WordClient` of `src/OfficeHost.Tests/Fsshttp`.
 
