@@ -221,6 +221,29 @@ What this capture shows:
    has to get past sign-in: allow forms-based sign-in for this host in the Trust Center, or use a SharePoint with
    Windows or Entra ID sign-in.
 
+### SharePoint Server, second capture (forms-based sign-in allowed)
+
+With Form-based Sign-in set to "Ask me what to do for each host", and the host allowed, Word got further:
+1. **OPTIONS:** the same OPTIONS and 403 as before.
+2. **HEAD of the document:** 403 with the same sign-in headers.
+3. **REST v2:** `GET /_api/v2.0/shares/u!<base64url of the document URL>/driveitem/?$select=viewpoint`, answered
+   `401 NTLM`. This is Word asking SharePoint's REST v2 API (OneDrive shape) about the item. So Word treats the host
+   as SharePoint even before sign-in.
+4. **The login page:** Word opened it in its sign-in dialog. That dialog is the IE engine, going through WinINet inside
+   Word.
+5. **Sign-in failed both ways** on this PC, which is not on the SharePoint domain:
+   - SharePoint's "Windows Authentication" went to NTLM;
+   - "ADFS" went to the ADFS Windows-integrated endpoint, because ADFS sends IE there.
+
+   Neither asked for a password; the dialog showed "Can't reach this page" (details in
+   [fsshttp-notes.md](fsshttp-notes.md)).
+
+So no FSSHTTP traffic yet. Getting it needs Word to sign in, which means one of these:
+- a PC on the SharePoint domain (Windows sign-in is then silent);
+- domain credentials saved for the host, with the host in the Local intranet zone;
+- an ADFS that gives IE the password form;
+- SharePoint Online, where Word signs in with Entra ID.
+
 ### What the next capture should do
 
 1. **Close every Office app.** Then delete `HKCU\Software\Microsoft\Office\16.0\Common\Internet\Server Cache` (if it

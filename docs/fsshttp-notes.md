@@ -61,6 +61,31 @@ logs are in `src/WopiServer.Sample/spike-logs`. The client is Word 16.0.20326 (M
   "Control how Office handles form-based sign-in prompts". By default it blocks every prompt; it can be set to allow
   listed hosts.
 
+### Word's forms sign-in dialog is the IE engine
+
+- **Spec:** [MS-OFBA] 3.2 leaves the login dialog to the client.
+- **Word:** with forms-based sign-in allowed for the host ("Ask me what to do for each host", then Yes), Word opened
+  the login page in a `TridentContainer` window. That is the IE engine (MSHTML), and its requests go through WinINet
+  inside the Word process. They carry the IE `Accept` header (`image/gif, image/jpeg, …, application/x-ms-xbap`).
+- **SharePoint Server's login page** lists "Windows Authentication" and "ADFS". Both failed on a PC that is not on the
+  SharePoint domain:
+  - **Windows:** `POST /_login/default.aspx` then 302 to `/_windows/default.aspx`. The 401 `WWW-Authenticate: NTLM`
+    led to an NTLM type 2 challenge, and the dialog stopped there.
+  - **ADFS:** 302 to `/_trust/default.aspx?trust=ADFS`, 302 to `https://<adfs>/adfs/ls/?wa=wsignin1.0&wtrealm=urn:…`.
+    ADFS answered with a 302 to `/adfs/ls/wia`, its Windows-integrated endpoint, because it treats IE as a browser
+    that can sign in with Windows. Chrome gets the ADFS password form instead.
+
+  In both cases the dialog showed "Can't reach this page" (titled `javascript:` the first time) and never asked for a
+  password.
+- **What it means for a host:** forms-based sign-in only works in Word if the login page works in the IE engine. Its
+  identity provider must not send IE to Windows sign-in on PCs outside the domain.
+
+### Word calls the SharePoint REST v2 API before sign-in
+
+- **Spec:** none: `/_api/v2.0` is the SharePoint REST API (OneDrive API shape), not an Open Specification.
+- **Word:** after the 403 of the OPTIONS, it sent `GET /_api/v2.0/shares/u!<base64url of the document URL>/driveitem/?$select=viewpoint`
+  through WebIO (WinHTTP). SharePoint Server answered `401 WWW-Authenticate: NTLM`.
+
 ### SharePoint sends no capability headers before sign-in
 
 - **SharePoint Server 16.0.0.5522:** the 403 answer to an unauthenticated OPTIONS has no `DAV`, `MS-Author-Via`,
