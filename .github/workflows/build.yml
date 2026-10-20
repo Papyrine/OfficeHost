@@ -60,7 +60,7 @@ jobs:
       # TUnit runs on Microsoft.Testing.Platform: run the test executable rather than `dotnet test`.
       - name: Test
         run: >-
-          dotnet run --project src/WopiServer.Tests --configuration Release --no-build --
+          dotnet run --project src/OfficeHost.Tests --configuration Release --no-build --
           --report-trx --results-directory ${{ github.workspace }}/TestResults
           --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml
           --coverage-settings ${{ github.workspace }}/src/coverage.config
@@ -92,7 +92,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: nupkgs
-          path: nugets/WopiServer.*.nupkg
+          path: nugets/OfficeHost.*.nupkg
           if-no-files-found: error
           retention-days: 30
 
@@ -117,7 +117,7 @@ jobs:
           restore-keys: nuget-${{ runner.os }}-
 
       - name: Build
-        run: dotnet build src/WopiServer.E2ETests --configuration Release
+        run: dotnet build src/OfficeHost.E2ETests --configuration Release
 
       - name: WOPI validator
         shell: pwsh

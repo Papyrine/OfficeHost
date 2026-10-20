@@ -1,22 +1,22 @@
-#  <img src="/src/icon.png" height="30px"> WopiServer
+#  <img src="/src/icon.png" height="30px"> OfficeHost
 
-[![Build](https://github.com/Papyrine/WopiServer/actions/workflows/build.yml/badge.svg)](https://github.com/Papyrine/WopiServer/actions/workflows/build.yml)
-[![NuGet Status](https://img.shields.io/nuget/v/WopiServer.svg?label=WopiServer)](https://www.nuget.org/packages/WopiServer/)
+[![Build](https://github.com/Papyrine/OfficeHost/actions/workflows/build.yml/badge.svg)](https://github.com/Papyrine/OfficeHost/actions/workflows/build.yml)
+[![NuGet Status](https://img.shields.io/nuget/v/OfficeHost.svg?label=OfficeHost)](https://www.nuget.org/packages/OfficeHost/)
 
-The host side of the Web Application Open Platform Interface
-([WOPI](https://learn.microsoft.com/en-us/microsoft-365/cloud-storage-partner-program/online/)) as a library for
-ASP.NET Core (.NET 10). Add it to a web application, and WOPI clients (Collabora Online, ONLYOFFICE, Microsoft 365 for
-the web) open, edit and save the files of any storage the application has.
+The host side of the Office document protocols as a library for ASP.NET Core (.NET 10), formerly the WopiServer
+package. Add it to a web application, and clients of the Web Application Open Platform Interface
+([WOPI](https://learn.microsoft.com/en-us/microsoft-365/cloud-storage-partner-program/online/)) (Collabora Online,
+ONLYOFFICE, Microsoft 365 for the web) open, edit and save the files of any storage the application has.
 
 
 ## How it works
 
-1. A user opens a document in the application. The application asks `WopiLauncher` for the URL of the editor and a WOPI
+1. A user opens a document in the application. The application asks `OfficeLauncher` for the URL of the editor and a WOPI
    access token, scoped to that file and user.
 2. The page of the application posts the token to the editor URL, usually in an iframe.
 3. The editor calls the WOPI endpoints the library maps (`/wopi/files/{fileId}`) to read the file metadata, lock the
    file, and get and save its content. The library checks the token and the locks, and goes to the storage of the
-   application through `IWopiStorage`.
+   application through `IOfficeStorage`.
 
 
 ## Features
@@ -25,7 +25,7 @@ the web) open, edit and save the files of any storage the application has.
   PutRelativeFile, RenameFile, DeleteFile, PutUserInfo. Conformance to [MS-WOPI] is tested section by section, and
   Microsoft's WOPI validator passes.
 * Access tokens that grant a user's access to one file: signed tokens out of the box, or any token scheme through
-  `IWopiTokens`.
+  `IOfficeTokens`.
 * The discovery of the WOPI clients, to launch their actions and validate the proof keys of their requests
   (`X-WOPI-Proof`).
 * Pluggable storage and locks: `FileSystemStorage` and `MemoryLockStore` are included.
@@ -33,22 +33,22 @@ the web) open, edit and save the files of any storage the application has.
 
 ## Usage
 
-The code below is from [the sample](#sample), which imports the `WopiServer` namespace. Register a storage and the WOPI
+The code below is from [the sample](#sample), which imports the `OfficeHost` namespace. Register a storage and the WOPI
 services, map the WOPI endpoints, and add the pages that open a file:
 
 <!-- snippet: Registration -->
 <a id='snippet-Registration'></a>
 ```cs
-// the storage of the files, here a folder: implement IWopiStorage for any other
+// the storage of the files, here a folder: implement IOfficeStorage for any other
 var storage = new FileSystemStorage(folder);
 var services = builder.Services;
 services.AddSingleton(storage);
-services.AddSingleton<IWopiStorage>(storage);
-services.AddWopi(
+services.AddSingleton<IOfficeStorage>(storage);
+services.AddOfficeHost(
     options =>
     {
         // SigningKey, BaseUrl and DiscoveryUrls come from appsettings.json
-        builder.Configuration.GetSection("Wopi").Bind(options);
+        builder.Configuration.GetSection("OfficeHost").Bind(options);
         // the pages below, which the WOPI client links to, as after a Save As
         options.HostEditUrl = (file, _) => $"{appUrl}/edit/{Uri.EscapeDataString(file.Id)}";
         options.HostViewUrl = (file, _) => $"{appUrl}/view/{Uri.EscapeDataString(file.Id)}";
@@ -56,7 +56,7 @@ services.AddWopi(
         {
             // back to the file list when the user closes the editor
             context.Properties["CloseUrl"] = appUrl;
-            context.Properties["BreadcrumbBrandName"] = "WopiServer sample";
+            context.Properties["BreadcrumbBrandName"] = "OfficeHost sample";
             context.Properties["BreadcrumbBrandUrl"] = appUrl;
             return Task.CompletedTask;
         };
@@ -64,23 +64,23 @@ services.AddWopi(
 
 var app = builder.Build();
 // the WOPI endpoints the WOPI client calls: /wopi/files/{fileId}
-app.MapWopi();
+app.MapOfficeHost();
 // the pages that open a file in the WOPI client
 app.MapGet(
     "/edit/{fileId}",
-    (string fileId, HttpRequest request, WopiLauncher launcher) =>
+    (string fileId, HttpRequest request, OfficeLauncher launcher) =>
         Open(fileId, "edit", request, launcher));
 app.MapGet(
     "/view/{fileId}",
-    (string fileId, HttpRequest request, WopiLauncher launcher) =>
+    (string fileId, HttpRequest request, OfficeLauncher launcher) =>
         Open(fileId, "view", request, launcher));
 ```
-<sup><a href='/src/WopiServer.Sample/Program.cs#L9-L45' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L15-L51' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-A page decides what the user may do with the file, gets the URL of the editor and an access token from `WopiLauncher`,
+A page decides what the user may do with the file, gets the URL of the editor and an access token from `OfficeLauncher`,
 and returns a page that posts the token to the editor in an iframe
-([`SamplePages.Editor`](src/WopiServer.Sample/SamplePages.cs)):
+([`SamplePages.Editor`](src/OfficeHost.Sample/SamplePages.cs)):
 
 <!-- snippet: Launch -->
 <a id='snippet-Launch'></a>
@@ -89,11 +89,11 @@ static async Task<IResult> Open(
     string fileId,
     string action,
     HttpRequest request,
-    WopiLauncher launcher)
+    OfficeLauncher launcher)
 {
     // the access of the user to the file: an application decides it from its own users and permissions
     var canWrite = action == "edit";
-    var access = new WopiAccess(fileId, "demo")
+    var access = new OfficeAccess(fileId, "demo")
     {
         UserName = "Demo User",
         CanWrite = canWrite,
@@ -109,7 +109,7 @@ static async Task<IResult> Open(
     {
         return Results.NotFound();
     }
-    catch (WopiClientUnreachableException exception)
+    catch (OfficeClientUnreachableException exception)
     {
         // the WOPI client is down, or not started
         return Results.Content(
@@ -127,7 +127,7 @@ static async Task<IResult> Open(
     }
 }
 ```
-<sup><a href='/src/WopiServer.Sample/Program.cs#L51-L93' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L62-L104' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The WOPI clients call back the application: they must reach it at the URL of the request that launched the editor, or
@@ -136,7 +136,7 @@ at `BaseUrl` when it differs, as when the editor runs in a container or behind a
 
 ## Sample
 
-[src/WopiServer.Sample](src/WopiServer.Sample) is this setup as a running application: it lists the files of a folder
+[src/OfficeHost.Sample](src/OfficeHost.Sample) is this setup as a running application: it lists the files of a folder
 and opens them in Collabora Online, with a host page that loads the editor in an iframe. To try it, start Collabora
 Online (CODE) in Docker, allowing it to call back the sample. Home mode turns off its welcome dialog, and caps it at 20
 connections and 10 documents, which is plenty for trying the sample:
@@ -148,11 +148,11 @@ docker run --rm --publish 9980:9980 --add-host host.docker.internal:host-gateway
 Then run the sample, and open http://localhost:5000:
 
 ```pwsh
-dotnet run --project src/WopiServer.Sample
+dotnet run --project src/OfficeHost.Sample
 ```
 
-It starts with a `Welcome.docx` in `src/WopiServer.Sample/files`; add files there to open them too. Edit opens a file
-with write access, View read only. The URLs and the signing key are in its `appsettings.json`: `Wopi:BaseUrl` is how
+It starts with a `Welcome.docx` in `src/OfficeHost.Sample/files`; add files there to open them too. Edit opens a file
+with write access, View read only. The URLs and the signing key are in its `appsettings.json`: `OfficeHost:BaseUrl` is how
 Collabora reaches the sample (`host.docker.internal` from the container), and `Sample:AppUrl` how the browser does.
 
 
@@ -160,7 +160,7 @@ Collabora reaches the sample (`host.docker.internal` from the container), and `S
 
 | Option | Default | |
 |---|---|---|
-| `SigningKey` | | Signs the access tokens, at least 32 characters. Not needed with another `IWopiTokens`. |
+| `SigningKey` | | Signs the access tokens, at least 32 characters. Not needed with another `IOfficeTokens`. |
 | `TokenLifetime` | 10 hours | How long an access token is valid. |
 | `LockDuration` | 30 minutes | How long a lock lasts unless refreshed, as [MS-WOPI] sets it. |
 | `BaseUrl` | the request's | The URL the WOPI clients reach the application at: WOPISrc is `{BaseUrl}/wopi/files/{fileId}`. |
@@ -174,7 +174,7 @@ Collabora reaches the sample (`host.docker.internal` from the container), and `S
 
 ## Access
 
-`WopiAccess` is what a token grants: a user's access to a file, which the application decides when it launches the
+`OfficeAccess` is what a token grants: a user's access to a file, which the application decides when it launches the
 editor.
 
 * `CanWrite`: lock, save and delete the file. Without it the file opens read only.
@@ -184,25 +184,25 @@ editor.
 * `IsAnonymous`, `UserName`: how the editor shows the user.
 
 The built-in tokens carry the access, signed with `SigningKey`, so they need no storage, but cannot be revoked before
-they expire. To keep tokens in a database, or tie them to the application's sessions, register an `IWopiTokens`.
+they expire. To keep tokens in a database, or tie them to the application's sessions, register an `IOfficeTokens`.
 
 
 ## Storage
 
-The storage is the application's: implement `IWopiStorage` over a database, blob storage or a document management
+The storage is the application's: implement `IOfficeStorage` over a database, blob storage or a document management
 system. File ids are chosen by the storage, and must not change when a file is saved or renamed, as WOPI clients keep
-using them. A missing file throws `FileNotFoundException`. The storage, the stores below and `IWopiTokens` can be
+using them. A missing file throws `FileNotFoundException`. The storage, the stores below and `IOfficeTokens` can be
 registered with any lifetime, as scoped for a storage over a database context.
 
 ```csharp
-public interface IWopiStorage
+public interface IOfficeStorage
 {
-    Task<WopiFile?> GetFile(string fileId, Cancel cancel = default);
-    Task<WopiFile?> GetSibling(string fileId, string name, Cancel cancel = default);
+    Task<OfficeFile?> GetFile(string fileId, Cancel cancel = default);
+    Task<OfficeFile?> GetSibling(string fileId, string name, Cancel cancel = default);
     Task<Stream> OpenRead(string fileId, Cancel cancel = default);
-    Task<WopiFile> Write(string fileId, Stream content, Cancel cancel = default);
-    Task<WopiFile?> CreateSibling(string fileId, string name, Stream content, bool overwrite, Cancel cancel = default);
-    Task<WopiFile?> Rename(string fileId, string name, Cancel cancel = default);
+    Task<OfficeFile> Write(string fileId, Stream content, Cancel cancel = default);
+    Task<OfficeFile?> CreateSibling(string fileId, string name, Stream content, bool overwrite, Cancel cancel = default);
+    Task<OfficeFile?> Rename(string fileId, string name, Cancel cancel = default);
     Task Delete(string fileId, Cancel cancel = default);
 }
 ```
@@ -211,11 +211,11 @@ public interface IWopiStorage
 on first use (`GetFileId("reports/q3.docx")`), kept in a hidden `.wopi` folder so that ids survive renames, and writes
 through a temporary file so that a save never leaves a partial file.
 
-Locks are kept by an `IWopiLockStore`. The default `MemoryLockStore` suits a single instance of the application;
+Locks are kept by an `IOfficeLockStore`. The default `MemoryLockStore` suits a single instance of the application;
 several instances need a shared store, such as one over Redis or a database, with an atomic compare and exchange.
 
 PutUserInfo, where the editors keep per-user data such as the tips a user has seen, is supported when an
-`IWopiUserInfoStore` is registered.
+`IOfficeUserInfoStore` is registered.
 
 
 ## Proof keys
@@ -234,7 +234,7 @@ path and query of the request, so `BaseUrl` must be the URL the clients call.
 
 ```pwsh
 dotnet build src
-dotnet run --project src/WopiServer.Tests --no-build
+dotnet run --project src/OfficeHost.Tests --no-build
 ```
 
 The test project is a TUnit executable: run it, rather than `dotnet test`. It holds:
@@ -248,15 +248,15 @@ The test project is a TUnit executable: run it, rather than `dotnet test`. It ho
 * `KestrelTests`: the request size limits, on Kestrel.
 * `SampleTests`: the sample application, with a stubbed WOPI client.
 
-`src/WopiServer.E2ETests` hosts the endpoints on a real port and opens documents in real editors, Collabora and
+`src/OfficeHost.E2ETests` hosts the endpoints on a real port and opens documents in real editors, Collabora and
 ONLYOFFICE, in Docker, driven with Playwright: Collabora opens, edits and saves a document, and ONLYOFFICE opens one
 with every request validated against its proof keys. It needs Docker and the Playwright browser, and pulls the editor
 images on the first run (about 1.5 and 4.3 GB):
 
 ```pwsh
-dotnet build src/WopiServer.E2ETests
-pwsh src/WopiServer.E2ETests/bin/Debug/net10.0/playwright.ps1 install chromium
-dotnet run --project src/WopiServer.E2ETests --no-build -- --treenode-filter '/*/*/EditorTests/*'
+dotnet build src/OfficeHost.E2ETests
+pwsh src/OfficeHost.E2ETests/bin/Debug/net10.0/playwright.ps1 install chromium
+dotnet run --project src/OfficeHost.E2ETests --no-build -- --treenode-filter '/*/*/EditorTests/*'
 ```
 
 Microsoft's [WOPI validator](https://github.com/microsoft/wopi-validator-core) runs with
@@ -267,7 +267,7 @@ out: the validator's command line sends no proofs, so `ProofKeyTests` covers the
 Code coverage of the library, with a per-file table:
 
 ```pwsh
-dotnet run --project src/WopiServer.Tests -- --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml --coverage-settings $PWD/src/coverage.config --results-directory $PWD/TestResults
+dotnet run --project src/OfficeHost.Tests -- --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml --coverage-settings $PWD/src/coverage.config --results-directory $PWD/TestResults
 pwsh src/coverage-summary.ps1 TestResults/coverage.cobertura.xml
 ```
 

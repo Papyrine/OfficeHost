@@ -26,8 +26,8 @@ Thumbs.db
 *.lnk
 
 ## Sample
-src/WopiServer.Sample/files/
-src/WopiServer.Sample/spike-logs/
+src/OfficeHost.Sample/files/
+src/OfficeHost.Sample/spike-logs/
 ## Word captures of src/fsshttp-capture.ps1: they hold credentials
 fsshttp-capture*.etl
 fsshttp-capture*.txt

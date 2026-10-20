@@ -81,7 +81,7 @@ All five runs used the same environment:
 - **Office server cache:** `HKCU\Software\Microsoft\Office\16.0\Common\Internet\Server Cache` was absent, so empty.
 - **Launch:** `Start-Process 'ms-word:ofe|u|<url>'`.
 
-The logs of each run are in `src/WopiServer.Sample/spike-logs/run*` (ignored by git: they hold tokens).
+The logs of each run are in `src/OfficeHost.Sample/spike-logs/run*` (ignored by git: they hold tokens).
 
 | Run | URL / auth | OPTIONS answer | What Word did |
 | --- | --- | --- | --- |
@@ -121,7 +121,7 @@ Three conclusions follow:
 
 ## Running the spike
 
-The spike is in the sample only (`src/WopiServer.Sample/FsshttpSpike.cs`). It is off unless `Spike:Fsshttp` is true,
+The spike is in the sample only (`src/OfficeHost.Sample/FsshttpSpike.cs`). It is off unless `Spike:Fsshttp` is true,
 and the `spike` launch profile turns it on, with Windows auth, on `https://localhost:5001`.
 
 1. **Trust the HTTPS development certificate.** It goes into the CurrentUser root store, which Word uses.
@@ -132,7 +132,7 @@ and the `spike` launch profile turns it on, with Windows auth, on `https://local
 2. **Start the sample with the spike profile:**
 
    ```bash
-   dotnet run --project src/WopiServer.Sample --launch-profile spike
+   dotnet run --project src/OfficeHost.Sample --launch-profile spike
    ```
 3. **Open `https://localhost:5001/spike`.** It has an `ms-word:ofe|u|…` link for each site:
 
@@ -149,14 +149,14 @@ and the `spike` launch profile turns it on, with Windows auth, on `https://local
    ```bash
    pwsh -c "Start-Process 'ms-word:ofe|u|https://localhost:5001/n/Welcome.docx'"
    ```
-4. **Read the logs.** Every request and response is written in full to `src/WopiServer.Sample/spike-logs`, one file
+4. **Read the logs.** Every request and response is written in full to `src/OfficeHost.Sample/spike-logs`, one file
    each, numbered. Binary and multipart bodies are written as a hex dump, with the parts of an MTOM body decoded. The
    console also logs one line per request.
 5. **Try headers from a capture without rebuilding.** Add them to every OPTIONS answer through configuration, as
    environment variables in the launch profile or on the command line, for example:
 
    ```bash
-   dotnet run --project src/WopiServer.Sample --launch-profile spike -- --Spike:OptionsHeaders:X-Some-Header=value
+   dotnet run --project src/OfficeHost.Sample --launch-profile spike -- --Spike:OptionsHeaders:X-Some-Header=value
    ```
 6. **Clear Office's per-server cache between runs** if it exists: the key
    `HKCU\Software\Microsoft\Office\16.0\Common\Internet\Server Cache`. Close Word normally. Killing it makes the next
@@ -425,8 +425,8 @@ What the later phases depend on, and what is still open:
    - Office blocks Basic and forms-based sign-in by default (for SharePoint too), and the forms-based option is being
      retired.
    - Windows sign-in works (run 6).
-   - So does a token in the path with no HTTP sign-in (run 7). That maps directly onto `IWopiTokens`, as the token of
-     a WOPI launch does, and is the natural default for Phase 4 and the desktop launch URL of `WopiLauncher`.
+   - So does a token in the path with no HTTP sign-in (run 7). That maps directly onto `IOfficeTokens`, as the token of
+     a WOPI launch does, and is the natural default for Phase 4 and the desktop launch URL of `OfficeLauncher`.
    - Entra ID (Bearer) is untested.
 4. **Protected View.** It no longer gets in the way of the open: run 6 went to FSSHTTP from the Internet zone. Whether
    Word then edits, or stays read-only, shows once the open succeeds, in Phase 2.

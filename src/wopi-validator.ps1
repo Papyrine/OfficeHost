@@ -28,7 +28,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Failed to build the WOPI validator' }
 
 $env:WOPI_VALIDATOR = Join-Path $work 'src/WopiValidator/bin/Release/net10.0/Microsoft.Office.WopiValidator.dll'
 try {
-    dotnet run --project (Join-Path $root 'src/WopiServer.E2ETests') --configuration $Configuration -- --treenode-filter '/*/*/ValidatorTests/*' --output Detailed
+    dotnet run --project (Join-Path $root 'src/OfficeHost.E2ETests') --configuration $Configuration -- --treenode-filter '/*/*/ValidatorTests/*' --output Detailed
     if ($LASTEXITCODE -ne 0) { throw 'The WOPI validator failed' }
 }
 finally {

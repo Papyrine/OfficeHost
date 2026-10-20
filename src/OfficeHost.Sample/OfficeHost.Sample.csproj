@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!--
+  A web application hosting the WOPI endpoints: lists the files of a folder, and opens them in a WOPI client. See the
+  Sample section of readme.md.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <Using Include="System.IO.Compression" />
+    <Using Include="System.Net" />
+    <Using Include="OfficeHost" />
+    <PackageReference Include="ProjectDefaults" PrivateAssets="all" />
+    <!-- the Windows auth of the throwaway FSSHTTP spike, FsshttpSpike.cs -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.Negotiate" />
+    <ProjectReference Include="..\OfficeHost\OfficeHost.csproj" />
+  </ItemGroup>
+</Project>

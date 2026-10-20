@@ -7,7 +7,7 @@ With -Summary, the table is also appended to that file as markdown (the GitHub j
 Fails when the report covers no lines, which means the coverage collection did not work.
 
 .EXAMPLE
-dotnet run --project src/WopiServer.Tests -- --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml --coverage-settings src/coverage.config --results-directory TestResults
+dotnet run --project src/OfficeHost.Tests -- --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml --coverage-settings src/coverage.config --results-directory TestResults
 pwsh src/coverage-summary.ps1 TestResults/coverage.cobertura.xml
 #>
 param(
@@ -18,8 +18,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $xml = [xml] (Get-Content $Report -Raw)
 $files = @{}
-foreach ($class in $xml.SelectNodes("//package[@name='WopiServer']//class")) {
-    $name = ($class.filename -replace '\\', '/') -replace '^.*src/WopiServer/', ''
+foreach ($class in $xml.SelectNodes("//package[@name='OfficeHost']//class")) {
+    $name = ($class.filename -replace '\\', '/') -replace '^.*src/OfficeHost/', ''
     if (-not $files.ContainsKey($name)) {
         $files[$name] = @{ Covered = [System.Collections.Generic.HashSet[int]]::new(); All = [System.Collections.Generic.HashSet[int]]::new(); Branches = 0; BranchesCovered = 0 }
     }
