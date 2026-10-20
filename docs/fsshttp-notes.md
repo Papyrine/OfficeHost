@@ -157,6 +157,57 @@ logs are in `src/OfficeHost.Sample/spike-logs`. The client is Word 16.0.20326 (M
   spike.
 
 
+## FSSHTTPB
+
+The Cell sub-requests of Word below are in the tests as `FsshttpbVectors.WordRequests` (src/OfficeHost.Tests/Fsshttp),
+taken from run 7 of the spike. They are queries, with no document content.
+
+### Word sends a user agent GUID and a client and platform
+
+- **Spec:** [MS-FSSHTTPB] 2.2.2: the User Agent Client and Platform "replaces the User Agent GUID. If this is specified,
+  the User Agent GUID SHOULD NOT be specified."
+- **Word:** every Cell request with a user agent has both: the GUID `1984108C-4B93-4EEB-B320-919432D6E593`, then the
+  client `msword` and the platform `win`. The codec reads and writes either or both.
+
+### A lone Query Access request has no user agent
+
+- **Spec:** [MS-FSSHTTPB] 2.2.2 lists the User Agent Start, Version and End as required fields of a request.
+- **Word:** its fourth Cell sub-request of the open (27 bytes, `WordRequests[3]`) is a request start, one Query Access
+  sub-request and the request end, with no user agent and no Data Element Package. The codec reads the user agent as
+  optional.
+
+### Query Changes flags of two bytes, with reserved bits set
+
+- **Spec:** [MS-FSSHTTPB] 2.2.2.1.3: the flags A to H take a byte, and I (user content equivalent version OK) is in a
+  second byte with 7 reserved bits that "MUST be set to zero".
+- **Word:** sends the two bytes, with the first byte zero and the second `0xAC`, `0x50` and `0x10` in the three
+  queries of the open: reserved bits set, differing from query to query. The codec keeps the flags as sent, and their
+  length, so that it writes back what it read.
+
+### Errata of the examples of MS-FSSHTTPB 4
+
+The bytes of the examples are right where their descriptions are not. The tests use the bytes
+(`FsshttpbVectors.Spec*`), and each one reads and writes back byte for byte.
+
+| Section | The description says | The bytes are |
+|---|---|---|
+| 4.1, 4.3 | User Agent Version `0x0008027A` has the type 0x2F | 0x4F, as in the table of 2.2.1.5.2 |
+| 4.1, 4.3 | Sub-Request End `0x010B` has the type 0x21 | 0x42, the type of the sub-request start |
+| 4.2 | the Waterline `0xFCF808` is 75503, and 4 bytes | 73503, as the cell range before it says, in 3 bytes |
+| 4.3 | Put Changes Request `0x002602D2` has the length 9 | 19: two Extended GUIDs of 17 and 1 bytes, then the flags |
+| 4.3.5 | the Revision ID is the Extended GUID `14 B9FADE84…`, the Base Revision ID `80 13380CDE…` | those are the root and object of the first Revision Manifest Root Declare (`0x4C50`); the Revision ID is `0C 3AFE2871…` and the Base Revision ID is null (`00`) |
+| 4.4 | the signature is `0x9B069439F329CF9C`, of a request | `9D CF 29 F3 39 94 06 9B`: `0x9B069439F329CF9D`, of a response (2.2.3) |
+
+Two more places where the spec contradicts itself:
+
+- **Query Changes Request (0x51):** the table of 32-bit starts (2.2.1.5.2) has it as not compound, and the example of
+  4.1 has no end for it, but the table of 16-bit ends (2.2.1.5.4) lists it. The codec treats it as single.
+- **Put Changes Response (0x87):** 2.2.3.1.3 lists its header as a required field, with only the applied Storage Index
+  and the data elements added optional; the example of 4.4 has a Put Changes sub-response without it, the knowledge
+  right after the sub-response start. The codec reads the header as optional, and writes it only when the model has
+  it.
+
+
 ## Authentication
 
 ### MS-OFBA is blocked by default, for SharePoint too
@@ -230,6 +281,7 @@ logs are in `src/OfficeHost.Sample/spike-logs`. The client is Word 16.0.20326 (M
   zone.
 
 [MS-FSSHTTP]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fsshttp/05fa7efd-48ed-48d5-8d85-77995e17cc81
+[MS-FSSHTTPB]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fsshttpb/f59fc37d-2232-4b14-baac-25f98e9e7b5a
 [MS-WDVME]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-wdvme/8cafdf55-ee5c-443e-bdb7-2cb2ab1fb2c3
 [MS-WEBDAVE]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-webdave/9fb175f3-f063-4389-a959-4457692e4b49
 [MS-OFBA]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-ofba/30c7bbe9-b284-421f-b866-4e7ed4866027

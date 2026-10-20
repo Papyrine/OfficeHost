@@ -271,6 +271,8 @@ dotnet run --project src/OfficeHost.Tests -- --coverage --coverage-output-format
 pwsh src/coverage-summary.ps1 TestResults/coverage.cobertura.xml
 ```
 
+`-Filter Fsshttp/Binary/` limits the table and the total to the files of a folder, here the FSSHTTPB codec.
+
 CI builds and runs the tests on Linux and Windows, with the coverage in the job summary, and runs the WOPI validator on
 Linux. The editor tests run nightly and on demand (`e2e.yml`), not on every push.
 
