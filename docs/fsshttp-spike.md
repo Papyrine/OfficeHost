@@ -360,14 +360,44 @@ Each save is:
 
 No `RefreshCoauthoring` came in the four minutes of this capture.
 
+### SharePoint Server, sixth capture (two users coauthoring)
+
+Word on this machine (user 1) had the brief open for 27 minutes. A second user, on another machine, opened it, edited
+and saved twice. User 1's edits and saves went through COM. The lab connection dropped for three minutes (DNS "No such
+host is known"), so user 1's first save waited in Word's cache and uploaded on reconnect. Word's `CoAuthoring`
+object showed 2 authors, then "pending updates", then the merge. The trace saw only user 1's side: 166 cellstorage
+requests.
+
+1. **While alone,** Word polled `sharedaccess.asmx` `IsOnlyClient` (8 seconds, then 30), and nothing else.
+2. **Back online, with a second user in** (14:48):
+   - `GetDocMetaInfo`.
+   - **`Scenario: GetChangesFile_MarkCoauthTransitionCompleteAndDownload`:** Coauth `MarkTransitionComplete`, plus the
+     three Cell queries of the open (`GetFileProps`, content, metadata). The answer had the Etag at version 15, with the
+     second user's saves.
+   - **`Scenario: Coauthoring_RequestUploadOnSecondaryMetadataPartition`:** a Cell PutChanges of 1,302 bytes alone.
+   - **The save** (`AutoSaveFile_Save`): PutChanges of 20,028 bytes. The Etag went to version 16, with no coherency
+     failure, because Word had pulled the remote changes first.
+3. **Then the poll.** `IsOnlyClient` stopped, and Word sent the same request **every 8 seconds** for the rest of the
+   session (159 times), `Scenario: PollingSubscriptionNotConnected_TransitionToCoauthInHostMode`. It holds:
+   - three Cell queries (`GetFileProps="true"`, then two more; 539, 508 and 388 bytes of FSSHTTPB);
+   - Coauth `GetCoauthoringStatus`, answered `CoauthStatus="Coauthoring"` every time.
+
+   The Cell queries are QueryChanges with Word's knowledge. When the second user saved (Etag version 17, 14:51:29),
+   the next answer was larger, with their changes. From then on Word's queries changed size (539 → 537 bytes), as its
+   knowledge did. Word kept the changes as "pending updates" and merged them into the document on its next save
+   (14:52:02, PutChanges of 17,396 bytes, Etag version 18).
+4. **Refresh:** no `RefreshCoauthoring`, no EditorsTable refresh, and no SchemaLock refresh came in the 27 minutes
+   since the open. With `Timeout="2580"` (43 minutes) the refresh is later. `GetCoauthoringStatus` every 8 seconds is
+   what tells Word who else is in.
+
 ### What later captures should do
 
-The open and the save are captured. Still missing:
-- **The refresh cadence** (`RefreshCoauthoring`, EditorsTable): leave Word open for 15 minutes; `Timeout="2580"`
-  suggests the refresh is minutes apart.
-- **Two users coauthoring:** a second user on the same document at the same time, editing another paragraph and
-  saving.
-- **Full response bodies.** From Phase 2, the spike gets Word's saves itself.
+Open, save, polling and the merge of a remote change are captured. Still missing:
+- **The refresh:** leave Word open for 45 minutes to see `RefreshCoauthoring` (or what replaces it).
+- **A conflicting save:** both users edit the same paragraph and save. That should give a coherency failure, or the
+  "same paragraph" lock that Word shows on SharePoint.
+- **The second user's side:** run `src/fsshttp-capture.ps1` on their machine too.
+- **Full response bodies:** from Phase 2, the spike gets Word's saves itself.
 
 What ETW gives here: WebIO logs only the start of large receive buffers, so long SharePoint responses come out cut.
 The spike logs everything Word sends it in full. So from Phase 1 on, Word against the spike is the main source for
@@ -401,8 +431,14 @@ What the later phases depend on, and what is still open:
 4. **Protected View.** It no longer gets in the way of the open: run 6 went to FSSHTTP from the Internet zone. Whether
    Word then edits, or stays read-only, shows once the open succeeds, in Phase 2.
 5. **The save is captured** (fifth capture): one Cell sub-request with `Coalesce`, `CoauthVersioning`,
-   `GetFileProps` and `BypassLockID`, then a `GetDocMetaInfo`. Refresh intervals and two users are not captured yet;
-   see "What later captures should do".
+   `GetFileProps` and `BypassLockID`, then a `GetDocMetaInfo`.
+6. **Coauthoring is captured** (sixth capture). It is driven by a poll every 8 seconds, Cell QueryChanges plus Coauth
+   `GetCoauthoringStatus`, so the cost of the server is that poll: Phase 3's store has to answer QueryChanges against
+   a client's knowledge cheaply. Also needed:
+   - `MarkTransitionComplete` when a second user arrives;
+   - a separate PutChanges of the metadata partition.
+
+   The refresh (beyond 27 minutes) and a conflicting save are not captured yet.
 
 
 ## Licence note

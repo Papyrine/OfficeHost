@@ -128,6 +128,27 @@ logs are in `src/WopiServer.Sample/spike-logs`. The client is Word 16.0.20326 (M
   (`vti_contenttag`, `vti_contentversionisdirty`, `vti_TimeOfLastCobaltVersionCreation`), and the file (`vti_filesize`,
   `vti_timelastmodified`, `vti_author`, `vti_modifiedby`, `vti_replid`). The full list is in fsshttp-spike.md.
 
+### Coauthoring is a poll, not the refresh the spec describes
+
+- **Spec:** [MS-FSSHTTP] 3.1.4.3.3 (Refresh Coauthoring Session) keeps a client in the session before its `Timeout`,
+  and 3.1.4.3.7 (Get Coauthoring Session) reports who is in it.
+- **Word, two users on SharePoint Server:**
+  - **The poll:** every 8 seconds, `Scenario: PollingSubscriptionNotConnected_TransitionToCoauthInHostMode`, three
+    Cell queries plus Coauth `GetCoauthoringStatus`, 159 times in 21 minutes. There was no `RefreshCoauthoring`,
+    EditorsTable refresh or SchemaLock refresh in the 27 minutes after the open (`Timeout="2580"`).
+  - **When the second user arrived:** Word sent `MarkTransitionComplete` with the Cell queries
+    (`Scenario: GetChangesFile_MarkCoauthTransitionCompleteAndDownload`).
+  - **Before saving:** Word uploaded the metadata partition alone
+    (`Scenario: Coauthoring_RequestUploadOnSecondaryMetadataPartition`).
+- **Alone:** Word polls `sharedaccess.asmx` `IsOnlyClient` instead ([MS-SHDACCWS]).
+
+### A remote change is pulled by the poll, merged at the next save
+
+- **Word:** the poll's Cell queries carry Word's knowledge. After the other user's save, one answer brought their
+  changes (and Etag version + 1), and Word's later queries changed with its knowledge. Word showed the changes as
+  pending updates, and merged them into the document at its next save. That save's PutChanges did not fail
+  coherency: Word merges before it uploads.
+
 ### Closing exits coauthoring
 
 - **Spec:** [MS-FSSHTTP] 3.1.4.3.2 (Exit Coauthoring Session), 3.1.4.4.2 (Release Lock).
