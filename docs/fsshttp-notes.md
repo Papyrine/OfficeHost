@@ -104,9 +104,17 @@ logs are in `src/WopiServer.Sample/spike-logs`. The client is Word 16.0.20326 (M
 ### Required columns block the save before any upload
 
 - **SharePoint Server, a library with required columns:** after an edit, Word's save showed "REQUIRED PROPERTIES: To
-  save to the server, correct the invalid or missing required properties", and sent no cellstorage request. Word
-  checks the library's columns, from what it learnt at open (GetDocMetaInfo or the metadata partition), before it
-  uploads.
+  save to the server, correct the invalid or missing required properties", and sent no cellstorage request.
+- **Setting every required column through COM** (`ContentTypeProperties`, each one valid by `Validate()`) did not
+  help. Neither did "Retry Save". Word's property pane said "No SharePoint properties found", so its check fails
+  without the property schema of the library. Word checks this before uploading, with no request to the server.
+
+### Closing exits coauthoring
+
+- **Spec:** [MS-FSSHTTP] 3.1.4.3.2 (Exit Coauthoring Session), 3.1.4.4.2 (Release Lock).
+- **Word:** closing the document sent one request: Coauth `ExitCoauthoring` (with `SchemaLockID` and `ClientID`),
+  and SchemaLock `ReleaseLock` `OnNotSupported` it. The same pair was sent twice when the open failed against the
+  spike.
 
 
 ## Authentication

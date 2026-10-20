@@ -300,6 +300,20 @@ Signed in from an earlier session (a `FedAuth` cookie), Word opened the document
    or missing required properties", and sent no further cellstorage request. The library has required columns, and
    Word checks them before uploading. So PutChanges is not in this capture.
 
+### SharePoint Server, fourth capture (close, reopen, save attempt)
+
+1. **Close:** closing the document sent one cellstorage request, Coauth `ExitCoauthoring` with SchemaLock
+   `ReleaseLock` `OnNotSupported` it.
+2. **Reopen:** this sent the same open as the third capture.
+3. **Refresh:** in the five minutes Word then stayed open, it sent no `RefreshCoauthoring` and no EditorsTable refresh.
+   With `Timeout="2580"`, the refresh is later than that.
+4. **Polling:** the `IsOnlyClient` polling went from 30 seconds back to 8 seconds after the edit.
+5. **The save** was set up through Word's COM automation: the edit, the library's required columns (the server's own
+   values, plus the content type's required `Policy` and `SubPolicy`), then `Save()`, then the "Retry Save" button.
+   Each attempt failed in Word with "Required Properties" and sent nothing to the server. Word's property pane said "No
+   SharePoint properties found", so Word did not get the library's property schema for this document. That is a matter
+   of this library's setup, not of FSSHTTP. The unsaved changes were discarded.
+
 ### What later captures should do
 
 The open is captured. What SharePoint does after it is not:
@@ -308,7 +322,8 @@ The open is captured. What SharePoint does after it is not:
 - two users coauthoring.
 
 These need:
-1. **A library without required columns,** so that Word uploads the save.
+1. **A library without required columns** (or whose property schema Word loads), so that Word uploads the save. The
+   spike has no columns, so from Phase 2 it gets Word's saves.
 2. **Run `src/fsshttp-capture.ps1`** with the document URL, signed in. Then:
    1. Wait for edit mode.
    2. Type a word and save.
