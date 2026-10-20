@@ -17,7 +17,7 @@ record SubResult(string Token, string ErrorCode, XElement Data, byte[]? Binary)
 /// requests, MTOM answers, and a cell storage of its own for the content, which it queries with its knowledge and puts
 /// with the Storage Index it expects under an id of its own, as Word does.
 /// </summary>
-class WordClient(TestServerHost host, string token, string? clientId = null)
+class WordClient(TestServerHost host, string accessToken, string? clientId = null)
 {
     public const string SchemaLockId = "{29358EC1-E813-4793-8E70-ED0344E7B73C}";
 
@@ -28,7 +28,7 @@ class WordClient(TestServerHost host, string token, string? clientId = null)
 
     public string ClientId { get; } = clientId ?? $"{{{Guid.NewGuid().ToString().ToUpperInvariant()}}}";
 
-    public string Site => $"/fsshttp/{token}";
+    public string Site => $"/fsshttp/{accessToken}";
 
     public CellStorage? Content { get; private set; }
 
