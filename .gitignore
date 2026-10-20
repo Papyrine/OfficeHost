@@ -28,3 +28,6 @@ Thumbs.db
 ## Sample
 src/WopiServer.Sample/files/
 src/WopiServer.Sample/spike-logs/
+## Word captures of src/fsshttp-capture.ps1: they hold credentials
+fsshttp-capture*.etl
+fsshttp-capture*.txt

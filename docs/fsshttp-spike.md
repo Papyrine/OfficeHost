@@ -2,12 +2,17 @@
 
 The question: will desktop Word use [MS-FSSHTTP] (`cellstorage.svc`) against a host that is not SharePoint, and what
 does it need to see first? This note has what the specs say, what Word did against the spike of the sample, how to run
-the spike, and the SharePoint Online capture needed to close the remaining unknowns.
+the spike, how to capture Word's traffic with a real SharePoint, and what that capture has shown so far.
 
-**Answer so far: not yet.** Across five runs, with four kinds of authentication and the SharePoint headers that the
-specs document, Word 16 (Microsoft 365, build 16.0.20326) opened the document over plain WebDAV. It never requested
-`_vti_inf.html`, the FrontPage RPC, `webs.asmx`, `/_api` or `cellstorage.svc`. The specs do not document the step that
-makes Word switch to FSSHTTP, so that step has to come from a capture against SharePoint Online.
+**Answer so far: not yet.**
+- **Against the spike:** across five runs, with four kinds of authentication and the SharePoint headers that the specs
+  document, Word 16 (Microsoft 365, build 16.0.20326) opened the document over plain WebDAV. It never requested
+  `_vti_inf.html`, the FrontPage RPC, `webs.asmx`, `/_api` or `cellstorage.svc`.
+- **Against SharePoint Server:** a capture of the same Word on an on-premises SharePoint Server (forms-based sign-in)
+  stopped at the first OPTIONS. Office blocks forms-based sign-in by default, for SharePoint too.
+
+The specs do not document the step that makes Word switch to FSSHTTP, so that step still has to come from a capture of
+Word getting past sign-in.
 
 
 ## What the specs say
@@ -164,29 +169,70 @@ What the spike answers:
 `FsshttpSpikeTests` posts the request of [MS-FSSHTTP] 4.1.1 to it and checks these answers.
 
 
-## SharePoint Online capture (to do on Windows)
+## Capturing Word with a real SharePoint
 
-This capture should show what SharePoint answers that the spike does not. It needs Fiddler Classic (or Fiddler
-Everywhere), a SharePoint Online document library, and two accounts for the second half.
+[src/fsshttp-capture.ps1](../src/fsshttp-capture.ps1) captures Word's HTTP traffic without a proxy and without
+trusting a new root certificate.
+- **How it records:** it starts an ETW trace of WebIO (the engine of WinHTTP, which Word uses for documents), WinINet
+  and WinHTTP. It opens the document in Word, stops the trace when you press Enter, and writes the requests and
+  responses to that host as text: headers, and the bytes sent and received. ETW logs those bytes before TLS, so they
+  are in plain text.
+- **What it needs:** membership of Performance Log Users (or an elevated prompt).
+- **What it redacts:** Authorization, cookie and ticket values in the text.
+- **Keep the trace private:** the `.etl` file holds credentials.
+- **No bodies from WinINet:** the WinINet-Capture provider, which would log WinINet bodies, needs an elevated prompt.
+  Word only used WinINet for its own sign-in configuration.
 
-1. **Set up Fiddler:**
-   1. Tools > Options > HTTPS: tick "Decrypt HTTPS traffic" and trust the Fiddler root certificate.
-   2. Filters: show only the process `WINWORD.EXE`.
-   3. Rules: turn off "Hide CONNECTs" and "Hide image requests", so that nothing is hidden.
-2. **Close every Office app.** Then delete `HKCU\Software\Microsoft\Office\16.0\Common\Internet\Server Cache` and
-   empty `%LOCALAPPDATA%\Microsoft\Office\16.0\OfficeFileCache`, so that Word rediscovers the server.
-3. **Open the document:**
-   1. Start capturing.
-   2. In the browser, in the library, choose Open > Open in app on a .docx, or run
-      `Start-Process 'ms-word:ofe|u|https://<tenant>.sharepoint.com/sites/<site>/Shared%20Documents/test.docx'`.
-   3. Wait until Word shows the document in edit mode.
-4. **Generate the coauthoring traffic:**
-   1. Type a word and save.
-   2. Wait two minutes (refresh timers).
-   3. Close Word.
-5. **Repeat with a second user.** Have a second user open the same document at the same time, in a second Windows
-   session or on a second machine, edit another paragraph and save. Then close both.
-6. **Save the sessions:** File > Save > All Sessions, as a `.saz`.
+Run it with the document URL:
+
+```bash
+pwsh src/fsshttp-capture.ps1 -Url 'https://sharepoint.example/Shared%20Documents/test.docx'
+```
+
+### SharePoint Server, first capture
+
+The capture used the "Edit brief" button of an application on SharePoint Server (`MicrosoftSharePointTeamServices:
+16.0.0.5522`, IIS 10, forms-based sign-in). That button calls `window.open('ms-word:ofe|u|https://<host>/<library>/<folder>/<file>.docx')`.
+- **Word's first request** to the host was the same OPTIONS, on the folder, that it sends the spike:
+  `Authorization: Bearer` (empty), `X-MSGETWEBURL: t`, `X-MS-CookieUri-Requested: t`, `X-IDCRL_ACCEPTED: t`,
+  `Accept-Auth: …`. The user agent was plain `Microsoft Office Word 2014`.
+- **SharePoint's answer** was `403 FORBIDDEN` with:
+
+  ```
+  X-Forms_Based_Auth_Required: https://<host>/_login/default.aspx?ReturnUrl=/_layouts/15/error.aspx
+  X-Forms_Based_Auth_Return_Url: https://<host>/_layouts/15/error.aspx
+  X-MSDAVEXT_Error: 917656; Access+denied.+Before+opening+files+in+this+location%2c+you+must+first+browse+to+the+web+site+and+select+the+option+to+login+automatically.
+  X-MS-InvokeApp: 1; RequireReadOnly
+  MicrosoftSharePointTeamServices: 16.0.0.5522
+  X-SharePointHealthScore: 0
+  SPRequestGuid: …
+  ```
+- **Word's reaction:** it showed "Office has blocked this content because it uses a sign-in method that may be
+  insecure", exactly as with the MS-OFBA site of the spike (run 3). It sent nothing more until the dialog was
+  dismissed.
+
+What this capture shows:
+1. **The OFBA block is Office's default policy.** It is not something the spike got wrong: the policy blocks
+   SharePoint's own forms-based sign-in too. It is File > Options > Trust Center > Trust Center Settings >
+   Form-based Sign-in (Group Policy: "Control how Office handles form-based sign-in prompts"). Its default blocks all
+   prompts, and it can allow specific hosts.
+2. **An unauthenticated OPTIONS learns nothing.** SharePoint answers it with the sign-in challenge alone, without
+   `DAV`, `MS-Author-Via` or any web URL. So the answer to `X-MSGETWEBURL` comes only after sign-in. The next capture
+   has to get past sign-in: allow forms-based sign-in for this host in the Trust Center, or use a SharePoint with
+   Windows or Entra ID sign-in.
+
+### What the next capture should do
+
+1. **Close every Office app.** Then delete `HKCU\Software\Microsoft\Office\16.0\Common\Internet\Server Cache` (if it
+   exists), so that Word rediscovers the server.
+2. **Run `src/fsshttp-capture.ps1`** with the document URL. Sign in when Word asks.
+3. **Generate the coauthoring traffic:**
+   1. Wait until Word shows the document in edit mode.
+   2. Type a word and save.
+   3. Wait two minutes (refresh timers).
+   4. Close Word, then press Enter.
+4. **Repeat with a second user,** for the coauthoring half: have a second user open the same document at the same
+   time, in a second Windows session or on a second machine, edit another paragraph and save.
 
 What to look for, in order of importance:
 - **The OPTIONS answer to `X-MSGETWEBURL: t`:** every response header, and especially any that carries the site URL
@@ -197,9 +243,10 @@ What to look for, in order of importance:
   - is it preceded by HEAD, PROPFIND or GET of the document?
   - does any request go to `_vti_bin`, `/_api` or `/_layouts`?
 - **The auth exchange:**
-  - the 401 with `WWW-Authenticate: Bearer …` (`client_id`, `trusted_issuers`, `authorization_uri`);
-  - the `X-IDCRL_AUTH_PARAMS_V1` and `X-MSDAVEXT_Error` headers;
-  - the cookie set after sign-in, and on which path.
+  - with forms-based sign-in: the login dialog's requests, and the cookie (`FedAuth`) set after it, and on which path;
+  - with Entra ID: the 401 with `WWW-Authenticate: Bearer …` (`client_id`, `trusted_issuers`, `authorization_uri`)
+    and `X-IDCRL_AUTH_PARAMS_V1`;
+  - whether the OPTIONS answer changes once Word is signed in.
 - **The first `ExecuteCellStorageRequest`:**
   - the `RequestVersion` (`Version`, `MinorVersion`);
   - the `Request` attributes (`UserAgent`, `UserAgentClient`, `UserAgentPlatform`, `Build`, `MetaData`,
@@ -227,13 +274,16 @@ documented OPTIONS headers nor authentication.
 
 The remaining unknowns, and how each gets settled:
 1. **What answers `X-MSGETWEBURL`** (and `X-MS-CookieUri-Requested`).
-   - Settled by: the SharePoint Online capture, then a rerun of run 5 with those headers.
+   - Settled by: a capture of Word signed in to SharePoint (the first SharePoint Server capture stopped at sign-in),
+     then a rerun of run 5 with those headers.
    - If it works: Word reaches `cellstorage.svc`, and Phase 0 reruns to see the first request. Go.
-2. **Whether Word gates FSSHTTP on a Microsoft-hosted or Entra-ID-authenticated (Bearer) server.**
-   - Settled by: the capture (the Bearer challenge), then a spike that answers Bearer for an Entra app registered in
-     your tenant.
-   - Bearer works but nothing else does: go only for hosts whose users sign in with Entra ID, and add OAuth to the
-     plan.
+2. **Which sign-in a host can use.** Office blocks Basic and forms-based sign-in by default, for SharePoint as well.
+   Users or administrators can allow forms-based sign-in per host, but the option is being retired. The defaults
+   leave Windows sign-in and Entra ID (Bearer).
+   - Settled by: the signed-in capture, which shows whether Word gates FSSHTTP on how it signed in, then a spike that
+     answers Bearer for an Entra app registered in your tenant.
+   - Bearer works but nothing else does: go only for hosts whose users sign in with Entra ID or Windows, and add
+     OAuth to the plan.
 3. **Protected View** on a host in the Internet zone.
    - Settled by: adding `https://localhost` to Local intranet or Trusted sites. It is a security setting, so it is your
      call, and I have not changed it.
