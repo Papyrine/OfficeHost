@@ -11,6 +11,8 @@
     <Using Include="System.Net" />
     <Using Include="WopiServer" />
     <PackageReference Include="ProjectDefaults" PrivateAssets="all" />
+    <!-- the Windows auth of the throwaway FSSHTTP spike, FsshttpSpike.cs -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.Negotiate" />
     <ProjectReference Include="..\WopiServer\WopiServer.csproj" />
   </ItemGroup>
 </Project>

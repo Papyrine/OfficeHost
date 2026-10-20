@@ -5,6 +5,12 @@ var appUrl = sample["AppUrl"]!.TrimEnd('/');
 var folder = Path.Combine(builder.Environment.ContentRootPath, sample["Files"]!);
 Directory.CreateDirectory(folder);
 SampleFiles.AddWelcome(folder);
+// the throwaway FSSHTTP spike for desktop Word (docs/fsshttp-spike.md), off unless Spike:Fsshttp is true
+var spike = builder.Configuration.GetValue<bool>("Spike:Fsshttp");
+if (spike)
+{
+    builder.Services.AddFsshttpSpike(builder.Configuration);
+}
 
 // begin-snippet: Registration
 // the storage of the files, here a folder: implement IWopiStorage for any other
@@ -43,6 +49,11 @@ app.MapGet(
     (string fileId, HttpRequest request, WopiLauncher launcher) =>
         Open(fileId, "view", request, launcher));
 // end-snippet
+if (spike)
+{
+    app.UseFsshttpSpike(storage);
+}
+
 app.MapGet("/", () => Results.Content(SamplePages.Files(storage), "text/html"));
 // the server listens on 0.0.0.0 for the WOPI client in Docker, which is not an address to browse
 app.Lifetime.ApplicationStarted.Register(() => app.Logger.LogInformation("Open {AppUrl} in a browser", appUrl));

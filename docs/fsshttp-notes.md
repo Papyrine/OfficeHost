@@ -1,0 +1,84 @@
+# FSSHTTP: where Word differs from the specs
+
+Each entry gives the spec section, what Word did, and the evidence: a run of the spike (docs/fsshttp-spike.md), whose
+logs are in `src/WopiServer.Sample/spike-logs`. The client is Word 16.0.20326 (Microsoft 365) on Windows 11 10.0.26200.
+
+
+## Discovery
+
+### No FrontPage RPC despite `MS-Author-Via: MS-FP/4.0`
+
+- **Spec:** [MS-WDVME] 3.2.5.1 and 4.1.2 have a FrontPage-compliant server advertise `MS-Author-Via: MS-FP/4.0,DAV`.
+  [MS-FPSE] defines `_vti_inf.html` and `author.dll` for clients that use it.
+- **Word:** in runs 1, 2 and 5 every OPTIONS answer had `MS-Author-Via: MS-FP/4.0,DAV`, `DocumentManagementServer`
+  and `MicrosoftSharePointTeamServices`. Word sent no FrontPage request at all (`_vti_inf.html`, `shtml.dll`,
+  `author.dll`), and no `webs.asmx` either. It used WebDAV only: OPTIONS, HEAD, LOCK, GET, PROPFIND, UNLOCK.
+
+### Undocumented OPTIONS request headers
+
+- **Spec:** nothing found in [MS-WDVME], [MS-WEBDAVE], [MS-OFBA] or [MS-FSSHTTP].
+- **Word:** every OPTIONS of runs 1 to 5 sent these headers:
+
+  ```
+  User-Agent: Microsoft Office Word 2014 (16.0.20326) Windows NT 10.0
+  Authorization: Bearer
+  X-Office-Major-Version: 16
+  X-MS-CookieUri-Requested: t
+  X-FeatureVersion: 1
+  X-MS-AuthDomainSupport: True
+  Accept-Auth: badger,Wlid1.1,Bearer,Basic,NTLM,Digest,Kerberos,Negotiate,Nego2
+  X-MSGETWEBURL: t
+  X-IDCRL_ACCEPTED: t
+  ```
+
+  Some OPTIONS used the user agent `Microsoft Office Word` alone. In each run, one OPTIONS replaced
+  `X-MSGETWEBURL` with `X-IDCRL_OPTIONS: force-auth-challenge` and `IgnoreCookieAuthentication: t`.
+- **Open:** the server's answer to `X-MSGETWEBURL` and `X-MS-CookieUri-Requested`. It needs a SharePoint Online
+  capture.
+
+### No capability negotiation for FSSHTTP
+
+- **Spec:** [MS-FSSHTTP] 1.7 is "None". 1.5 only says where the endpoint is.
+- **Word:** in five runs it never requested `cellstorage.svc`, so whatever makes Word use FSSHTTP is outside the
+  published specs.
+
+
+## Authentication
+
+### MS-OFBA is blocked by default
+
+- **Spec:** [MS-OFBA] 2.2.1 has the client identify itself with `X-FORMS_BASED_AUTH_ACCEPTED: t` (or a listed user
+  agent). On a 403 with `X-FORMS_BASED_AUTH_REQUIRED` (2.2.2), the client MUST navigate to the login page.
+- **Word:** it sent no `X-FORMS_BASED_AUTH_ACCEPTED`. On the 403 of run 3 it did not open the login page. It showed
+  "Office has blocked this content because it uses a sign-in method that may be insecure. You can choose to not block
+  such content in the future by changing your settings in the Office Trust Center."
+
+### Basic over HTTPS is blocked by default
+
+- **Spec:** none: Basic is [RFC7617], and the `Accept-Auth` Word sends lists `Basic`.
+- **Word:** on the 401 `WWW-Authenticate: Basic` of run 4 it showed no credential prompt. It showed "Microsoft Office
+  has blocked access to "https://localhost:5001/b/" because the source uses a sign-in method that may be unsecure."
+
+### Windows auth is silent
+
+- **Word:** on the 401 `WWW-Authenticate: Negotiate` of run 5, it authenticated with no prompt and went on as an
+  anonymous client would.
+
+
+## WebDAV
+
+### LOCK and UNLOCK around a read-only open
+
+- **Word:** in Protected View (all runs on `https://localhost`, which is in the Internet zone), it took an exclusive
+  LOCK (`Timeout: Second-600`, owner `AzureAD\<user>`), did a GET and a PROPFIND, and then an UNLOCK within a second.
+  After "Enable Editing" it repeated the sequence and stayed in Protected View, with a "We've refreshed this document
+  with the latest changes from others" bar.
+- **Open:** whether that is the fake LOCK answer of the spike or the zone. Retest with the host in the Local intranet
+  zone.
+
+[MS-FSSHTTP]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fsshttp/05fa7efd-48ed-48d5-8d85-77995e17cc81
+[MS-WDVME]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-wdvme/8cafdf55-ee5c-443e-bdb7-2cb2ab1fb2c3
+[MS-WEBDAVE]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-webdave/9fb175f3-f063-4389-a959-4457692e4b49
+[MS-OFBA]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-ofba/30c7bbe9-b284-421f-b866-4e7ed4866027
+[MS-FPSE]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fpse/1bbae50a-7de9-45ea-830d-4e9caf8dfccd
+[RFC7617]: https://www.rfc-editor.org/rfc/rfc7617
