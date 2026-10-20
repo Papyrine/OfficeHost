@@ -4,13 +4,13 @@ Summarizes a Cobertura coverage report of the library: line and branch coverage 
 
 .DESCRIPTION
 With -Summary, the table is also appended to that file as markdown (the GitHub job summary in CI).
-With -Filter, only the files whose path starts with it count, as Fsshttp/Binary/ for the FSSHTTPB codec.
+With -Filter, only the files whose path starts with it count, as FssHttp/Binary/ for the FSSHTTPB codec.
 Fails when the report covers no lines, which means the coverage collection did not work.
 
 .EXAMPLE
 dotnet run --project src/OfficeHost.Tests -- --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml --coverage-settings $PWD/src/coverage.config --results-directory TestResults
 pwsh src/coverage-summary.ps1 TestResults/coverage.cobertura.xml
-pwsh src/coverage-summary.ps1 TestResults/coverage.cobertura.xml -Filter Fsshttp/Binary/
+pwsh src/coverage-summary.ps1 TestResults/coverage.cobertura.xml -Filter FssHttp/Binary/
 #>
 param(
     [Parameter(Mandatory)] [string] $Report,

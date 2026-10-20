@@ -30,24 +30,27 @@ specifics.
 
 - `OfficeHostExtensions.cs`: `AddOfficeHost` and `MapOfficeHost`, with the endpoint filter adding the X-WOPI headers of
   [MS-WOPI] 2.2.1 and turning unexpected exceptions into 500s.
-- `WopiHandler.cs`: the WOPI operations, over `IOfficeStorage`, `IOfficeLockStore` and `IOfficeTokens`. Locks go through
-  the store's `CompareExchange`, so each lock operation is atomic.
 - `OfficeHostOptions.cs`, `OfficeAccess.cs` (the access a token grants, `IOfficeTokens` and the built-in signed tokens
-  on `Jwt.cs`), `OfficeLauncher.cs` (action URLs from the discovery), `WopiDiscovery.cs` and `ProofKeys.cs`.
-- `IFsshttpStore.cs` (the state of desktop coauthoring, opaque to it), `MemoryFsshttpStore.cs`, `FileSystemFsshttpStore.cs`.
-- `IOfficeStorage.cs` (with `IOfficeUserInfoStore`), `FileSystemStorage.cs`, `IOfficeLockStore.cs` (with
-  `MemoryLockStore`), `FileNames.cs` (legal names, UTF-7 names of PutRelativeFile and RenameFile).
-- `Fsshttp/`: MS-FSSHTTP, internal. `Fsshttp/Binary/` is the FSSHTTPB codec ([MS-FSSHTTPB]), pure, with no ASP.NET.
-  `Fsshttp/Files/` is a file stream in a cell ([MS-FSSHTTPD]): `FileChunker` (zip and simple chunking), the node
+  on `Jwt.cs`), `OfficeLauncher.cs` (the links that open a file in a WOPI client or in desktop Office), `FileNames.cs`
+  (legal names, UTF-7 names of PutRelativeFile and RenameFile).
+- `Storage/`: `IOfficeStorage.cs` (with `IOfficeUserInfoStore`), `FileSystemStorage.cs`, and the state of desktop
+  coauthoring, opaque to its store: `IFssHttpStore.cs`, `MemoryFssHttpStore.cs`, `FileSystemFssHttpStore.cs`. `Lock/`:
+  `IOfficeLockStore.cs`, `MemoryLockStore.cs`.
+- `Wopi/`: [MS-WOPI]. `WopiHandler.cs`, the WOPI operations, over `IOfficeStorage`, `IOfficeLockStore` and
+  `IOfficeTokens`; locks go through the store's `CompareExchange`, so each lock operation is atomic. `WopiResult.cs`,
+  `WopiDiscovery.cs` and `WopiAction.cs` (the discovery of the WOPI clients), `ProofKeys.cs`, and what launching a WOPI
+  client gives (`OfficeLaunch.cs`, `OfficeClientUnreachableException.cs`). Its tests are in `src/OfficeHost.Tests/Wopi`.
+- `FssHttp/`: MS-FSSHTTP, internal, with its tests in `src/OfficeHost.Tests/FssHttp`. `FssHttp/Binary/` is the FSSHTTPB codec ([MS-FSSHTTPB]), pure, with no ASP.NET.
+  `FssHttp/Files/` is a file stream in a cell ([MS-FSSHTTPD]): `FileChunker` (zip and simple chunking), the node
   objects, and `FileCell`, which reads the file from data elements and writes a file as the next revision.
-  `Fsshttp/Cells/`: `CellState`, the state of a partition of a file serialized for the `IFsshttpStore`, and `FsshttpCells`,
+  `FssHttp/Cells/`: `CellState`, the state of a partition of a file serialized for the `IFssHttpStore`, and `FssHttpCells`,
   which keeps the content partition in step with the file in the `IOfficeStorage`.
-  `Fsshttp/Service/`: the desktop sites of `MapFsshttp` (`FsshttpHandler`: OPTIONS, cellstorage.svc, sharedaccess.asmx,
+  `FssHttp/Service/`: the desktop sites of `MapFssHttp` (`FssHttpHandler`: OPTIONS, cellstorage.svc, sharedaccess.asmx,
   GET), SOAP and MTOM (`SoapMessage`), the sub-requests (`CellStorageService`), Query and Put Changes (`CellSync`), and
   the coauthoring tracker with its lock in the `IOfficeLockStore` (`CoauthSessions`).
 - Manual test with Word: the `desktop` launch profile of the sample (HTTPS, requests logged to `request-logs` by `RequestLog.cs`), then
   `/desktop/{fileId}` (`?user=` for a second user); the steps are in docs/fsshttp-checklist.md. The simulated clients
-  are `WordClient` of `src/OfficeHost.Tests/Fsshttp`.
+  are `WordClient` of `src/OfficeHost.Tests/FssHttp`.
 
 ## Conventions
 

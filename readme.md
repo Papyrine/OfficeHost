@@ -48,7 +48,7 @@ services.AddSingleton(storage);
 services.AddSingleton<IOfficeStorage>(storage);
 // the state of desktop coauthoring, kept in a folder so that a restart does not make desktop Office download it all
 var states = Path.Combine(builder.Environment.ContentRootPath, "fsshttp-state");
-services.AddSingleton<IFsshttpStore>(new FileSystemFsshttpStore(states));
+services.AddSingleton<IFssHttpStore>(new FileSystemFssHttpStore(states));
 services.AddOfficeHost(
     options =>
     {
@@ -80,7 +80,7 @@ app.MapGet(
     (string fileId, HttpRequest request, OfficeLauncher launcher) =>
         Open(fileId, "view", request, launcher));
 // the sites desktop Office edits and coauthors files through: /fsshttp/{token}/{name}
-app.MapFsshttp();
+app.MapFssHttp();
 // the page that opens a file in desktop Office, through an ms-word: (or ms-excel:, ms-powerpoint:) link; the user comes
 // from ?user= so that two people can coauthor the demo
 app.MapGet(
@@ -196,7 +196,7 @@ Collabora reaches the sample (`host.docker.internal` from the container), and `S
 | `ServerVersion` | the library's | The `X-WOPI-ServerVersion` of the responses. |
 | `HostEditUrl`, `HostViewUrl` | | The pages of the application that open a file, returned by CheckFileInfo and PutRelativeFile. |
 | `OnCheckFileInfo` | | Adds or changes CheckFileInfo properties: `CloseUrl`, breadcrumbs, branding, CSPP+ properties. |
-| `DesktopPath` | `/fsshttp` | The path of the sites of desktop Office, `MapFsshttp`. |
+| `DesktopPath` | `/fsshttp` | The path of the sites of desktop Office, `MapFssHttp`. |
 | `DesktopBaseUrl` | the request's | The URL desktop Office reaches the application at, which runs where the browser does. |
 
 
@@ -246,10 +246,10 @@ PutUserInfo, where the editors keep per-user data such as the tips a user has se
 `IOfficeUserInfoStore` is registered.
 
 The state of desktop coauthoring (the data elements Office syncs, the coauthoring session) is kept by an
-`IFsshttpStore`: the default `MemoryFsshttpStore` for a single instance, `FileSystemFsshttpStore` for a single machine,
+`IFssHttpStore`: the default `MemoryFssHttpStore` for a single instance, `FileSystemFssHttpStore` for a single machine,
 or a shared store with an atomic compare and exchange. The file stays in the storage: a lost state only makes Office
 download the file again. A WOPI DeleteFile deletes the state of the file too; an application that deletes files itself
-calls `IFsshttpStore.Delete` after them, or the state stays, unused.
+calls `IFssHttpStore.Delete` after them, or the state stays, unused.
 
 
 ## Desktop Office
@@ -258,7 +258,7 @@ Preview. Desktop Word opens files as it opens those of a SharePoint site: throug
 [MS-FSSHTTP], which syncs a file in chunks ([MS-FSSHTTPB], [MS-FSSHTTPD]), shares the lock between the users of a
 coauthoring session, and keeps an editors table.
 
-* `MapFsshttp()` maps the sites: `{DesktopPath}/{token}/{name}` is the URL of a file, the token of `IOfficeTokens` in its
+* `MapFssHttp()` maps the sites: `{DesktopPath}/{token}/{name}` is the URL of a file, the token of `IOfficeTokens` in its
   path standing for the file and the user, as Office blocks Basic and forms-based sign-in by default.
 * `OfficeLauncher.LaunchDesktop(access, request)` gives the link that opens the file: `ms-word:ofe|u|{url}` (or
   `ms-excel:`, `ms-powerpoint:`; `ofv` without write access).
@@ -324,7 +324,7 @@ dotnet run --project src/OfficeHost.Tests -- --coverage --coverage-output-format
 pwsh src/coverage-summary.ps1 TestResults/coverage.cobertura.xml
 ```
 
-`-Filter Fsshttp/Binary/` limits the table and the total to the files of a folder, here the FSSHTTPB codec.
+`-Filter FssHttp/Binary/` limits the table and the total to the files of a folder, here the FSSHTTPB codec.
 
 CI builds and runs the tests on Linux and Windows, with the coverage in the job summary, and runs the WOPI validator on
 Linux. The editor tests run nightly and on demand (`e2e.yml`), not on every push.

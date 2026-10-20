@@ -1,7 +1,7 @@
 # Desktop Office: manual checklist
 
-The tests simulate Word (`src/OfficeHost.Tests/Fsshttp`), but only real Word shows what Word does. This is the check of
-the desktop site against Word by hand, before a release or after a change to `Fsshttp/Service`. Record anything Word
+The tests simulate Word (`src/OfficeHost.Tests/FssHttp`), but only real Word shows what Word does. This is the check of
+the desktop site against Word by hand, before a release or after a change to `FssHttp/Service`. Record anything Word
 does that the spec does not say, or that differs from what is expected here, in [fsshttp-notes.md](fsshttp-notes.md),
 with the requests that show it.
 

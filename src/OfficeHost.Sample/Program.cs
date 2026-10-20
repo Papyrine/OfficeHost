@@ -16,7 +16,7 @@ services.AddSingleton(storage);
 services.AddSingleton<IOfficeStorage>(storage);
 // the state of desktop coauthoring, kept in a folder so that a restart does not make desktop Office download it all
 var states = Path.Combine(builder.Environment.ContentRootPath, "fsshttp-state");
-services.AddSingleton<IFsshttpStore>(new FileSystemFsshttpStore(states));
+services.AddSingleton<IFssHttpStore>(new FileSystemFssHttpStore(states));
 services.AddOfficeHost(
     options =>
     {
@@ -48,7 +48,7 @@ app.MapGet(
     (string fileId, HttpRequest request, OfficeLauncher launcher) =>
         Open(fileId, "view", request, launcher));
 // the sites desktop Office edits and coauthors files through: /fsshttp/{token}/{name}
-app.MapFsshttp();
+app.MapFssHttp();
 // the page that opens a file in desktop Office, through an ms-word: (or ms-excel:, ms-powerpoint:) link; the user comes
 // from ?user= so that two people can coauthor the demo
 app.MapGet(

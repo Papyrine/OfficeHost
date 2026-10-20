@@ -28,7 +28,7 @@ public class OfficeHostOptions
     public TimeSpan LockDuration { get; set; } = TimeSpan.FromMinutes(30);
 
     /// <summary>
-    /// The path the sites of desktop Office are under (<see cref="OfficeHostExtensions.MapFsshttp"/>): the site of a file
+    /// The path the sites of desktop Office are under (<see cref="OfficeHostExtensions.MapFssHttp"/>): the site of a file
     /// is this path followed by a token, as <see cref="OfficeLauncher.LaunchDesktop"/> builds it.
     /// </summary>
     public string DesktopPath { get; set; } = "/fsshttp";

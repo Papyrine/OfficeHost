@@ -121,10 +121,10 @@ Three conclusions follow:
 
 ## The spike
 
-The spike was throwaway code in the sample (`src/OfficeHost.Sample/FsshttpSpike.cs`, the `spike` launch profile):
+The spike was throwaway code in the sample (`src/OfficeHost.Sample/FssHttpSpike.cs`, the `spike` launch profile):
 SharePoint-like discovery answers, FrontPage RPC, WebDAV, and a cell storage service that answered WhoAmI, ServerTime
 and GetDocMetaInfo, stubbed the locks and refused Cell, on sites with a token in the path, MS-OFBA, Basic, Windows
-auth, or none. It was removed once the library served desktop Word (`MapFsshttp`); it is in the history of the
+auth, or none. It was removed once the library served desktop Word (`MapFssHttp`); it is in the history of the
 `fsshttp` branch up to commit 4f7748f. What is left of it is the request log of the sample's `desktop` launch profile
 (`RequestLog.cs`, to `src/OfficeHost.Sample/request-logs`), and the check by hand with Word is
 [fsshttp-checklist.md](fsshttp-checklist.md).
@@ -372,7 +372,7 @@ What the later phases depend on, and what is still open:
    Word's Cell sub-requests is in the logs of runs 6 and 7 (no document content, they are queries), next to the
    vectors of [MS-FSSHTTP] 4.1.
 2. **`sharedaccess.asmx` `IsOnlyClient` ([MS-SHDACCWS])** is polled from the open on. It is a small SOAP service, and
-   Phase 4 has to add it to `MapFsshttp()`.
+   Phase 4 has to add it to `MapFssHttp()`.
 3. **Sign-in.**
    - Office blocks Basic and forms-based sign-in by default (for SharePoint too), and the forms-based option is being
      retired.

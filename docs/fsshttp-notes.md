@@ -161,7 +161,7 @@ sample, whose logs are in `src/OfficeHost.Sample/request-logs` (before Phase 5, 
 
 ## FSSHTTPB
 
-The Cell sub-requests of Word below are in the tests as `FsshttpbVectors.WordRequests` (src/OfficeHost.Tests/Fsshttp),
+The Cell sub-requests of Word below are in the tests as `FssHttpBVectors.WordRequests` (src/OfficeHost.Tests/FssHttp),
 taken from run 7 of the spike. They are queries, with no document content.
 
 ### Word sends a user agent GUID and a client and platform
@@ -189,7 +189,7 @@ taken from run 7 of the spike. They are queries, with no document content.
 ### Errata of the examples of MS-FSSHTTPB 4
 
 The bytes of the examples are right where their descriptions are not. The tests use the bytes
-(`FsshttpbVectors.Spec*`), and each one reads and writes back byte for byte.
+(`FssHttpBVectors.Spec*`), and each one reads and writes back byte for byte.
 
 | Section | The description says | The bytes are |
 |---|---|---|
@@ -332,10 +332,10 @@ Editors Table Zip Stream Header of [MS-FSSHTTPB] 2.2.3.1.2.1.1: a DEFLATE-compre
 - **Word:** with the sample stopped for a minute and started again (step 9), Word did not join again or open the file
   again. Its `IsOnlyClient` polls went on, then two Cell queries (`GetChangesFile_PowerAndPresenceStateChange`) and a
   save, which succeeded.
-- **The service:** the coauthoring tracker was on disk (`FileSystemFsshttpStore`), the lock of the sample's
+- **The service:** the coauthoring tracker was on disk (`FileSystemFssHttpStore`), the lock of the sample's
   `MemoryLockStore` was not. The first poll after the restart refreshed the client, which wrote its lock again. Until
   then, a WOPI client could have locked the file, and Word's save would have failed with `FileAlreadyLockedOnServer`:
-  an application keeps its `IOfficeLockStore` as long as its `IFsshttpStore`.
+  an application keeps its `IOfficeLockStore` as long as its `IFssHttpStore`.
 
 
 ## Authentication

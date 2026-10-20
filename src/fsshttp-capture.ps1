@@ -30,7 +30,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$session = 'FsshttpCapture'
+$session = 'FssHttpCapture'
 
 if (-not $Etl) {
     if (-not $Url) { throw 'Pass -Url (the document to open) or -Etl (a trace to decode)' }

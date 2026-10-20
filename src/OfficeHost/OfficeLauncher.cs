@@ -70,7 +70,7 @@ public sealed partial class OfficeLauncher
 
     /// <summary>
     /// The link that opens the file of the access in desktop Office, through the site of
-    /// <see cref="OfficeHostExtensions.MapFsshttp"/>: an Office URI scheme (<c>ms-word:ofe|u|{url}</c>, ofv when the
+    /// <see cref="OfficeHostExtensions.MapFssHttp"/>: an Office URI scheme (<c>ms-word:ofe|u|{url}</c>, ofv when the
     /// access cannot write), with a token issued for the access in the path of the site.
     /// </summary>
     /// <param name="request">The current request, for the URL of the application when <see cref="OfficeHostOptions.BaseUrl"/> is not set.</param>
