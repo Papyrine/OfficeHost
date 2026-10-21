@@ -43,12 +43,13 @@ foreach ($id in [regex]::Matches($page, 'href="/desktop/([^"]+)"') | ForEach-Obj
 if (-not $sampleSite) { throw "No $File in the sample's files" }
 
 $targets = @(
-    @{ Name = 'SharePoint'; Endpoint = "$SharePoint/_vti_bin/cellstorage.svc/CellStorageService"; Url = "$SharePoint/$Library/$File" },
-    @{ Name = 'OfficeHost'; Endpoint = "$sampleSite/_vti_bin/cellstorage.svc/CellStorageService"; Url = "$sampleSite/$File" }
+    @{ Name = 'SharePoint'; Endpoint = "$SharePoint/_vti_bin/cellstorage.svc/CellStorageService"; Folder = "$SharePoint/$Library" },
+    @{ Name = 'OfficeHost'; Endpoint = "$sampleSite/_vti_bin/cellstorage.svc/CellStorageService"; Folder = $sampleSite }
 )
 
-function Send($target, [string[]] $subRequests, [int] $version = 2) {
-    $envelope = "<s:Envelope xmlns:s=`"http://schemas.xmlsoap.org/soap/envelope/`"><s:Body><RequestVersion Version=`"$version`" MinorVersion=`"2`" xmlns=`"$soap`" /><RequestCollection CorrelationId=`"{$([guid]::NewGuid())}`" xmlns=`"$soap`"><Request Url=`"$($target.Url)`" RequestToken=`"1`">$($subRequests -join '')</Request></RequestCollection></s:Body></s:Envelope>"
+# $name: the file the request is for, -File by default, another after a rename
+function Send($target, [string[]] $subRequests, [int] $version = 2, [string] $name = $File) {
+    $envelope = "<s:Envelope xmlns:s=`"http://schemas.xmlsoap.org/soap/envelope/`"><s:Body><RequestVersion Version=`"$version`" MinorVersion=`"2`" xmlns=`"$soap`" /><RequestCollection CorrelationId=`"{$([guid]::NewGuid())}`" xmlns=`"$soap`"><Request Url=`"$($target.Folder)/$name`" RequestToken=`"1`">$($subRequests -join '')</Request></RequestCollection></s:Body></s:Envelope>"
     # MTOM as Word sends it, with a line break before the first boundary: without it, SharePoint redirects to its error
     # page ("Object reference not set to an instance of an object")
     $boundary = "urn:uuid:$([guid]::NewGuid())"
@@ -120,16 +121,24 @@ function Scenario([string] $name, [scriptblock] $steps, [scriptblock] $cleanup =
     $e = "{$([guid]::NewGuid().ToString().ToUpperInvariant())}"
     $answers = @{}
     foreach ($target in $targets) {
+        # a step is a sub-request, an array of them, or @{ SubRequests; Version; File }
         $answers[$target.Name] = @(foreach ($step in & $steps $a $b $e) {
             $version = 2
+            $fileName = $File
             if ($step -is [hashtable]) {
-                $version = $step.Version
+                if ($step.Version) { $version = $step.Version }
+                if ($step.File) { $fileName = $step.File }
                 $step = $step.SubRequests
             }
-            (Send $target @($step) $version) -join '; '
+            (Send $target @($step) $version $fileName) -join '; '
         })
         foreach ($step in & $cleanup $a $b $e) {
-            Send $target @($step) | Out-Null
+            $fileName = $File
+            if ($step -is [hashtable]) {
+                if ($step.File) { $fileName = $step.File }
+                $step = $step.SubRequests
+            }
+            Send $target @($step) 2 $fileName | Out-Null
         }
     }
 
@@ -178,3 +187,18 @@ Scenario 'Dependency on an unknown token' { ,@((SubRequest 'ServerTime' 1 $null 
 Scenario 'An unknown sub-request type' { ,@((SubRequest 'Bogus' 1 $null)) }
 Scenario 'Request version 1' { @{ Version = 1; SubRequests = @((SubRequest 'WhoAmI' 1 $null)) } }
 Scenario 'GetVersions' { ,@((SubRequest 'GetVersions' 1 $null)) }
+
+# renames, each renamed back: the steps after a rename name the file by its new name
+function Rename([string] $newName, [string] $extra = '') {
+    SubRequest 'FileOperation' 1 "FileOperation=`"Rename`" NewFileName=`"$newName`" $extra"
+}
+$renamed = 'LabRenamed.docx'
+Scenario 'Rename without a lock' { (Rename $renamed), @{ File = $renamed; SubRequests = @(Rename $File) } } { @{ File = $renamed; SubRequests = @(Rename $File) } }
+Scenario 'Rename while in a coauthoring session' { param($a) (Coauth JoinCoauthoring $a), (Rename $renamed), @{ File = $renamed; SubRequests = @(Rename $File) } } { param($a) @{ File = $renamed; SubRequests = @(Rename $File) }, (Coauth ExitCoauthoring $a) }
+Scenario 'Rename under an exclusive lock, with its id' { param($a, $b, $e) (Exclusive GetLock $e), (Rename $renamed "ExclusiveLockID=`"$e`""), @{ File = $renamed; SubRequests = @(Rename $File "ExclusiveLockID=`"$e`"") } } { param($a, $b, $e) @{ File = $renamed; SubRequests = @(Rename $File "ExclusiveLockID=`"$e`"") }, (Exclusive ReleaseLock $e) }
+Scenario 'Rename under an exclusive lock, without its id' { param($a, $b, $e) (Exclusive GetLock $e), (Rename $renamed) } { param($a, $b, $e) @{ File = $renamed; SubRequests = @(Rename $File "ExclusiveLockID=`"$e`"") }, (Exclusive ReleaseLock $e) }
+Scenario 'Rename to another extension' { (Rename 'LabRenamed.txt'), @{ File = 'LabRenamed.txt'; SubRequests = @(Rename $File) } } { @{ File = 'LabRenamed.txt'; SubRequests = @(Rename $File) } }
+Scenario 'Rename to an illegal name' { (Rename 'Lab?.docx') }
+Scenario 'Rename onto another file' { (Rename 'Lab.pptx') }
+Scenario 'Rename without a name' { (SubRequest 'FileOperation' 1 "FileOperation=`"Rename`"") }
+Scenario 'File operation without a type' { (SubRequest 'FileOperation' 1 "NewFileName=`"$renamed`"") } { @{ File = $renamed; SubRequests = @(Rename $File) } }

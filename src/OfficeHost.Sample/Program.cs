@@ -63,7 +63,9 @@ app.MapGet(
         var access = new OfficeAccess(fileId, user)
         {
             UserName = $"{char.ToUpperInvariant(user[0])}{user[1..]} User",
-            CanWrite = true
+            CanWrite = true,
+            // the rename of Office's title bar
+            CanRename = true
         };
         var link = await launcher.LaunchDesktop(access, request);
         return Results.Content(SamplePages.Desktop(link), "text/html");

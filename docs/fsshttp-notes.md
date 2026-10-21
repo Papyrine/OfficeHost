@@ -423,8 +423,46 @@ OfficeHost disagreed. OfficeHost now answers as SharePoint SE does:
 - **Where SharePoint fails** (a 302 to its error page, "Object reference not set to an instance of an object"), OfficeHost
   keeps its answers: a Coauth or ExclusiveLock without its request type (`InvalidArgument`), `AmIAlone` without data,
   a dependency on an unknown token, a `RequestVersion` of 1.
-- **Still different:** SharePoint supports `GetVersions` (OfficeHost: `RequestNotSupported`), and adds an `ErrorMessage`
-  to the `InvalidArgument` of a join without a schema lock id.
+- **Still different:** SharePoint supports `GetVersions` (OfficeHost: `RequestNotSupported`, see Versions below), and
+  adds an `ErrorMessage` to the `InvalidArgument` of a join without a schema lock id.
+
+### FileOperation Rename
+
+- **Spec:** [MS-FSSHTTP] 2.3.1.34: `FileOperation="Rename"`, `NewFileName`, and an optional `ExclusiveLockID` that lets
+  the client holding the exclusive lock rename.
+- **SharePoint Server SE**, and now OfficeHost (`FileOperationTests`):
+
+  | Request | Answer |
+  |---|---|
+  | Rename, no lock | `Success` |
+  | Rename to another extension (`.docx` to `.txt`) | `Success` |
+  | Rename with nothing in `NewFileName` | `Success`, nothing renamed |
+  | Rename in a coauthoring session (even by its client) | `FileAlreadyLockedOnServer`, with no `ErrorMessage` |
+  | Rename under an exclusive lock, with its id / without | `Success` / `FileAlreadyLockedOnServer` |
+  | Rename to an illegal name | `InvalidArgument` |
+  | Rename to the name of another file | `FileAlreadyExists` (SharePoint's `ErrorMessage` is the text of its exception) |
+  | No `FileOperation` | SharePoint fails; OfficeHost `InvalidArgument` |
+
+- **OfficeHost** renames through `IOfficeStorage.Rename`, with the `CanRename` of the access, as WOPI's RenameFile.
+  The site of the file keeps working under its new name, the token in its path standing for the file; so a request to
+  the old name finds the file too, where SharePoint answers `FileNotExistsOrCannotBeCreated`.
+
+### Versions
+
+`GetVersions` (Word, Excel and PowerPoint send it in every open) and `Versioning` `GetVersionList`, against the lab
+(versioning on, two versions of `Lab.docx`):
+
+- **`GetVersions`** answers [MS-VERSS] 2.2.4.1 `results`: `<list id>`, `<versioning enabled="1"/>`, `<settings url>`, and a
+  `<result>` per version: `version` (`@2.0` for the current one, `1.0` for an older one), `url` (the current one at the
+  file's URL, older ones at `/_vti_history/{512 × major}/{path}`), `created` (a local display time), `createdRaw` (UTC,
+  ISO 8601), `createdBy` (the login), `createdByName`, `size`, `comments`.
+- **`Versioning` `GetVersionList`** answers a `UserTable` (`User` with `UserId`, `UserLogin`, `UserName`,
+  `UserEmailAddress`) and `Versions`: `Version` with `Number`, `IsCurrent`, `LastModifiedTime` (FILETIME) and
+  `UserId`, the current one with `Events` (`Event` `Id`, `Type="2"`, `CreateTime`, `UserId`), one per save.
+- **What OfficeHost would need from the application:** the versions of a file (an id or label, when, by whom, the size,
+  a comment, and which is current), the content of an older one (for its URL, under the desktop site), and, for
+  `RestoreVersion`, restoring one. An optional store, as `IOfficeUserInfoStore`: the application decides what makes a
+  version. Office opened, edited and saved without any of it.
 
 ### SharePoint wants a line break before the first MIME boundary
 

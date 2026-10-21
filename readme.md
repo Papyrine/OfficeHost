@@ -83,13 +83,15 @@ app.MapGet(
         var access = new OfficeAccess(fileId, user)
         {
             UserName = $"{char.ToUpperInvariant(user[0])}{user[1..]} User",
-            CanWrite = true
+            CanWrite = true,
+            // the rename of Office's title bar
+            CanRename = true
         };
         var link = await launcher.LaunchDesktop(access, request);
         return Results.Content(SamplePages.Desktop(link), "text/html");
     });
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L11-L71' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L11-L73' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 A page decides what the user may do with the file, gets the URL of the editor and an access token from `OfficeLauncher`, and returns a page that posts the token to the editor in an iframe ([`SamplePages.Editor`](src/OfficeHost.Sample/SamplePages.cs)):
@@ -139,7 +141,7 @@ static async Task<IResult> Open(
     }
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L82-L124' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L84-L126' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The WOPI clients call back the application: they must reach it at the URL of the request that launched the editor, or at `BaseUrl` when it differs, as when the editor runs in a container or behind a reverse proxy.
@@ -227,6 +229,7 @@ Preview. Desktop Word opens files as it opens those of a SharePoint site: throug
 * `MapFssHttp()` maps the sites: `{DesktopPath}/{token}/{name}` is the URL of a file, the token of `IOfficeTokens` in its path standing for the file and the user, as Office blocks Basic and forms-based sign-in by default.
 * `OfficeLauncher.LaunchDesktop(access, request)` gives the link that opens the file: `ms-word:ofe|u|{url}` (or `ms-excel:`, `ms-powerpoint:`; `ofv` without write access).
 * Only the Open XML formats are supported (`.docx`, `.docm`, `.dotx`, `.dotm`, `.xlsx`, `.xlsm`, `.xlsb`, `.xltx`, `.xltm`, `.pptx`, `.pptm`, `.potx`, `.potm`, `.ppsx`, `.ppsm`). `LaunchDesktop` refuses the legacy binary formats (`.doc`, `.dot`, `.xls`, `.xlt`, `.ppt`, `.pot`, `.pps`) and `.rtf` with an `InvalidOperationException`: save them in an Open XML format.
+* Office can rename the file (from its title bar) through `IOfficeStorage.Rename` when the access has `CanRename`, as for WOPI. Version history is not supported: Office opens, edits and saves without it.
 * The lock of desktop editing is a lock of the `IOfficeLockStore`, so WOPI clients and desktop Office do not edit a file at the same time. A file changed outside desktop Office is synced as a new revision, keeping the unchanged chunks.
 * Word coauthors: several users edit a document at once, sharing its lock. Excel does not: the first user to type in a workbook takes an exclusive lock, and Excel tells the others who has it.
 

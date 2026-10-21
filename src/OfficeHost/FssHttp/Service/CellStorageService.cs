@@ -70,8 +70,10 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
                 soap + "SubResponse",
                 new XAttribute("SubRequestToken", token),
                 new XAttribute("ErrorCode", errorCode));
-            // SharePoint names the user who has the lock in the ErrorMessage, which Excel shows in its File In Use
+            // SharePoint names the user who has the lock in the ErrorMessage of a lock refused, which Excel shows in its
+            // File In Use; not in that of a rename refused
             if (errorCode == "FileAlreadyLockedOnServer" &&
+                (string?) subRequest.Attribute("Type") is "Coauth" or "SchemaLock" or "ExclusiveLock" &&
                 LockHolder(await sessions.Get(site.FileId, cancel)) is { } holder)
             {
                 subResponse.Add(new XAttribute("ErrorMessage", holder));
@@ -135,6 +137,7 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
                 "GetDocMetaInfo" => await GetDocMetaInfo(site, data, cancel),
                 "AmIAlone" => await AmIAlone(site, data, cancel),
                 "LockStatus" => await LockStatus(site, data, cancel),
+                "FileOperation" => await FileOperation(requestData, site, cancel),
                 _ => "RequestNotSupported"
             };
         }
@@ -1014,6 +1017,60 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
 
         data.Add(new XAttribute("LockType", "0"));
         return success;
+    }
+
+    /// <summary>
+    /// FileOperation (2.3.1.34): Rename, to NewFileName, with its extension, through <see cref="IOfficeStorage.Rename"/>.
+    /// As SharePoint Server SE answers (docs/fsshttp-notes.md): a file in a coauthoring session, or under a lock other
+    /// than the exclusive lock of the ExclusiveLockID, is FileAlreadyLockedOnServer; a name taken is FileAlreadyExists;
+    /// an illegal name is InvalidArgument; no name is a Success that renames nothing. The site of the file keeps
+    /// working under its new name, the token in its path standing for the file.
+    /// </summary>
+    async Task<string> FileOperation(XElement? requestData, FssHttpSite site, Cancel cancel)
+    {
+        if (Attribute(requestData, "FileOperation") != "Rename")
+        {
+            return "InvalidArgument";
+        }
+
+        var newName = Attribute(requestData, "NewFileName");
+        if (string.IsNullOrEmpty(newName))
+        {
+            return success;
+        }
+
+        if (!site.Access.CanRename)
+        {
+            return "FileUnauthorizedAccess";
+        }
+
+        if (!FileNames.IsLegal(newName))
+        {
+            return "InvalidArgument";
+        }
+
+        var session = await sessions.Get(site.FileId, cancel);
+        var exclusiveLockId = Attribute(requestData, "ExclusiveLockID");
+        if (session.Clients.Count > 0 ||
+            (session.ExclusiveLockId != null && session.ExclusiveLockId != exclusiveLockId) ||
+            await sessions.ForeignLock(site.FileId, cancel) != null)
+        {
+            return "FileAlreadyLockedOnServer";
+        }
+
+        try
+        {
+            if (await storage.Rename(site.FileId, newName, cancel) == null)
+            {
+                return "FileAlreadyExists";
+            }
+
+            return success;
+        }
+        catch (FileNotFoundException)
+        {
+            return "FileNotExistsOrCannotBeCreated";
+        }
     }
 
     /// <summary>
