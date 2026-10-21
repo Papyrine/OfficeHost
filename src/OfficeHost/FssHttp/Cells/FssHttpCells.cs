@@ -1,9 +1,4 @@
 /// <summary>
-/// A cell state as stored, with the version of the <see cref="FssHttpState"/> it came from, null when there was none.
-/// </summary>
-record StoredCell(string? Version, CellState State);
-
-/// <summary>
 /// The cell storages of the files, kept in the <see cref="IFssHttpStore"/>. The content partition is kept in step with
 /// the file in the <see cref="IOfficeStorage"/>: when the file changed since the cell was written (through WOPI, or by
 /// the application), its bytes are written as the next revision of the cell, which keeps the chunks that did not change,

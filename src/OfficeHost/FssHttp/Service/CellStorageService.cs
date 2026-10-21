@@ -1159,5 +1159,4 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
     /// Server SE fails a join or a lock from 120000 on with LockRequestFail.
     /// </summary>
     static bool TimeoutTooLong(XElement? requestData) => Int(requestData, "Timeout") >= 120_000;
-
 }

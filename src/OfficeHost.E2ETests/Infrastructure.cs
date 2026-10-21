@@ -1,6 +1,3 @@
-using System.IO.Compression;
-using System.Net.Sockets;
-
 /// <summary>
 /// A WOPI client running in Docker.
 /// </summary>
