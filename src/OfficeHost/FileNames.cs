@@ -42,12 +42,25 @@ static class FileNames
     /// </summary>
     public static string Legal(string name)
     {
-        var legal = new string(
-                name.Select(_ => forbiddenChars.Contains(_) ||
-                                 char.IsControl(_)
-                    ? '_'
-                    : _).ToArray())
-            .TrimEnd('.', ' ');
+        // Replacing gives '_', never a dot or space, so trimming first trims the same.
+        var length = name.AsSpan().TrimEnd(". ").Length;
+        var legal = string.Create(
+            length,
+            name,
+            static (span, name) =>
+            {
+                for (var i = 0; i < span.Length; i++)
+                {
+                    var c = name[i];
+                    if (forbiddenChars.Contains(c) ||
+                        char.IsControl(c))
+                    {
+                        c = '_';
+                    }
+
+                    span[i] = c;
+                }
+            });
 
         if (Encoding.UTF8.GetByteCount(legal) > MaxBytes)
         {
@@ -57,7 +70,7 @@ static class FileNames
                 (root, extension) = (legal, "");
             }
 
-            legal = $"{Truncate(root, MaxBytes - Encoding.UTF8.GetByteCount(extension)).TrimEnd('.', ' ')}{extension}";
+            legal = $"{Truncate(root, MaxBytes - Encoding.UTF8.GetByteCount(extension)).TrimEnd(". ")}{extension}";
         }
 
         if (legal.Length == 0)
@@ -100,7 +113,7 @@ static class FileNames
     /// <summary>
     /// The longest start of the value that fits in the given number of UTF-8 bytes, without splitting a character.
     /// </summary>
-    static string Truncate(string value, int maxBytes)
+    static ReadOnlySpan<char> Truncate(string value, int maxBytes)
     {
         var length = 0;
         var bytes = 0;
@@ -115,6 +128,6 @@ static class FileNames
             length += rune.Utf16SequenceLength;
         }
 
-        return value[..length];
+        return value.AsSpan(0, length);
     }
 }

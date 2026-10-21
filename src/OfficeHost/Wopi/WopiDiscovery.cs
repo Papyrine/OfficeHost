@@ -102,7 +102,8 @@ sealed class WopiDiscovery(IHttpClientFactory httpFactory, TimeProvider time, IL
         try
         {
             using var http = httpFactory.CreateClient(OfficeHostOptions.HttpClientName);
-            var document = Parse(await http.GetStringAsync(url, cancel));
+            await using var stream = await http.GetStreamAsync(url, cancel);
+            var document = Parse(await XDocument.LoadAsync(stream, LoadOptions.None, cancel));
             client.Cached = new(document, now, now);
             log.LogInformation("Fetched the WOPI discovery {Url}: {Actions} actions, proof keys {Current} {Old}", url, document.Actions.Count, document.Keys.Current != null, document.Keys.Old != null);
             return document;
@@ -116,9 +117,11 @@ sealed class WopiDiscovery(IHttpClientFactory httpFactory, TimeProvider time, IL
         }
     }
 
-    public static Document Parse(string xml)
+    public static Document Parse(string xml) =>
+        Parse(XDocument.Parse(xml));
+
+    static Document Parse(XDocument document)
     {
-        var document = XDocument.Parse(xml);
         var actions = document.Descendants()
             .Where(_ => _.Name.LocalName == "action")
             .Select(
