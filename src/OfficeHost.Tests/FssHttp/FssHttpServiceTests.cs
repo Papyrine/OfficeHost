@@ -222,13 +222,8 @@ public class FssHttpServiceTests
         await Assert.That((await alice.Coauth("ExitCoauthoring")).ErrorCode).IsEqualTo("FileNotLockedOnServer");
     }
 
-    static async Task<bool> IsOnlyClient(WordClient client)
-    {
-        var body = """<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><IsOnlyClient xmlns="http://schemas.microsoft.com/sharepoint/soap/"><id>x</id></IsOnlyClient></s:Body></s:Envelope>""";
-        using var response = await client.Post("_vti_bin/sharedaccess.asmx", new StringContent(body, Encoding.UTF8, "text/xml"));
-        var xml = XDocument.Parse(await response.Content.ReadAsStringAsync());
-        return bool.Parse(xml.Descendants().Single(_ => _.Name.LocalName == "IsOnlyClient" + "Result").Value);
-    }
+    static Task<bool> IsOnlyClient(WordClient client) =>
+        client.IsOnlyClient();
 
     /// <summary>
     /// The lock of desktop editing is a lock of the <see cref="IOfficeLockStore"/>: a WOPI client cannot lock the file

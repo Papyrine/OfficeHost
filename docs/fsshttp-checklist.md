@@ -91,8 +91,14 @@ in Excel: an edit through its object model does not take the lock.
 
 ## Other applications
 
-PowerPoint (`ms-powerpoint:`) gets links from `LaunchDesktop`, but has not been checked against the site. Open, edit,
-save and close a presentation, and record what it does differently from Word and Excel.
+PowerPoint coauthors as Word does. Put a `.pptx` in `files`.
+
+| # | Do | Expect |
+|---|---|---|
+| 29 | Open the `.pptx` from the sample, and Enable Editing. | `WhoAmI` and `GetDocMetaInfo`, then `JoinCoauthoring` (with `ExclusiveLockID` and `AllowFallbackToExclusive`) answered `Alone`, the editors table and content queries, then `IsOnlyClient` polls. |
+| 30 | Edit a slide, save, close. | `AutoSaveFile_Save` answered with a Put Changes Response, the file in `files` has the edit, and `ExitCoauthoring` releases the lock. |
+
+Other applications (Visio, Project, OneNote) get no links from `LaunchDesktop`.
 
 
 ## Last run
@@ -100,6 +106,7 @@ save and close a presentation, and record what it does differently from Word and
 - **Word** 16.0.20326 on Windows 11, one Windows account: steps 1, 2, 3, 5, 9 and 10 passed (2026-10-21).
 - **Excel** 16.0.20326, one Windows account: steps 23 to 26 passed (2026-10-21), and 27 and 28 with the other user's
   lock taken by a script as user bob; the lock-out also against SharePoint Server with two users (see the notes).
+- **PowerPoint** 16.0.20326: steps 29 and 30 passed (2026-10-21), editing through COM.
 - What they sent is in [fsshttp-notes.md](fsshttp-notes.md).
 - **Not yet run:** the WOPI client steps, Word coauthoring with two users, and Excel against Excel, which need a second
   Windows account or machine.

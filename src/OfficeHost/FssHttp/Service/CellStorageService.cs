@@ -1003,8 +1003,11 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
             return session.ExclusiveOwner;
         }
 
-        if (session.SchemaLockId != null &&
-            session.Editors.Count > 0)
+        if (session is
+            {
+                SchemaLockId: not null,
+                Editors.Count: > 0
+            })
         {
             var editor = session.Editors[0];
             return editor.UserName ?? editor.UserId;

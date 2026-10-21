@@ -151,6 +151,17 @@ class WordClient(TestServerHost host, string accessToken, string? clientId = nul
         (await Send(SubRequest("Coauth", "1", Data(CoauthAttributes(type), attributes)))).Single();
 
     /// <summary>
+    /// The poll of Office while it is alone in the session ([MS-SHDACCWS] IsOnlyClient).
+    /// </summary>
+    public async Task<bool> IsOnlyClient()
+    {
+        var body = """<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><IsOnlyClient xmlns="http://schemas.microsoft.com/sharepoint/soap/"><id>x</id></IsOnlyClient></s:Body></s:Envelope>""";
+        using var response = await Post("_vti_bin/sharedaccess.asmx", new StringContent(body, Encoding.UTF8, "text/xml"));
+        var xml = XDocument.Parse(await response.Content.ReadAsStringAsync());
+        return bool.Parse(xml.Descendants().Single(_ => _.Name.LocalName == "IsOnlyClientResult").Value);
+    }
+
+    /// <summary>
     /// Queries the content with the knowledge of the client, and adds what comes to its cell storage.
     /// </summary>
     public async Task<QueryChangesResponse> Sync()

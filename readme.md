@@ -19,7 +19,7 @@ The host side of the Office document protocols as a library for ASP.NET Core. Ad
 * Access tokens that grant a user's access to one file: signed tokens out of the box, or any token scheme through `IOfficeTokens`.
 * The discovery of the WOPI clients, to launch their actions and validate the proof keys of their requests (`X-WOPI-Proof`).
 * Pluggable storage and locks: `FileSystemStorage` and `MemoryLockStore` are included.
-* Desktop Office, in preview: Word and Excel open, edit and save files through the cell storage service of SharePoint ([MS-FSSHTTP]), Word with the shared lock and coauthoring, Excel with an exclusive lock. See [Desktop Office](#desktop-office).
+* Desktop Office, in preview: Word, Excel and PowerPoint open, edit and save files through the cell storage service of SharePoint ([MS-FSSHTTP]), Word and PowerPoint with the shared lock and coauthoring, Excel with an exclusive lock. See [Desktop Office](#desktop-office).
 
 
 ## Usage
@@ -229,7 +229,7 @@ Preview. Desktop Word opens files as it opens those of a SharePoint site: throug
 * The lock of desktop editing is a lock of the `IOfficeLockStore`, so WOPI clients and desktop Office do not edit a file at the same time. A file changed outside desktop Office is synced as a new revision, keeping the unchanged chunks.
 * Word coauthors: several users edit a document at once, sharing its lock. Excel does not: the first user to type in a workbook takes an exclusive lock, and Excel tells the others who has it.
 
-The host must use HTTPS with a certificate Windows trusts. A host in the Internet zone opens in Protected View first, as SharePoint Online does. Tested with Word and Excel for Microsoft 365 16.0.20326 on Windows; PowerPoint is not tested. Notes on what Office does that the specs do not say are in [docs/fsshttp-notes.md](docs/fsshttp-notes.md), and the check by hand in [docs/fsshttp-checklist.md](docs/fsshttp-checklist.md).
+The host must use HTTPS with a certificate Windows trusts. A host in the Internet zone opens in Protected View first, as SharePoint Online does. Tested with Word, Excel and PowerPoint for Microsoft 365 16.0.20326 on Windows, with `.docx`, `.xlsx` and `.pptx` files. Notes on what Office does that the specs do not say are in [docs/fsshttp-notes.md](docs/fsshttp-notes.md), and the check by hand in [docs/fsshttp-checklist.md](docs/fsshttp-checklist.md).
 
 
 ## Proof keys
@@ -292,9 +292,7 @@ tests and the validator pass.
 
 ## Credits and license
 
-The WOPI logic started as a port of the Python [CS3 WOPI server](https://github.com/cs3org/wopiserver), by Giuseppe Lo
-Presti (CERN) and its contributors. Like it, this library is under the Apache 2.0 license, see
-[license.txt](license.txt).
+The WOPI logic started as a port of the Python [CS3 WOPI server](https://github.com/cs3org/wopiserver), by Giuseppe Lo Presti (CERN) and its contributors. Like it, this library is under the Apache 2.0 license, see [license.txt](license.txt).
 
 [MS-WOPI]: https://learn.microsoft.com/en-us/openspecs/office_protocols/ms-wopi/
 [MS-FSSHTTP]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fsshttp/

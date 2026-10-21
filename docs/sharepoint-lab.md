@@ -93,7 +93,8 @@ Built on 2026-10-21 on Windows 11 (32 GB, Docker running): SharePoint answers at
 - **The farm:** created before SQL Server took connections after the restart: it waits for SQL Server.
   `Install-SPService` timed out once: the configuration after the farm runs again on each run.
 
-**First capture** (Word and Excel 16.0.20326, signed in as `LAB\alice`, which Office asked for once each): the same as
+**First captures** (Word, Excel and PowerPoint 16.0.20326, signed in as `LAB\alice`, which Office asked for once each;
+PowerPoint is in docs/fsshttp-notes.md): the same as
 the captures of docs/fsshttp-notes.md. Word joins coauthoring (`Alone`), exits and joins again around Protected View,
 polls `IsOnlyClient`, saves, and exits; Excel opens with no lock, takes an exclusive lock at the first edit, saves, and
 releases it. Word's `IsOnlyClient` polls are the same as against OfficeHost: a burst every 8 seconds after the open,

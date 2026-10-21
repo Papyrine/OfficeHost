@@ -402,6 +402,27 @@ with the lock taken by a script as user bob, as Excel takes it.
   answers `RequestNotSupported`, and Excel opened, edited and saved all the same.
 
 
+## PowerPoint
+
+PowerPoint 16.0.20326 (`UserAgentClient="msppt"`), opening, editing (text appended to a slide through COM), saving and
+closing a presentation, against SharePoint Server (the lab of docs/sharepoint-lab.md) and against the `desktop` launch
+profile of the sample. It worked against the sample as it was, with no change to the service.
+
+### PowerPoint coauthors as Word does, with a GetDocMetaInfo first as Excel does
+
+- **The open:** `WhoAmI` and `GetDocMetaInfo` (`Scenario: GetMetadata_EnsureDocMetaInfo`), as Excel; then
+  `OpenFile_Open` as Word's: Coauth `JoinCoauthoring` (Word's `SchemaLockID`, `Timeout="2580"`), SchemaLock `GetLock`
+  `OnNotSupported` it, a Cell query of the editors table partition and one of the content, three `UpdateEditorMetadata`
+  (`Platform`, `Capabilities`, `SupportsRename`), `GetVersions`, `ServerTime` and a Query Access. No query of the
+  metadata partition, which Word makes.
+- **The join** also carries `AllowFallbackToExclusive="true"` with an `ExclusiveLockID`: the exclusive lock PowerPoint
+  would take if coauthoring were not supported. The service coauthors, and ignores it.
+- **Then** the `IsOnlyClient` polls (a burst every 8 seconds, as Word), `AutoSaveFile_Save` (one Cell sub-request), and
+  `ExitCoauthoring` with SchemaLock `ReleaseLock` on close. Against the sample, the Protected View open and exit
+  before Enable Editing, as Word.
+- An edit through PowerPoint's object model saved through the service, unlike Excel's.
+
+
 ## Authentication
 
 ### MS-OFBA is blocked by default, for SharePoint too

@@ -48,10 +48,10 @@ specifics.
   `FssHttp/Service/`: the desktop sites of `MapFssHttp` (`FssHttpHandler`: OPTIONS, cellstorage.svc, sharedaccess.asmx,
   GET), SOAP and MTOM (`SoapMessage`), the sub-requests (`CellStorageService`), Query and Put Changes (`CellSync`), and
   the coauthoring tracker with its lock in the `IOfficeLockStore` (`CoauthSessions`).
-- Manual test with Word or Excel: the `desktop` launch profile of the sample (HTTPS, requests logged to `request-logs`
+- Manual test with Word, Excel or PowerPoint: the `desktop` launch profile of the sample (HTTPS, requests logged to `request-logs`
   by `RequestLog.cs`), then `/desktop/{fileId}` (`?user=` for a second user); the steps are in
   docs/fsshttp-checklist.md. Excel takes its lock when the user types, not when COM edits. The simulated clients are
-  `WordClient` of `src/OfficeHost.Tests/FssHttp` (`ExcelTests` drive it as Excel). `src/fsshttp-capture.ps1` captures
+  `WordClient` of `src/OfficeHost.Tests/FssHttp` (`ExcelTests` and `PowerPointTests` drive it as Excel and PowerPoint). `src/fsshttp-capture.ps1` captures
   Office against a real SharePoint; its output holds that site's data: keep it out of the repository.
 - SharePoint lab (docs/sharepoint-lab.md): `src/sharepoint-lab` builds a Hyper-V VM with SharePoint Server
   Subscription Edition and test users, from Microsoft's evaluations, to capture Office against a SharePoint of our own.

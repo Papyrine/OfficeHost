@@ -23,8 +23,8 @@ public class ExcelTests
     /// <summary>
     /// The exclusive lock at the first edit, with the LockStatus Excel sends with it.
     /// </summary>
-    static async Task<List<SubResult>> Lock(WordClient client, string type = "GetLock", string id = lockId) =>
-        await client.Send(
+    static Task<List<SubResult>> Lock(WordClient client, string type = "GetLock", string id = lockId) =>
+        client.Send(
             WordClient.SubRequest("ExclusiveLock", "1", WordClient.Data(new XAttribute("ExclusiveLockRequestType", type), new XAttribute("ExclusiveLockID", id), new XAttribute("Timeout", 600))),
             WordClient.SubRequest("LockStatus", "2", null, "1", "OnFail"));
 
@@ -103,7 +103,7 @@ public class ExcelTests
         var (host, fileId, alice, bob) = await Start();
         await using var _ = host;
 
-        async Task<SubResult> Status(WordClient client) =>
+        static async Task<SubResult> Status(WordClient client) =>
             (await client.Send(WordClient.SubRequest("LockStatus", "1"))).Single();
 
         await Assert.That((await Status(bob)).Attribute("LockType")).IsEqualTo("0");
