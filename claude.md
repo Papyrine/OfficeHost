@@ -53,6 +53,8 @@ specifics.
   docs/fsshttp-checklist.md. Excel takes its lock when the user types, not when COM edits. The simulated clients are
   `WordClient` of `src/OfficeHost.Tests/FssHttp` (`ExcelTests` drive it as Excel). `src/fsshttp-capture.ps1` captures
   Office against a real SharePoint; its output holds that site's data: keep it out of the repository.
+- SharePoint lab (docs/sharepoint-lab.md): `src/sharepoint-lab` builds a Hyper-V VM with SharePoint Server
+  Subscription Edition and test users, from Microsoft's evaluations, to capture Office against a SharePoint of our own.
 
 ## Conventions
 
