@@ -134,7 +134,15 @@ public sealed partial class OfficeLauncher
     /// The legacy binary formats of Word, Excel and PowerPoint, and .rtf: not supported for desktop editing.
     /// </summary>
     static bool IsLegacyFormat(string extension) =>
-        extension is ".doc" or ".dot" or ".rtf" or ".xls" or ".xlt" or ".ppt" or ".pps" or ".pot";
+        extension is
+            ".doc" or
+            ".dot" or
+            ".rtf" or
+            ".xls" or
+            ".xlt" or
+            ".ppt" or
+            ".pps" or
+            ".pot";
 
     async Task<string> UrlSrc(OfficeHostOptions settings, string? discoveryUrl, string action, string extension, Cancel cancel)
     {

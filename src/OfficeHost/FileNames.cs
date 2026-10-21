@@ -86,7 +86,7 @@ static class FileNames
     /// The name without and with its extension: `report.docx` is (`report`, `.docx`). Leading dots do not start an
     /// extension, so `.profile` has none.
     /// </summary>
-    public static SplitName SplitExtension(ReadOnlySpan<char> name)
+    public static SplitName SplitExtension(CharSpan name)
     {
         var dot = name.LastIndexOf('.');
         if (dot <= 0 ||
