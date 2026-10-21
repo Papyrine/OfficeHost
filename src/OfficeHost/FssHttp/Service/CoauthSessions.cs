@@ -10,7 +10,8 @@ record SessionEditor(string ClientId, string UserId, string? UserName, bool AsEd
 
 /// <summary>
 /// The file coauthoring tracker of a file ([MS-FSSHTTP] 3.1.1): the shared lock (its schema lock id and the clients that
-/// share it), or the exclusive lock, whether a coauthoring transition is pending (3.1.4.3.1), and the editors table.
+/// share it), or the exclusive lock (and the name of its user), whether a coauthoring transition is pending (3.1.4.3.1),
+/// and the editors table.
 /// </summary>
 record Session(
     string? SchemaLockId,
@@ -18,7 +19,8 @@ record Session(
     string? ExclusiveLockId,
     DateTimeOffset ExclusiveExpires,
     bool TransitionPending,
-    IReadOnlyList<SessionEditor> Editors)
+    IReadOnlyList<SessionEditor> Editors,
+    string? ExclusiveOwner = null)
 {
     public static Session None { get; } = new(null, [], null, default, false, []);
 
@@ -47,7 +49,7 @@ record Session(
             pending = false;
         }
 
-        return new(schema, clients, exclusive, ExclusiveExpires, pending, Editors.Where(_ => _.Expires > now).ToList());
+        return new(schema, clients, exclusive, ExclusiveExpires, pending, Editors.Where(_ => _.Expires > now).ToList(), ExclusiveOwner);
     }
 
     public SessionClient? Client(string clientId) => Clients.FirstOrDefault(_ => _.ClientId == clientId);
@@ -162,6 +164,21 @@ class CoauthSessions(IFssHttpStore store, IOfficeLockStore locks, TimeProvider t
         }
 
         return new("CoauthRefblobConcurrencyViolation", Session.None);
+    }
+
+    /// <summary>
+    /// The lock of the file in the <see cref="IOfficeLockStore"/> that no session holds (a WOPI lock), or null.
+    /// </summary>
+    public async Task<OfficeLock?> ForeignLock(string fileId, Cancel cancel = default)
+    {
+        var existing = await locks.Get(fileId, cancel);
+        if (existing == null ||
+            IsSessionLock(existing.Id))
+        {
+            return null;
+        }
+
+        return existing;
     }
 
     public static bool IsSessionLock(string lockId) =>

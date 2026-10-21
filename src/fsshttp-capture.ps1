@@ -1,10 +1,11 @@
 <#
 .SYNOPSIS
-Captures the HTTP traffic of desktop Word with a document server, decrypted, without a proxy or a root certificate.
+Captures the HTTP traffic of desktop Office with a document server, decrypted, without a proxy or a root certificate.
 
 .DESCRIPTION
 Starts an ETW trace of the Windows HTTP stacks Office uses (WinINet, and WinHTTP through WebIO), opens the document in
-Word with ms-word:ofe|u|, and stops the trace when Enter is pressed (or after -Seconds). Then writes the requests and
+Word, Excel or PowerPoint (ms-word:, ms-excel: or ms-powerpoint:, by its extension), or leaves it to be opened from the
+site with -HostName alone, and stops the trace when Enter is pressed (or after -Seconds). Then writes the requests and
 responses to the document host as text: the headers (WebIO 100/101, WinINet 210/211) and the bytes sent and received
 (WebIO 111/122), which ETW logs before encryption. Authorization, cookie and ticket values are redacted.
 
@@ -15,10 +16,13 @@ credentials: keep it private, and share the text output only. See docs/fsshttp-s
 pwsh src/fsshttp-capture.ps1 -Url 'https://sharepoint.example/Shared%20Documents/test.docx'
 
 .EXAMPLE
+pwsh src/fsshttp-capture.ps1 -HostName sharepoint.example -Seconds 300
+
+.EXAMPLE
 pwsh src/fsshttp-capture.ps1 -Etl capture.etl -HostName sharepoint.example
 #>
 param(
-    # the document to open in Word
+    # the document to open in Office
     [string] $Url,
     # an existing trace to decode, instead of capturing
     [string] $Etl,
@@ -33,7 +37,7 @@ $ErrorActionPreference = 'Stop'
 $session = 'FssHttpCapture'
 
 if (-not $Etl) {
-    if (-not $Url) { throw 'Pass -Url (the document to open) or -Etl (a trace to decode)' }
+    if (-not $Url -and -not $HostName) { throw 'Pass -Url (the document to open), -HostName (to open it yourself) or -Etl (a trace to decode)' }
     $Etl = Join-Path (Get-Location) "fsshttp-capture-$(Get-Date -Format 'yyyyMMdd-HHmmss').etl"
     # not WinINet-Capture, whose bodies need an elevated prompt: WebIO logs those of WinHTTP, which Word uses for documents
     logman stop $session -ets 2>$null | Out-Null
@@ -43,12 +47,19 @@ if (-not $Etl) {
         logman update $session -ets -p $provider 0xffffffffffffffff 0xff | Out-Null
     }
     try {
-        Start-Process "ms-word:ofe|u|$Url"
+        if ($Url) {
+            $extension = [IO.Path]::GetExtension(([uri] $Url).AbsolutePath).ToLowerInvariant()
+            $scheme = 'ms-word'
+            if ($extension -in '.xlsx', '.xlsm', '.xlsb', '.xls') { $scheme = 'ms-excel' }
+            if ($extension -in '.pptx', '.pptm', '.ppt') { $scheme = 'ms-powerpoint' }
+            Start-Process "${scheme}:ofe|u|$Url"
+        }
         if ($Seconds -gt 0) {
+            Write-Host "Capturing for $Seconds seconds"
             Start-Sleep $Seconds
         }
         else {
-            Read-Host 'Capturing: use Word, then press Enter to stop'
+            Read-Host 'Capturing: use Office, then press Enter to stop'
         }
     }
     finally {

@@ -338,6 +338,49 @@ Editors Table Zip Stream Header of [MS-FSSHTTPB] 2.2.3.1.2.1.1: a DEFLATE-compre
   an application keeps its `IOfficeLockStore` as long as its `IFssHttpStore`.
 
 
+## Excel
+
+Excel 16.0.20326 (`UserAgentClient="msexcl"`), opening a workbook with the edit button of the application on SharePoint
+Server, changing a cell, saving and closing (captured with `src/fsshttp-capture.ps1 -HostName`); then the same against
+the `desktop` launch profile of the sample.
+
+### Excel takes an exclusive lock at the first edit, and does not coauthor
+
+- **Spec:** [MS-FSSHTTP] 3.1.4.4 (Exclusive Lock) and 3.1.4.3 (Coauth) leave the choice to the client.
+- **Excel, on SharePoint Server and on the sample alike:**
+  - **The open has no lock:** `WhoAmI` and `GetDocMetaInfo` (`Scenario: GetMetadata_EnsureDocMetaInfo`), then
+    `OpenFile_Open`: a Cell query of the content with `GetFileProps`, `GetVersions`, and a Query Access. No Coauth,
+    SchemaLock or editors table, and no polling while the workbook is open.
+  - **The first edit takes the lock:** a second or more after the first keystroke, `Scenario: GetChangesFile_RefreshFile`:
+    ExclusiveLock `GetLock` with an `ExclusiveLockID` of its own and `Timeout="600"`, without `ClientID` or
+    `SchemaLockID`, and a `LockStatus` sub-request that depends on it `OnFail`.
+  - **The save** (`AutoSaveFile_Save`) is a Cell sub-request with `BypassLockID` (the exclusive lock id) and no
+    `SchemaLockID`, and a `GetDocMetaInfo`.
+  - **The close** sends ExclusiveLock `ReleaseLock` alone.
+- An edit through Excel's object model (COM) did not take the lock: the workbook stayed read-only, and saving it wrote a
+  local copy. Check Excel by typing in it.
+
+### GetDocMetaInfo has vti_canmaybeedit
+
+- **SharePoint:** among the properties of `GetDocMetaInfo`, `vti_canmaybeedit=true`, and, once locked,
+  `vti_sourcecontrollockid` (the exclusive lock id, without braces, in lower case) with `vti_sourcecontrollocktype=0`
+  and the user in `vti_sourcecontrolcheckedoutby`.
+- **The service** sends `vti_canmaybeedit` (false without write access) and the lock id and type. Excel locked and
+  saved with it; whether Excel needs it was not isolated, as the tests without it were through COM.
+
+### LockStatus
+
+- **Spec:** [MS-FSSHTTP] 2.3.1.50: `LockType`, `LockID` and `LockedBy`, all optional.
+- **SharePoint** answered `DependentOnlyOnFailRequestSucceeded`, the lock having succeeded, so the capture has no
+  answer of it. The service answers the exclusive lock (with its user), the shared lock of coauthoring (with the first
+  editor), a WOPI lock (exclusive, with neither) or `None`.
+
+### GetVersions
+
+- **SharePoint** answers it with the versions of the file (`<results><list/><versioning enabled="1"/>…`). The service
+  answers `RequestNotSupported`, and Excel opened, edited and saved all the same.
+
+
 ## Authentication
 
 ### MS-OFBA is blocked by default, for SharePoint too

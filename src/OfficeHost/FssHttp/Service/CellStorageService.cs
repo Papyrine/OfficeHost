@@ -125,6 +125,7 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
                 "ServerTime" => ServerTime(data),
                 "GetDocMetaInfo" => await GetDocMetaInfo(site, data, cancel),
                 "AmIAlone" => await AmIAlone(site, data, cancel),
+                "LockStatus" => await LockStatus(site, data, cancel),
                 _ => "RequestNotSupported"
             };
         }
@@ -647,7 +648,8 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
                         return new(success, _ with
                         {
                             ExclusiveLockId = exclusiveLockId,
-                            ExclusiveExpires = sessions.Now.AddSeconds(timeout)
+                            ExclusiveExpires = sessions.Now.AddSeconds(timeout),
+                            ExclusiveOwner = site.Access.UserName ?? site.Access.UserId
                         });
                     },
                     null,
@@ -902,7 +904,7 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
 
     /// <summary>
     /// GetDocMetaInfo (3.1.4.9): some of the vti properties of the file ([MS-FPSE] 2.2.4) SharePoint returns, and of its
-    /// lock.
+    /// lock. Excel opens a file read-only without vti_canmaybeedit (docs/fsshttp-notes.md).
     /// </summary>
     async Task<string> GetDocMetaInfo(FssHttpSite site, XElement data, Cancel cancel)
     {
@@ -913,6 +915,7 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
         }
 
         var modified = file.LastModified.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture);
+        var canEdit = site.Access.CanWrite ? "true" : "false";
         var properties = new List<XElement>
         {
             Property("vti_title", Path.GetFileNameWithoutExtension(file.Name)),
@@ -922,16 +925,63 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
             Property("vti_author", file.OwnerId),
             Property("vti_modifiedby", site.Access.UserId),
             Property("vti_replid", $"rid:{{{site.ResourceId.ToString().ToUpperInvariant()}}}"),
-            Property("vti_contenttag", $"{{{site.ResourceId.ToString().ToUpperInvariant()}}},{file.Version},1")
+            Property("vti_contenttag", $"{{{site.ResourceId.ToString().ToUpperInvariant()}}},{file.Version},1"),
+            Property("vti_canmaybeedit", canEdit)
         };
+        // the lock: 0 exclusive, 1 shared (the coauthoring lock)
         var session = await sessions.Get(site.FileId, cancel);
-        if (session.SchemaLockId != null)
+        if (session.ExclusiveLockId != null)
+        {
+            properties.Add(Property("vti_sourcecontrollockid", session.ExclusiveLockId.Trim('{', '}').ToLowerInvariant()));
+            properties.Add(Property("vti_sourcecontrollocktype", "0"));
+        }
+        else if (session.SchemaLockId != null)
         {
             properties.Add(Property("vti_sourcecontrollockid", session.SchemaLockId.Trim('{', '}').ToLowerInvariant()));
             properties.Add(Property("vti_sourcecontrollocktype", "1"));
         }
 
         data.Add(new XElement(soap + "DocProps", properties), new XElement(soap + "FolderProps"));
+        return success;
+    }
+
+    /// <summary>
+    /// LockStatus (2.3.1.50): the lock of the file, its id and its user, as Excel asks when it cannot take the exclusive
+    /// lock. A WOPI lock is exclusive, with neither.
+    /// </summary>
+    async Task<string> LockStatus(FssHttpSite site, XElement data, Cancel cancel)
+    {
+        var session = await sessions.Get(site.FileId, cancel);
+        if (session.ExclusiveLockId != null)
+        {
+            data.Add(new XAttribute("LockType", "ExclusiveLock"), new XAttribute("LockID", session.ExclusiveLockId.Trim('{', '}')));
+            if (session.ExclusiveOwner != null)
+            {
+                data.Add(new XAttribute("LockedBy", session.ExclusiveOwner));
+            }
+
+            return success;
+        }
+
+        if (session.SchemaLockId != null)
+        {
+            data.Add(new XAttribute("LockType", "SchemaLock"), new XAttribute("LockID", session.SchemaLockId.Trim('{', '}')));
+            if (session.Editors.Count > 0)
+            {
+                var editor = session.Editors[0];
+                data.Add(new XAttribute("LockedBy", editor.UserName ?? editor.UserId));
+            }
+
+            return success;
+        }
+
+        if (await sessions.ForeignLock(site.FileId, cancel) != null)
+        {
+            data.Add(new XAttribute("LockType", "ExclusiveLock"));
+            return success;
+        }
+
+        data.Add(new XAttribute("LockType", "None"));
         return success;
     }
 

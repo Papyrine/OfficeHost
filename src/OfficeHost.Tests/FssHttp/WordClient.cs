@@ -174,8 +174,9 @@ class WordClient(TestServerHost host, string accessToken, string? clientId = nul
     /// <summary>
     /// Puts a new version of the file as Word does: the new data elements with null Serial Numbers, a Storage Index of a
     /// new id, and the Storage Index it expects, under a new id too, with Serial Numbers of its own for the mappings.
+    /// With <paramref name="exclusive"/>, the lock id is that of an exclusive lock, as Excel saves: BypassLockID alone.
     /// </summary>
-    public async Task<SubResponse> Save(byte[] file, string? lockId = SchemaLockId)
+    public async Task<SubResponse> Save(byte[] file, string? lockId = SchemaLockId, bool exclusive = false)
     {
         var update = FileCell.Write(file, Content, ids, ChunkingOptions.Default);
         var index = update.Storage.StorageIndex with
@@ -204,7 +205,10 @@ class WordClient(TestServerHost host, string accessToken, string? clientId = nul
         if (lockId != null)
         {
             attributes.Add(new("BypassLockID", lockId));
-            attributes.Add(new("SchemaLockID", lockId));
+            if (!exclusive)
+            {
+                attributes.Add(new("SchemaLockID", lockId));
+            }
         }
 
         var result = (await Send(Cell("1", request, attributes.ToArray()))).Single();

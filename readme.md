@@ -29,8 +29,9 @@ ONLYOFFICE, Microsoft 365 for the web) open, edit and save the files of any stor
 * The discovery of the WOPI clients, to launch their actions and validate the proof keys of their requests
   (`X-WOPI-Proof`).
 * Pluggable storage and locks: `FileSystemStorage` and `MemoryLockStore` are included.
-* Desktop Office, in preview: Word opens, edits and saves files through the cell storage service of SharePoint
-  ([MS-FSSHTTP]), with the shared lock and coauthoring. See [Desktop Office](#desktop-office).
+* Desktop Office, in preview: Word and Excel open, edit and save files through the cell storage service of SharePoint
+  ([MS-FSSHTTP]), Word with the shared lock and coauthoring, Excel with an exclusive lock. See
+  [Desktop Office](#desktop-office).
 
 
 ## Usage
@@ -264,11 +265,13 @@ coauthoring session, and keeps an editors table.
   `ms-excel:`, `ms-powerpoint:`; `ofv` without write access).
 * The lock of desktop editing is a lock of the `IOfficeLockStore`, so WOPI clients and desktop Office do not edit a file
   at the same time. A file changed outside desktop Office is synced as a new revision, keeping the unchanged chunks.
+* Word coauthors: several users edit a document at once, sharing its lock. Excel does not: the first user to type in a
+  workbook takes an exclusive lock, and Excel tells the others who has it.
 
 The host must use HTTPS with a certificate Windows trusts. A host in the Internet zone opens in Protected View first, as
-SharePoint Online does. Tested with Word for Microsoft 365 16.0.20326 on Windows. Notes on what Word does that the
-specs do not say are in [docs/fsshttp-notes.md](docs/fsshttp-notes.md), and the check by hand with Word in
-[docs/fsshttp-checklist.md](docs/fsshttp-checklist.md).
+SharePoint Online does. Tested with Word and Excel for Microsoft 365 16.0.20326 on Windows; PowerPoint is not tested.
+Notes on what Office does that the specs do not say are in [docs/fsshttp-notes.md](docs/fsshttp-notes.md), and the
+check by hand in [docs/fsshttp-checklist.md](docs/fsshttp-checklist.md).
 
 
 ## Proof keys

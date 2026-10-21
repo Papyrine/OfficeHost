@@ -74,14 +74,30 @@ Alice is the first Word, Bob the second (see Setup), on the same file.
 | 22 | Alice closes. | The lock is released. |
 
 
+## Excel
+
+Put an `.xlsx` in `files`. Excel does not coauthor: it takes an exclusive lock when the user first types. Edit by typing
+in Excel: an edit through its object model does not take the lock.
+
+| # | Do | Expect |
+|---|---|---|
+| 23 | Open the `.xlsx` from the sample, and Enable Editing. | `WhoAmI`, `GetDocMetaInfo` (with `vti_canmaybeedit=true`), then `OpenFile_Open`: a Cell query, `GetVersions` (`RequestNotSupported`) and a Query Access. No lock yet. |
+| 24 | Type in a cell. | ExclusiveLock `GetLock` (`Timeout="600"`), answered `Success`, with its `LockStatus` answered `DependentOnlyOnFailRequestSucceeded`. |
+| 25 | Save (Ctrl+S). | A Cell `PutChanges` with `BypassLockID`, answered with a Put Changes Response; the file in `files` has the edit. |
+| 26 | Close Excel. | ExclusiveLock `ReleaseLock`; nothing in the `IOfficeLockStore`. |
+| 27 | Open the file as Alice and type, then open it as Bob (`?user=bob`, see Setup) and type. | Bob's `GetLock` fails `FileAlreadyLockedOnServer`, and his `LockStatus` names Alice; Excel tells Bob the file is locked. |
+
+
 ## Other applications
 
-Excel (`ms-excel:`) and PowerPoint (`ms-powerpoint:`) get links from `LaunchDesktop`, but have not been checked against
-the site. Open, edit, save and close one of each, and record what they do differently from Word.
+PowerPoint (`ms-powerpoint:`) gets links from `LaunchDesktop`, but has not been checked against the site. Open, edit,
+save and close a presentation, and record what it does differently from Word and Excel.
 
 
 ## Last run
 
-Word 16.0.20326 on Windows 11, one Windows account: steps 1, 2, 3, 5, 9 and 10 passed (2026-10-21), with what Word
-sent in [fsshttp-notes.md](fsshttp-notes.md). Not yet run: the WOPI client steps, and the two users coauthoring, which
-need a second Windows account or machine.
+- **Word** 16.0.20326 on Windows 11, one Windows account: steps 1, 2, 3, 5, 9 and 10 passed (2026-10-21).
+- **Excel** 16.0.20326, one Windows account: steps 23 to 26 passed (2026-10-21).
+- What they sent is in [fsshttp-notes.md](fsshttp-notes.md).
+- **Not yet run:** the WOPI client steps, and the steps with two users (Word coauthoring, Excel's lock held by another),
+  which need a second Windows account or machine.
