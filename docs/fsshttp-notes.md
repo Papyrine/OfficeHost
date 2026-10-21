@@ -318,7 +318,10 @@ Editors Table Zip Stream Header of [MS-FSSHTTPB] 2.2.3.1.2.1.1: a DEFLATE-compre
   when.
 - **Word, alone, editing and then idle for 65 minutes** (step 10 of [fsshttp-checklist.md](fsshttp-checklist.md)):
   - **The polls:** `IsOnlyClient` of `sharedaccess.asmx` every 30 seconds
-    (`Scenario: PollingSubscriptionNotConnected_AmIAlone`), 140 in the hour. At 21, 49 and 58 minutes, a pair of Cell
+    (`Scenario: PollingSubscriptionNotConnected_AmIAlone`), 140 in the hour, after a burst every 8 seconds once the
+    document is open. The burst was 1 poll against OfficeHost and 4 (32 seconds) against SharePoint Server (the lab of
+    docs/sharepoint-lab.md), whose `IsOnlyClient` answers are the same: the rate is Word's, not the server's. During
+    SharePoint's burst Word was still calling its REST API (`GetSharingInformation`, a 404 against OfficeHost). At 21, 49 and 58 minutes, a pair of Cell
     queries of the content and the metadata (`Scenario: GetChangesFile_PowerAndPresenceStateChange`).
   - **The refresh:** 2400 seconds after the join, 180 seconds before its `Timeout="2580"`, one request
     (`Scenario: RefreshLock_LockRefresh`): Coauth `RefreshCoauthoring` with `Timeout="2580"`, SchemaLock `RefreshLock`
