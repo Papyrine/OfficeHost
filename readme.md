@@ -68,15 +68,8 @@ services.AddOfficeHost(
 var app = builder.Build();
 // the WOPI endpoints the WOPI client calls: /wopi/files/{fileId}
 app.MapOfficeHost();
-// the pages that open a file in the WOPI client
-app.MapGet(
-    "/edit/{fileId}",
-    (string fileId, HttpRequest request, OfficeLauncher launcher) =>
-        Open(fileId, "edit", request, launcher));
-app.MapGet(
-    "/view/{fileId}",
-    (string fileId, HttpRequest request, OfficeLauncher launcher) =>
-        Open(fileId, "view", request, launcher));
+// the pages that open a file in the WOPI client: /edit/{fileId} and /view/{fileId}
+app.MapOfficePages(Access, OnError);
 // the sites desktop Office edits and coauthors files through: /fsshttp/{token}/{name}
 app.MapFssHttp();
 // the page that opens a file in desktop Office, through an ms-word: (or ms-excel:, ms-powerpoint:) link; the user comes
@@ -101,21 +94,18 @@ app.MapGet(
         return Results.Content(SamplePages.Desktop(link), "text/html");
     });
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L11-L73' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L11-L66' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-A page decides what the user may do with the file, gets the URL of the editor and an access token from `OfficeLauncher`, and returns a page that posts the token to the editor in an iframe ([`SamplePages.Editor`](src/OfficeHost.Sample/SamplePages.cs)):
+`MapOfficePages` maps the pages that open a file in a WOPI client, `/edit/{fileId}` and `/view/{fileId}`. The application gives it the access of the user to the file, which only it can decide from its own users and permissions, or null to refuse it with a 403, and optionally its own results for the errors:
 
 <!-- snippet: Launch -->
 <a id='snippet-Launch'></a>
 ```cs
-static async Task<IResult> Open(
-    string fileId,
-    string action,
-    HttpRequest request,
-    OfficeLauncher launcher)
+// the access of the user to the file: an application decides it from its own users and permissions, or returns null to
+// refuse it
+static ValueTask<OfficeAccess?> Access(HttpContext context, string fileId, string action)
 {
-    // the access of the user to the file: an application decides it from its own users and permissions
     var canWrite = action == "edit";
     var access = new OfficeAccess(fileId, "demo")
     {
@@ -124,35 +114,27 @@ static async Task<IResult> Open(
         CanWriteRelative = canWrite,
         CanRename = canWrite
     };
-    try
+    return ValueTask.FromResult<OfficeAccess?>(access);
+}
+
+// a page of the sample when the WOPI client is down, rather than the default 503 text
+static IResult? OnError(HttpContext context, Exception exception)
+{
+    if (exception is OfficeClientUnreachableException)
     {
-        var launch = await launcher.Launch(access, action, request);
-        return Results.Content(SamplePages.Editor(launch), "text/html");
-    }
-    catch (FileNotFoundException)
-    {
-        return Results.NotFound();
-    }
-    catch (OfficeClientUnreachableException exception)
-    {
-        // the WOPI client is down, or not started
         return Results.Content(
             SamplePages.Unreachable(exception.Message),
             "text/html",
             statusCode: StatusCodes.Status503ServiceUnavailable);
     }
-    catch (InvalidOperationException exception)
-    {
-        // no WOPI client offers the action for this type of file
-        return Results.Content(
-            SamplePages.Message(exception.Message),
-            "text/html",
-            statusCode: StatusCodes.Status400BadRequest);
-    }
+
+    return null;
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L84-L126' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L77-L106' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
+
+The page is `OfficeLaunch.HostPage()`: a form posts the access token to the editor, in a full-page iframe. An application that puts the editor in a page of its own calls `OfficeLauncher.Launch` itself, and takes the form, the iframe and the script from `HostPageHtml()`. A missing file is a 404, a WOPI client that cannot be reached a 503, and an action no WOPI client offers for the file a 400.
 
 The WOPI clients call back the application: they must reach it at the URL of the request that launched the editor, or at `BaseUrl` when it differs, as when the editor runs in a container or behind a reverse proxy.
 

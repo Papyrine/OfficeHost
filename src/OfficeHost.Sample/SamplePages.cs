@@ -56,23 +56,6 @@ static class SamplePages
     }
 
     /// <summary>
-    /// The page that holds the WOPI client: a form posts the access token to the action URL, in a full-page iframe, as
-    /// the WOPI documentation of the host page describes.
-    /// </summary>
-    public static string Editor(OfficeLaunch launch) =>
-        Page(
-            "Editor",
-            $"""
-             <form id="wopi" target="editor" method="post" action="{WebUtility.HtmlEncode(launch.Url)}">
-               <input type="hidden" name="access_token" value="{WebUtility.HtmlEncode(launch.AccessToken)}">
-               <input type="hidden" name="access_token_ttl" value="{launch.AccessTokenTtl}">
-             </form>
-             <iframe name="editor" title="Editor" allowfullscreen
-                     style="position: fixed; inset: 0; width: 100%; height: 100%; border: none"></iframe>
-             <script>document.getElementById('wopi').submit();</script>
-             """);
-
-    /// <summary>
     /// The error page when the WOPI client cannot be reached, with how to start Collabora Online.
     /// </summary>
     public static string Unreachable(string message) =>
@@ -105,16 +88,5 @@ static class SamplePages
                <p><a href="/">Back to the files</a></p>
              </main>
              <script>document.getElementById("open").click()</script>
-             """);
-
-    public static string Message(string message) =>
-        Page(
-            "Cannot open the file",
-            $"""
-             <main>
-               <h1>Cannot open the file</h1>
-               <p>{WebUtility.HtmlEncode(message)}</p>
-               <p><a href="/">Back to the files</a></p>
-             </main>
              """);
 }

@@ -60,6 +60,42 @@ public class ApiTests
     }
 
     /// <summary>
+    /// The host page posts the token to the editor in an iframe, with the values encoded.
+    /// </summary>
+    [Test]
+    public async Task HostPage()
+    {
+        var html = new OfficeLaunch("https://editor/?a=1&b=\"2\"", "to<k>en", 42).HostPageHtml();
+        await Assert.That(html).Contains("action=\"https://editor/?a=1&amp;b=&quot;2&quot;\"");
+        await Assert.That(html).Contains("name=\"access_token\" value=\"to&lt;k&gt;en\"");
+        await Assert.That(html).Contains("name=\"access_token_ttl\" value=\"42\"");
+        await Assert.That(html).Contains("<iframe name=\"editor\"");
+    }
+
+    [Test]
+    public async Task Pages()
+    {
+        await using var host = await StartWithDiscovery();
+        await File.WriteAllTextAsync(host.PathOf("/test.odt"), "content");
+        var fileId = Uri.EscapeDataString(host.Storage.GetFileId("test.odt"));
+
+        using var page = await host.Client.GetAsync($"/pages/edit/{fileId}");
+        await Assert.That(page.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await Assert.That(page.Content.Headers.ContentType!.MediaType).IsEqualTo("text/html");
+        await Assert.That(await page.Content.ReadAsStringAsync()).Contains("https://collabora/browser/1/cool.html?WOPISrc=");
+
+        // no WOPI client views .odt files
+        using var noAction = await host.Client.GetAsync($"/pages/view/{fileId}");
+        await Assert.That(noAction.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
+
+        using var missing = await host.Client.GetAsync("/pages/edit/unknown");
+        await Assert.That(missing.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+
+        using var forbidden = await host.Client.GetAsync("/pages/edit/forbidden");
+        await Assert.That(forbidden.StatusCode).IsEqualTo(HttpStatusCode.Forbidden);
+    }
+
+    /// <summary>
     /// The optional placeholders of the URL templates are dropped, and WOPISrc is appended to any query.
     /// </summary>
     [Test]

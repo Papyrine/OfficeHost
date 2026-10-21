@@ -95,6 +95,7 @@ sealed class TestServerHost : IAsyncDisposable
         app = builder.Build();
         app.MapOfficeHost();
         app.MapFssHttp();
+        app.MapGroup("/pages").MapOfficePages(PageAccess);
         await app.StartAsync();
         if (kestrel)
         {
@@ -107,6 +108,20 @@ sealed class TestServerHost : IAsyncDisposable
         }
 
         Client = app.GetTestClient();
+    }
+
+    /// <summary>
+    /// The access of the pages of <see cref="OfficeHostExtensions.MapOfficePages"/>: refused for a file id of
+    /// <c>forbidden</c>.
+    /// </summary>
+    static ValueTask<OfficeAccess?> PageAccess(HttpContext context, string fileId, string action)
+    {
+        if (fileId == "forbidden")
+        {
+            return ValueTask.FromResult<OfficeAccess?>(null);
+        }
+
+        return ValueTask.FromResult<OfficeAccess?>(Access(fileId));
     }
 
     public T Service<T>()

@@ -38,15 +38,8 @@ services.AddOfficeHost(
 var app = builder.Build();
 // the WOPI endpoints the WOPI client calls: /wopi/files/{fileId}
 app.MapOfficeHost();
-// the pages that open a file in the WOPI client
-app.MapGet(
-    "/edit/{fileId}",
-    (string fileId, HttpRequest request, OfficeLauncher launcher) =>
-        Open(fileId, "edit", request, launcher));
-app.MapGet(
-    "/view/{fileId}",
-    (string fileId, HttpRequest request, OfficeLauncher launcher) =>
-        Open(fileId, "view", request, launcher));
+// the pages that open a file in the WOPI client: /edit/{fileId} and /view/{fileId}
+app.MapOfficePages(Access, OnError);
 // the sites desktop Office edits and coauthors files through: /fsshttp/{token}/{name}
 app.MapFssHttp();
 // the page that opens a file in desktop Office, through an ms-word: (or ms-excel:, ms-powerpoint:) link; the user comes
@@ -82,13 +75,10 @@ app.Lifetime.ApplicationStarted.Register(() => app.Logger.LogInformation("Open {
 app.Run();
 
 // begin-snippet: Launch
-static async Task<IResult> Open(
-    string fileId,
-    string action,
-    HttpRequest request,
-    OfficeLauncher launcher)
+// the access of the user to the file: an application decides it from its own users and permissions, or returns null to
+// refuse it
+static ValueTask<OfficeAccess?> Access(HttpContext context, string fileId, string action)
 {
-    // the access of the user to the file: an application decides it from its own users and permissions
     var canWrite = action == "edit";
     var access = new OfficeAccess(fileId, "demo")
     {
@@ -97,30 +87,20 @@ static async Task<IResult> Open(
         CanWriteRelative = canWrite,
         CanRename = canWrite
     };
-    try
+    return ValueTask.FromResult<OfficeAccess?>(access);
+}
+
+// a page of the sample when the WOPI client is down, rather than the default 503 text
+static IResult? OnError(HttpContext context, Exception exception)
+{
+    if (exception is OfficeClientUnreachableException)
     {
-        var launch = await launcher.Launch(access, action, request);
-        return Results.Content(SamplePages.Editor(launch), "text/html");
-    }
-    catch (FileNotFoundException)
-    {
-        return Results.NotFound();
-    }
-    catch (OfficeClientUnreachableException exception)
-    {
-        // the WOPI client is down, or not started
         return Results.Content(
             SamplePages.Unreachable(exception.Message),
             "text/html",
             statusCode: StatusCodes.Status503ServiceUnavailable);
     }
-    catch (InvalidOperationException exception)
-    {
-        // no WOPI client offers the action for this type of file
-        return Results.Content(
-            SamplePages.Message(exception.Message),
-            "text/html",
-            statusCode: StatusCodes.Status400BadRequest);
-    }
+
+    return null;
 }
 // end-snippet

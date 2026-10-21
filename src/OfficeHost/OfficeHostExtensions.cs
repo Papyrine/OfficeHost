@@ -92,6 +92,60 @@ public static class OfficeHostExtensions
     }
 
     /// <summary>
+    /// Maps the pages that open a file in a WOPI client, <c>/edit/{fileId}</c> and <c>/view/{fileId}</c>, which
+    /// <see cref="OfficeHostOptions.HostEditUrl"/> and <see cref="OfficeHostOptions.HostViewUrl"/> can point at; map them
+    /// on a group for a prefix. <paramref name="access"/> decides the access of the user of the request to the file, for
+    /// the action (<c>edit</c> or <c>view</c>), or null to refuse it with a 403. The page is
+    /// <see cref="OfficeLaunch.HostPage"/>. A missing file is a 404, an unreachable WOPI client a 503, and an action no
+    /// WOPI client offers for the file a 400, unless <paramref name="onError"/> returns a result of its own for them.
+    /// </summary>
+    public static RouteGroupBuilder MapOfficePages(
+        this IEndpointRouteBuilder endpoints,
+        Func<HttpContext, string, string, ValueTask<OfficeAccess?>> access,
+        Func<HttpContext, Exception, IResult?>? onError = null)
+    {
+        var group = endpoints.MapGroup("");
+        group.MapGet("/edit/{fileId}", (HttpContext context, string fileId, OfficeLauncher launcher) => OpenPage(context, fileId, "edit", launcher, access, onError));
+        group.MapGet("/view/{fileId}", (HttpContext context, string fileId, OfficeLauncher launcher) => OpenPage(context, fileId, "view", launcher, access, onError));
+        return group;
+    }
+
+    static async Task<IResult> OpenPage(
+        HttpContext context,
+        string fileId,
+        string action,
+        OfficeLauncher launcher,
+        Func<HttpContext, string, string, ValueTask<OfficeAccess?>> access,
+        Func<HttpContext, Exception, IResult?>? onError)
+    {
+        var granted = await access(context, fileId, action);
+        if (granted == null)
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        try
+        {
+            var launch = await launcher.Launch(granted, action, context.Request, cancel: context.RequestAborted);
+            return launch.HostPage();
+        }
+        catch (FileNotFoundException exception)
+        {
+            return onError?.Invoke(context, exception) ?? Results.NotFound();
+        }
+        catch (OfficeClientUnreachableException exception)
+        {
+            // the WOPI client is down, or not started
+            return onError?.Invoke(context, exception) ?? Results.Text(exception.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+        catch (InvalidOperationException exception)
+        {
+            // no WOPI client offers the action for this type of file
+            return onError?.Invoke(context, exception) ?? Results.Text(exception.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
+    }
+
+    /// <summary>
     /// Maps the sites desktop Office edits and coauthors files through, with [MS-FSSHTTP] as SharePoint has it, under
     /// <see cref="OfficeHostOptions.DesktopPath"/>: <c>{DesktopPath}/{token}/{name}</c> is the URL of a file, and
     /// <see cref="OfficeLauncher.LaunchDesktop"/> the link that opens it. The coauthoring state is kept in the
