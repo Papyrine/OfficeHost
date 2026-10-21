@@ -223,7 +223,9 @@ class WordClient(TestServerHost host, string accessToken, string? clientId = nul
         }
 
         var result = (await Send(Cell("1", request, attributes.ToArray()))).Single();
-        if (result.ErrorCode != "Success")
+        // a Put Changes that fails is CellRequestFail, with the error in the FSSHTTPB
+        if (result.ErrorCode != "Success" &&
+            result.Binary == null)
         {
             return new FailedSubResponse(1, RequestType.PutChanges, new(ResponseErrorType.Protocol, 0, result.ErrorCode));
         }

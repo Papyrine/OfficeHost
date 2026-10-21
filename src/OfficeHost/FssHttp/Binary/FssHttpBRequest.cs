@@ -495,6 +495,8 @@ record PutChangesRequest(
         }
     }
 
+    public bool CheckForIdReuse => (AdditionalFlagBits & 0x04) != 0;
+
     public static PutChangesRequest ReadData(ref FssHttpBReader reader, ulong requestId, ulong priority, Guid? partition)
     {
         var fields = reader.ReadStart(StreamObjectType.PutChangesRequest);

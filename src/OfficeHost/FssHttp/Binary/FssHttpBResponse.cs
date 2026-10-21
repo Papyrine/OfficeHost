@@ -261,13 +261,16 @@ record QueryChangesResponse(ulong RequestId, ExtendedGuid StorageIndex, byte Fla
 /// response object, with the applied Storage Index and the data elements added, is read as optional: the example of
 /// [MS-FSSHTTPB] 4.4 has none (docs/fsshttp-notes.md).
 /// </summary>
+/// <param name="Extra">What the Put Changes response object has after the data elements added, which the spec does not
+/// define: SharePoint Server SE sends 29 bytes there (docs/fsshttp-notes.md). Kept as it was sent.</param>
 record PutChangesResponse(
     ulong RequestId,
     Knowledge Knowledge,
     bool HasResponseObject = false,
     ExtendedGuid? AppliedStorageIndex = null,
     IReadOnlyList<ExtendedGuid>? DataElementsAdded = null,
-    byte? DiagnosticOutput = null) :
+    byte? DiagnosticOutput = null,
+    ReadOnlyMemory<byte> Extra = default) :
     SubResponse(RequestId)
 {
     public override RequestType Type => RequestType.PutChanges;
@@ -277,6 +280,7 @@ record PutChangesResponse(
         var hasObject = false;
         ExtendedGuid? applied = null;
         ExtendedGuid[]? added = null;
+        ReadOnlyMemory<byte> extra = default;
         if (reader.PeekStart(StreamObjectType.PutChangesResponse))
         {
             hasObject = true;
@@ -291,7 +295,7 @@ record PutChangesResponse(
                 added = fields.ReadExtendedGuidArray();
             }
 
-            fields.EnsureEnd("a Put Changes response");
+            extra = fields.ReadRest();
         }
 
         var knowledge = Knowledge.Read(ref reader);
@@ -303,34 +307,37 @@ record PutChangesResponse(
             fields.EnsureEnd("a diagnostic request option output");
         }
 
-        return new(requestId, knowledge, hasObject, applied, added, diagnostic);
+        return new(requestId, knowledge, hasObject, applied, added, diagnostic, extra);
     }
 
     protected override void WriteData(ref FssHttpBWriter writer)
     {
-        if (HasResponseObject || AppliedStorageIndex != null || DataElementsAdded != null)
+        var hasExtra = !Extra.IsEmpty;
+        if (HasResponseObject || AppliedStorageIndex != null || DataElementsAdded != null || hasExtra)
         {
             var size = 0;
-            if (AppliedStorageIndex != null || DataElementsAdded != null)
+            if (AppliedStorageIndex != null || DataElementsAdded != null || hasExtra)
             {
                 size += (AppliedStorageIndex ?? ExtendedGuid.Null).Size;
             }
 
-            if (DataElementsAdded != null)
+            if (DataElementsAdded != null || hasExtra)
             {
-                size += FssHttpBSize.ExtendedGuidArray(DataElementsAdded);
+                size += FssHttpBSize.ExtendedGuidArray(DataElementsAdded ?? []);
             }
 
-            writer.WriteStart(StreamObjectType.PutChangesResponse, size);
-            if (AppliedStorageIndex != null || DataElementsAdded != null)
+            writer.WriteStart(StreamObjectType.PutChangesResponse, size + Extra.Length);
+            if (AppliedStorageIndex != null || DataElementsAdded != null || hasExtra)
             {
                 writer.WriteExtendedGuid(AppliedStorageIndex ?? ExtendedGuid.Null);
             }
 
-            if (DataElementsAdded != null)
+            if (DataElementsAdded != null || hasExtra)
             {
-                writer.WriteExtendedGuidArray(DataElementsAdded);
+                writer.WriteExtendedGuidArray(DataElementsAdded ?? []);
             }
+
+            writer.WriteBytes(Extra.Span);
         }
 
         Knowledge.Write(ref writer);

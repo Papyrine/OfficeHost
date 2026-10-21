@@ -226,16 +226,41 @@ static class CellSync
     }
 
     /// <summary>
-    /// Applies a Put Changes: it succeeds only when the client expects the current Storage Index (or none, for a storage
-    /// with nothing in it), so that a client that did not get the latest changes first fails with a coherency failure,
-    /// queries them and puts again. The data elements get Serial Numbers of the storage; one the storage has already,
-    /// with the same content, is kept as it is. The storage keeps only what the new Storage Index reaches.
+    /// Applies a Put Changes, as SharePoint Server SE does (docs/fsshttp-notes.md):
+    /// - a Storage Index, or an expected Storage Index other than the current one, that is not in the package, or a data
+    ///   element the new Storage Index reaches that neither the package nor the storage has, is a referenced data
+    ///   element not found;
+    /// - the mappings the new Storage Index updates have to be those the client expects, or none when it expects none
+    ///   and implies null ([MS-FSSHTTPB] 2.2.2.1.4): otherwise it is a coherency failure, and the client queries the
+    ///   latest changes and puts again;
+    /// - with check for id reuse, a data element with the id of one the storage has, and other content, is an Extended
+    ///   GUID collision.
+    /// The data elements get Serial Numbers of the storage; one the storage has already, with the same content, is kept
+    /// as it is. The storage keeps only what the new Storage Index reaches.
     /// </summary>
     public static PutOutcome Put(PutChangesRequest put, IReadOnlyList<DataElement> package, CellState state)
     {
         var current = state.Storage;
+        var index = package.OfType<StorageIndex>().FirstOrDefault(_ => _.Id == put.StorageIndex);
+        if (index == null)
+        {
+            return Failed(put, CellErrorCode.ReferencedDataElementNotFound);
+        }
+
+        StorageIndex? expected = null;
+        if (!put.ExpectedStorageIndex.IsNull &&
+            put.ExpectedStorageIndex != current?.StorageIndexId)
+        {
+            expected = package.OfType<StorageIndex>().FirstOrDefault(_ => _.Id == put.ExpectedStorageIndex);
+            if (expected == null)
+            {
+                return Failed(put, CellErrorCode.ReferencedDataElementNotFound);
+            }
+        }
+
         if (current != null &&
-            !Coherent(put.ExpectedStorageIndex, package, current))
+            put.ExpectedStorageIndex != current.StorageIndexId &&
+            !Coherent(put, index, expected, current.StorageIndex))
         {
             return Failed(put, CellErrorCode.CoherencyFailure);
         }
@@ -245,10 +270,17 @@ static class CellSync
         foreach (var element in package)
         {
             if (current != null &&
-                current.Elements.TryGetValue(element.Id, out var existing) &&
-                FssHttpB(existing, SerialNumber.Null).AsSpan().SequenceEqual(FssHttpB(element, SerialNumber.Null)))
+                current.Elements.TryGetValue(element.Id, out var existing))
             {
-                continue;
+                if (FssHttpB(existing, SerialNumber.Null).AsSpan().SequenceEqual(FssHttpB(element, SerialNumber.Null)))
+                {
+                    continue;
+                }
+
+                if (put.CheckForIdReuse)
+                {
+                    return Failed(put, CellErrorCode.ExtendedGuidCollision);
+                }
             }
 
             added.Add(element with
@@ -261,6 +293,11 @@ static class CellSync
         try
         {
             storage = (current ?? CellStorage.Create([], put.StorageIndex)).With(added, put.StorageIndex);
+            if (storage.HasMissing())
+            {
+                return Failed(put, CellErrorCode.ReferencedDataElementNotFound);
+            }
+
             storage = storage.Prune();
         }
         catch (FssHttpDException)
@@ -278,36 +315,57 @@ static class CellSync
     }
 
     /// <summary>
-    /// Whether the client expects the storage as it is. Word sends the Storage Index it expects in the package, under an
-    /// identifier of its own, with the mappings of the Storage Index it got but Serial Numbers of its own
-    /// (docs/fsshttp-notes.md): so the expected Storage Index matches when it maps the Storage Manifest and each cell to
-    /// the same data elements. Otherwise the identifier of the expected Storage Index has to be that of the storage, or
-    /// null for a storage with nothing in it.
+    /// Whether the mappings the new Storage Index updates are as the client expects ([MS-FSSHTTPB] 2.2.2.1.4): for each
+    /// of them, the storage maps it as the expected Storage Index does, or, when that has no such mapping and the client
+    /// implies null, not at all. Word sends the Storage Index it expects in the package, under an identifier of its own,
+    /// with the mappings of the Storage Index it got but Serial Numbers of its own (docs/fsshttp-notes.md): the targets
+    /// are compared, not the Serial Numbers.
     /// </summary>
-    static bool Coherent(ExtendedGuid expected, IReadOnlyList<DataElement> package, CellStorage current)
+    static bool Coherent(PutChangesRequest put, StorageIndex index, StorageIndex? expected, StorageIndex current)
     {
-        if (expected == current.StorageIndexId)
+        var server = Mappings(current);
+        var expectedMappings = Mappings(expected);
+        foreach (var key in Mappings(index).Keys)
         {
-            return true;
+            var value = server.GetValueOrDefault(key, ExtendedGuid.Null);
+            if (expectedMappings.TryGetValue(key, out var expectedValue))
+            {
+                if (expectedValue != value)
+                {
+                    return false;
+                }
+
+                continue;
+            }
+
+            if (put.ImplyNullExpectedIfNoMapping &&
+                !value.IsNull)
+            {
+                return false;
+            }
         }
 
-        if (expected.IsNull)
-        {
-            return IsEmpty(current);
-        }
-
-        var sent = package.OfType<StorageIndex>().FirstOrDefault(_ => _.Id == expected);
-        return sent != null && Targets(sent) == Targets(current.StorageIndex);
+        return true;
     }
 
     /// <summary>
-    /// What a Storage Index maps the Storage Manifest and the cells to, in a form to compare.
+    /// The targets of a Storage Index, by what they map: the Storage Manifest, a cell, or a revision.
     /// </summary>
-    static string Targets(StorageIndex index)
+    static Dictionary<object, ExtendedGuid> Mappings(StorageIndex? index)
     {
-        var manifest = index.Entries.OfType<StorageIndexManifestMapping>().Select(_ => $"manifest {_.MappingId}");
-        var cells = index.Entries.OfType<StorageIndexCellMapping>().Select(_ => $"cell {_.Cell.First} {_.Cell.Second} {_.MappingId}");
-        return string.Join("\n", manifest.Concat(cells).Order(StringComparer.Ordinal));
+        var mappings = new Dictionary<object, ExtendedGuid>();
+        foreach (var entry in index?.Entries ?? [])
+        {
+            object key = entry switch
+            {
+                StorageIndexCellMapping cell => cell.Cell,
+                StorageIndexRevisionMapping revision => revision.Revision,
+                _ => "manifest"
+            };
+            mappings[key] = entry.MappingId;
+        }
+
+        return mappings;
     }
 
     static PutOutcome Failed(PutChangesRequest put, CellErrorCode code) =>

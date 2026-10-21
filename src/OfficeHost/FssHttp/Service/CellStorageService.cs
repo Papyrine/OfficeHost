@@ -151,7 +151,8 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
     /// <summary>
     /// A Cell sub-request (3.1.4.2): the FSSHTTPB of its data, whose sub-requests target the partition of the
     /// PartitionID attribute (2.3.3.1) or their own Target Partition Id ([MS-FSSHTTPB] 2.2.2.1.1). The FSSHTTPB answer
-    /// is an MTOM part; a Put Changes that fails (a coherency failure) fails in it, with the error code Success.
+    /// is an MTOM part; a Put Changes that fails (a coherency failure) fails in it, with the error code CellRequestFail,
+    /// as on SharePoint Server SE.
     /// </summary>
     async Task<string> Cell(SoapMessage message, XElement? requestData, FssHttpSite site, XElement data, MtomResponse mtom, Cancel cancel)
     {
@@ -238,6 +239,11 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
         }
 
         data.Add(mtom.Include(fssHttpB));
+        if (subResponses.Any(_ => _ is FailedSubResponse))
+        {
+            return "CellRequestFail";
+        }
+
         return success;
     }
 

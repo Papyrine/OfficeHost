@@ -56,7 +56,8 @@ enum CellErrorCode : uint
     FragmentSizeMismatch = 44,
     FragmentsIncomplete = 45,
     FragmentInvalid = 46,
-    AbortedAfterFailedPutChanges = 47
+    AbortedAfterFailedPutChanges = 47,
+    ExtendedGuidCollision = 112
 }
 
 /// <summary>

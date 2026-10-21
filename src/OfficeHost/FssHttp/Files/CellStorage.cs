@@ -55,8 +55,7 @@ record CellStorage(IReadOnlyDictionary<ExtendedGuid, DataElement> Elements, Exte
     public CellStorage Prune()
     {
         var reachable = new Dictionary<ExtendedGuid, DataElement>();
-
-        void Add(ExtendedGuid id)
+        foreach (var id in Reached())
         {
             if (Elements.TryGetValue(id, out var element))
             {
@@ -64,10 +63,28 @@ record CellStorage(IReadOnlyDictionary<ExtendedGuid, DataElement> Elements, Exte
             }
         }
 
-        Add(StorageIndexId);
+        return this with
+        {
+            Elements = reachable
+        };
+    }
+
+    /// <summary>
+    /// Whether the Storage Index reaches a data element the storage does not have.
+    /// </summary>
+    public bool HasMissing() =>
+        Reached().Any(_ => !_.IsNull && !Elements.ContainsKey(_));
+
+    /// <summary>
+    /// The identifiers the Storage Index reaches, through the data elements the storage has: its mappings, and the Object
+    /// Groups and Object Data BLOBs of the revisions it maps.
+    /// </summary>
+    IEnumerable<ExtendedGuid> Reached()
+    {
+        yield return StorageIndexId;
         foreach (var entry in StorageIndex.Entries)
         {
-            Add(entry.MappingId);
+            yield return entry.MappingId;
             if (entry is not StorageIndexRevisionMapping ||
                 !Elements.TryGetValue(entry.MappingId, out var element) ||
                 element is not RevisionManifest revision)
@@ -77,7 +94,7 @@ record CellStorage(IReadOnlyDictionary<ExtendedGuid, DataElement> Elements, Exte
 
             foreach (var groupId in revision.ObjectGroups)
             {
-                Add(groupId);
+                yield return groupId;
                 if (!Elements.TryGetValue(groupId, out var groupElement) ||
                     groupElement is not ObjectGroup group)
                 {
@@ -86,20 +103,15 @@ record CellStorage(IReadOnlyDictionary<ExtendedGuid, DataElement> Elements, Exte
 
                 foreach (var declaration in group.Declarations.OfType<ObjectDataBlobDeclaration>())
                 {
-                    Add(declaration.BlobId);
+                    yield return declaration.BlobId;
                 }
 
                 foreach (var data in group.Data.OfType<ObjectDataBlobReference>())
                 {
-                    Add(data.BlobId);
+                    yield return data.BlobId;
                 }
             }
         }
-
-        return this with
-        {
-            Elements = reachable
-        };
     }
 }
 

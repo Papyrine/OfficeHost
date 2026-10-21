@@ -185,6 +185,9 @@ taken from run 7 of the spike. They are queries, with no document content.
 - **Word:** sends the two bytes, with the first byte zero and the second `0xAC`, `0x50` and `0x10` in the three
   queries of the open: reserved bits set, differing from query to query. The codec keeps the flags as sent, and their
   length, so that it writes back what it read.
+- **Excel and PowerPoint** do the same: in the 63 queries of their captures the first byte is always zero, and the
+  second takes values from `0x00` to `0xF8`, its low two bits clear (so never I). None asks for fragments, a file hash
+  or rounded knowledge; see "Query Changes and Put Changes options" for the rest.
 
 ### Errata of the examples of MS-FSSHTTPB 4
 
@@ -290,7 +293,8 @@ It opened the document, enabled editing, saved twice and closed, and the file ha
 - **Word:** the id is a new one (`{GUID},1`), and the Data Element Package holds a Storage Index with that id: the
   mappings of the Storage Index Word got from the server, with their data element ids, but with mapping Serial Numbers
   of a GUID of Word's. Comparing the ids fails every save with a coherency failure, and Word then downloads the whole
-  file again. The service compares what the two Storage Indexes map the Storage Manifest and the cells to.
+  file again. The service compares the targets of the mappings the new Storage Index updates, key by key (see "Put
+  Changes options" below).
 - So that a change made outside Word still fails coherency, a revision written from a file gets a new Cell Manifest, as
   Word makes one per save.
 
@@ -485,6 +489,42 @@ OfficeHost disagreed. OfficeHost now answers as SharePoint SE does:
   a comment, and which is current), the content of an older one (for its URL, under the desktop site), and, for
   `RestoreVersion`, restoring one. An optional store, as `IOfficeUserInfoStore`: the application decides what makes a
   version. Office opened, edited and saved without any of it.
+
+### Query Changes and Put Changes options
+
+What Office sets, from the 113 Cell sub-requests the sample logged (Word, Excel and PowerPoint, opens and saves; 71
+Query Changes, 4 Put Changes) and Word's saves before them:
+
+- **Query Changes:** the flags above, the arguments `3` (include the Storage Manifest and the cell changes) with a null
+  Cell ID, at most 3,670,016 bytes of data elements (the service answers partial results beyond it), the client's
+  knowledge, no versioning and no filters.
+- **Put Changes:** flags `0x49`: A, imply null expected if no mapping; D, favor coherency failure over not found; G,
+  return complete knowledge (Excel once sent `0x09`). Then three zero bytes: an empty content version coherency check,
+  no author logins, the reserved byte. Additional flags `0x8004`: C, check for id reuse, and bit 15, which the spec
+  reserves. No lock id, the client's knowledge, no diagnostic.
+
+SharePoint Server SE answered each case of `PutChangesTests` (a save as Office's, with one thing changed), and OfficeHost
+now answers the same:
+
+| Put Changes | SharePoint SE | OfficeHost before |
+|---|---|---|
+| A data element the new Storage Index reaches is in neither the package nor the storage (with D or without) | `CellRequestFail`, Cell error 16 | Cell error 2, invalid object |
+| The expected Storage Index is not in the package (with D or without) | Cell error 16 | 12, coherency failure |
+| No expected Storage Index (null), A | 12 | 12 |
+| No expected Storage Index, no A | applied | 12 |
+| An expected Storage Index with the Storage Manifest mapping alone, A / no A | 12 / applied | 12 / 12 |
+| An expected Storage Index with another Storage Manifest, A or not | 12 | 12 |
+| A data element under the id of another the storage has, C / no C | Cell error 112, Extended GUID collision / applied | applied / applied |
+| A failed Put Changes, in the SubResponse | `CellRequestFail`, the Cell error in the FSSHTTPB | `Success` |
+
+- **D made no difference:** SharePoint answered 16 for a missing data element whether it was set or not.
+- **Coherency is key by key**, as [MS-FSSHTTPB] 2.2.2.1.4 says: each mapping the new Storage Index updates (the
+  Storage Manifest, a cell, a revision) has to be the one the expected Storage Index has for it, or, where that has
+  none and A is set, not mapped on the server. Without A, a mapping the client does not expect is applied unchecked.
+- **The Put Changes response** of SharePoint has 29 bytes the spec does not define, inside the response object after
+  the data elements added: a GUID that was the same on every save of the run, `7A 05 24 00 03 05 44 00`, then a number
+  that grew from save to save. Office saves to OfficeHost without them; the codec keeps them as `Extra`. SharePoint also
+  returns the data elements added without B being set.
 
 ### SharePoint wants a line break before the first MIME boundary
 
