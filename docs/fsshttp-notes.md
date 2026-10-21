@@ -402,6 +402,38 @@ with the lock taken by a script as user bob, as Excel takes it.
   answers `RequestNotSupported`, and Excel opened, edited and saved all the same.
 
 
+## SharePoint Server SE against OfficeHost, request by request
+
+`src/sharepoint-lab/Compare-CellStorage.ps1` sends the same sub-requests to the lab (SharePoint Server Subscription
+Edition 16.0.14326, as `LAB\alice`) and to the sample, and shows where the answers differ. The scenarios come from the
+server rules of Microsoft's Interop-TestSuites (`MS-FSSHTTP-FSSHTTPB_RequirementSpecification.xml`), where they and
+OfficeHost disagreed. OfficeHost now answers as SharePoint SE does:
+
+| Request | SharePoint SE | OfficeHost before |
+|---|---|---|
+| ExitCoauthoring again, after the session ended | `Success` | `FileNotLockedOnServer` |
+| ExitCoauthoring under another schema lock id | `Success`, and the client stays in the session with its lock | `FileAlreadyLockedOnServer` |
+| GetCoauthoringStatus without a session | `CoauthStatus="None"` | `Alone` |
+| MarkTransitionComplete without a session | `Success` | `InvalidCoauthSession` |
+| ExclusiveLock ReleaseLock without a lock | `Success` | `FileNotLockedOnServer` |
+| `OnExecute` on a sub-request kept from running by a failed `OnSuccess` or `OnFail` | `DependentRequestNotExecuted` | ran it |
+
+- **`OnExecute`** still runs after a dependency that ran and failed, and after one kept from running by
+  `OnNotSupported`: Word's open has its Cell queries `OnExecute` a SchemaLock kept so.
+- **Where SharePoint fails** (a 302 to its error page, "Object reference not set to an instance of an object"), OfficeHost
+  keeps its answers: a Coauth or ExclusiveLock without its request type (`InvalidArgument`), `AmIAlone` without data,
+  a dependency on an unknown token, a `RequestVersion` of 1.
+- **Still different:** SharePoint supports `GetVersions` (OfficeHost: `RequestNotSupported`), and adds an `ErrorMessage`
+  to the `InvalidArgument` of a join without a schema lock id.
+
+### SharePoint wants a line break before the first MIME boundary
+
+- **SharePoint:** an MTOM request whose body starts with the boundary, without the CRLF Word puts before it, fails with
+  the same 302 to its error page, before the cell storage service runs. Word's request with its sub-requests replaced
+  works; the headers (`User-Agent`, `X-Office-*`, `Scenario`) and the `Request` attributes make no difference.
+- **OfficeHost** reads both.
+
+
 ## PowerPoint
 
 PowerPoint 16.0.20326 (`UserAgentClient="msppt"`), opening, editing (text appended to a slide through COM), saving and

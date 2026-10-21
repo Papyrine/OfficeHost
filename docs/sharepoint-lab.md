@@ -73,6 +73,11 @@ the SharePoint setup refuses it, the domain goes to a second, small VM.
 - **Office:** "Open in app" from the library, or `ms-word:ofe|u|http://spse.mshome.net/Shared%20Documents/<file>`.
   Office asks for credentials the first time (the host is not in the domain): `LAB\alice` and her password.
 - **Capture:** `pwsh src/fsshttp-capture.ps1 -HostName spse.mshome.net -Seconds 300`, then open the document.
+- **Compare request by request:** `pwsh src/sharepoint-lab/Compare-CellStorage.ps1` sends the same sub-requests to
+  the lab and to the sample (running with its `desktop` profile, with `Lab.docx` in its files) and shows where they
+  differ. It signs in to the lab with the Windows credential saved for its host
+  (`cmdkey /add:spse.mshome.net /user:LAB\alice /pass`), or `-Credential`.
+- **Sign in once:** with that credential saved, Word and Excel stop asking too.
 - **A second user:** Office keeps one sign-in per host, so bob is a second Windows account on the host, another
   machine, or a script sending bob's requests with his credentials (`-Credential` of `Invoke-WebRequest`).
 - **After a restart of the host,** the Default Switch hands out other addresses: start the VM, and the names follow.

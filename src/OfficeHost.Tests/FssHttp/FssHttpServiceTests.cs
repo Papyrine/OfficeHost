@@ -218,8 +218,8 @@ public class FssHttpServiceTests
         await Assert.That(await IsOnlyClient(alice)).IsTrue();
         await Assert.That((await alice.Coauth("ExitCoauthoring")).ErrorCode).IsEqualTo("Success");
         await Assert.That(await host.Service<IOfficeLockStore>().Get(fileId)).IsNull();
-        // the session is gone: a second exit of a client finds no lock
-        await Assert.That((await alice.Coauth("ExitCoauthoring")).ErrorCode).IsEqualTo("FileNotLockedOnServer");
+        // the session is gone: a second exit is a Success all the same, as SharePoint Server SE answers
+        await Assert.That((await alice.Coauth("ExitCoauthoring")).ErrorCode).IsEqualTo("Success");
     }
 
     static Task<bool> IsOnlyClient(WordClient client) =>
@@ -293,7 +293,8 @@ public class FssHttpServiceTests
         async Task<SubResult> Exclusive(string type, string lockId = "{E}") =>
             (await word.Send(WordClient.SubRequest("ExclusiveLock", "1", WordClient.Data(new XAttribute("ExclusiveLockRequestType", type), new XAttribute("ExclusiveLockID", lockId), new XAttribute("ClientID", word.ClientId), new XAttribute("SchemaLockID", WordClient.SchemaLockId), new XAttribute("Timeout", 600))))).Single();
 
-        await Assert.That((await Exclusive("ReleaseLock")).ErrorCode).IsEqualTo("FileNotLockedOnServer");
+        // nothing to release is a Success, as SharePoint Server SE answers
+        await Assert.That((await Exclusive("ReleaseLock")).ErrorCode).IsEqualTo("Success");
         await Assert.That((await Exclusive("GetLock")).ErrorCode).IsEqualTo("Success");
         await Assert.That((await host.Service<IOfficeLockStore>().Get(fileId))!.Id).IsEqualTo("fsshttp-exclusive:{E}");
         await Assert.That((await Exclusive("RefreshLock")).ErrorCode).IsEqualTo("Success");
@@ -483,6 +484,65 @@ public class FssHttpServiceTests
             "InvalidArgument"
         ]);
         await Assert.That(results[9].Attribute("AmIAlone")).IsEqualTo("true");
+    }
+
+    /// <summary>
+    /// OnExecute after a dependency kept from running, as SharePoint Server SE answers (src/sharepoint-lab/
+    /// Compare-CellStorage.ps1): not after one kept by a failed OnSuccess or OnFail, but after one kept by
+    /// OnNotSupported, and after one that ran and failed.
+    /// </summary>
+    [Test]
+    public async Task Dependencies_OnExecute()
+    {
+        var (host, _, token) = await Start();
+        await using var _ = host;
+        var word = new WordClient(host, token);
+        var results = await word.Send(
+            WordClient.SubRequest("EditorsTable", "1", WordClient.Data(new XAttribute("EditorsTableRequestType", "UpdateEditorMetadata"), new XAttribute("ClientID", word.ClientId), new XAttribute("Key", "k"), new XAttribute("Value", "AA=="))),
+            WordClient.SubRequest("ServerTime", "2", null, "1", "OnSuccess"),
+            WordClient.SubRequest("ServerTime", "3", null, "2", "OnExecute"),
+            WordClient.SubRequest("ServerTime", "4", null, "1", "OnExecute"),
+            WordClient.SubRequest("WhoAmI", "5"),
+            WordClient.SubRequest("ServerTime", "6", null, "5", "OnFail"),
+            WordClient.SubRequest("ServerTime", "7", null, "6", "OnExecute"),
+            WordClient.SubRequest("ServerTime", "8", null, "5", "OnNotSupported"),
+            WordClient.SubRequest("ServerTime", "9", null, "8", "OnExecute"),
+            WordClient.SubRequest("ServerTime", "10", null, "3", "OnExecute"));
+        await Assert.That(results.Select(_ => _.ErrorCode).ToList()).IsEquivalentTo([
+            "EditorClientIdNotFound",
+            "DependentOnlyOnSuccessRequestFailed",
+            "DependentRequestNotExecuted",
+            "Success",
+            "Success",
+            "DependentOnlyOnFailRequestSucceeded",
+            "DependentRequestNotExecuted",
+            "DependentOnlyOnNotSupportedRequestGetSupported",
+            "Success",
+            "DependentRequestNotExecuted"
+        ]);
+    }
+
+    /// <summary>
+    /// Coauth requests without a session, or under another schema lock id, as SharePoint Server SE answers them
+    /// (src/sharepoint-lab/Compare-CellStorage.ps1): an exit is a Success that leaves the session as it is, the status
+    /// is None, and marking the transition complete is a Success.
+    /// </summary>
+    [Test]
+    public async Task Coauth_WithoutSession()
+    {
+        var (host, fileId, token) = await Start();
+        await using var _ = host;
+        var word = new WordClient(host, token);
+        await Assert.That((await word.Coauth("GetCoauthoringStatus")).Attribute("CoauthStatus")).IsEqualTo("None");
+        await Assert.That((await word.Coauth("MarkTransitionComplete")).ErrorCode).IsEqualTo("Success");
+        await Assert.That((await word.Coauth("ExitCoauthoring")).ErrorCode).IsEqualTo("Success");
+
+        await word.Send(word.Join());
+        var otherSchema = WordClient.SubRequest("Coauth", "1", WordClient.Data(new XAttribute("CoauthRequestType", "ExitCoauthoring"), new XAttribute("SchemaLockID", "{11111111-2222-3333-4444-555555555555}"), new XAttribute("ClientID", word.ClientId)));
+        await Assert.That((await word.Send(otherSchema)).Single().ErrorCode).IsEqualTo("Success");
+        // still in the session, which still has the lock
+        await Assert.That((await word.Coauth("GetCoauthoringStatus")).Attribute("CoauthStatus")).IsEqualTo("Alone");
+        await Assert.That((await host.Service<IOfficeLockStore>().Get(fileId))!.Id).IsEqualTo($"fsshttp-schema:{WordClient.SchemaLockId}");
     }
 
     /// <summary>

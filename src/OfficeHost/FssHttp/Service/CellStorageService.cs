@@ -92,7 +92,9 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
 
     /// <summary>
     /// The error code of a sub-request its dependency keeps from running (2.2.5.2, 2.2.5.3), or null to run it. OnExecute
-    /// only orders: SharePoint runs a sub-request that depends OnExecute on one it did not run.
+    /// runs it after its dependency ran, failed or not, as SharePoint Server SE does: not after one kept from running by
+    /// a failed OnSuccess or OnFail, but after one kept from running by OnNotSupported, as in Word's open
+    /// (docs/fsshttp-notes.md).
     /// </summary>
     static string? Dependency(XElement subRequest, Dictionary<string, string> results)
     {
@@ -105,6 +107,7 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
 
         return (string?) subRequest.Attribute("DependencyType") switch
         {
+            "OnExecute" when dependency is "DependentOnlyOnSuccessRequestFailed" or "DependentOnlyOnFailRequestSucceeded" or "DependentRequestNotExecuted" => "DependentRequestNotExecuted",
             null or "OnExecute" => null,
             "OnSuccess" when dependency != success => "DependentOnlyOnSuccessRequestFailed",
             "OnFail" when dependency == success => "DependentOnlyOnFailRequestSucceeded",
@@ -401,8 +404,20 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
         });
     }
 
+    /// <summary>
+    /// The client leaves the shared lock (3.1.4.3.2 Exit Coauthoring Session, 3.1.4.4.2 Release Lock). An exit is a
+    /// Success whenever the client is not in the session, even under another schema lock id, which it then leaves as it
+    /// is, as SharePoint Server SE answers (docs/fsshttp-notes.md).
+    /// </summary>
     SessionResult Leave(Session session, string clientId, string schemaLockId, bool coauth)
     {
+        if (coauth &&
+            session.ExclusiveLockId == null &&
+            (session.SchemaLockId != schemaLockId || session.Client(clientId) == null))
+        {
+            return new(success, session);
+        }
+
         if (session.ExclusiveLockId != null ||
             (session.SchemaLockId != null && session.SchemaLockId != schemaLockId))
         {
@@ -411,13 +426,13 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
 
         if (session.Client(clientId) == null)
         {
-            // 3.1.4.3.2: Success with others in the session, FileNotLockedOnServer without; 3.1.4.4.2 the other way
+            // 3.1.4.4.2: InvalidCoauthSession with others in the session, Success without
             if (session.Clients.Count > 0)
             {
-                return new(coauth ? success : "InvalidCoauthSession", session);
+                return new("InvalidCoauthSession", session);
             }
 
-            return new(coauth ? "FileNotLockedOnServer" : success, session);
+            return new(success, session);
         }
 
         return new(success, (session with
@@ -531,9 +546,10 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
                     site,
                     _ =>
                     {
+                        // a Success without the client too, as SharePoint Server SE answers
                         if (_.Client(clientId) == null)
                         {
-                            return new("InvalidCoauthSession", _);
+                            return new(success, _);
                         }
 
                         return new(success, _ with
@@ -573,7 +589,14 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
                     cancel);
                 if (result.ErrorCode == success)
                 {
-                    data.Add(new XAttribute("CoauthStatus", Status(result.Session)));
+                    // None without a session, as SharePoint Server SE answers
+                    var status = "None";
+                    if (result.Session.Clients.Count > 0)
+                    {
+                        status = Status(result.Session);
+                    }
+
+                    data.Add(new XAttribute("CoauthStatus", status));
                 }
 
                 return result.ErrorCode;
@@ -671,9 +694,10 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
                             return new("FileAlreadyLockedOnServer", _);
                         }
 
+                        // nothing to release is a Success, as SharePoint Server SE answers
                         if (_.ExclusiveLockId == null)
                         {
-                            return new("FileNotLockedOnServer", _);
+                            return new(success, _);
                         }
 
                         return new(success, _ with
