@@ -11,13 +11,15 @@ The host side of the Office document protocols as a library for ASP.NET Core. Ad
 
 ## How it works
 
-In a WOPI client:
+
+### In a WOPI client:
 
 1. A user opens a document in the application. The application asks `OfficeLauncher` for the URL of the editor and a WOPI access token, scoped to that file and user.
 2. The page of the application posts the token to the editor URL, usually in an iframe.
 3. The editor calls the WOPI endpoints the library maps (`/wopi/files/{fileId}`) to read the file metadata, lock the file, and get and save its content. The library checks the token and the locks, and goes to the storage of the application through `IOfficeStorage`.
 
-In desktop Office:
+
+### In desktop Office:
 
 1. The application asks `OfficeLauncher.LaunchDesktop` for an `ms-word:` (or `ms-excel:`, `ms-powerpoint:`) link to the file, holding an access token in its URL.
 2. Office calls the sites the library maps (`/fsshttp/{token}/{name}`) as it calls a SharePoint site: it syncs the file in chunks, takes or shares its lock, and coauthors with the other users. The library keeps the file in `IOfficeStorage`, the lock in `IOfficeLockStore`, and the state of the sync in `IFssHttpStore`.
