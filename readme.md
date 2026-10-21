@@ -226,6 +226,7 @@ Preview. Desktop Word opens files as it opens those of a SharePoint site: throug
 
 * `MapFssHttp()` maps the sites: `{DesktopPath}/{token}/{name}` is the URL of a file, the token of `IOfficeTokens` in its path standing for the file and the user, as Office blocks Basic and forms-based sign-in by default.
 * `OfficeLauncher.LaunchDesktop(access, request)` gives the link that opens the file: `ms-word:ofe|u|{url}` (or `ms-excel:`, `ms-powerpoint:`; `ofv` without write access).
+* Only the Open XML formats are supported (`.docx`, `.docm`, `.dotx`, `.dotm`, `.xlsx`, `.xlsm`, `.xlsb`, `.xltx`, `.xltm`, `.pptx`, `.pptm`, `.potx`, `.potm`, `.ppsx`, `.ppsm`). `LaunchDesktop` refuses the legacy binary formats (`.doc`, `.dot`, `.xls`, `.xlt`, `.ppt`, `.pot`, `.pps`) and `.rtf` with an `InvalidOperationException`: save them in an Open XML format.
 * The lock of desktop editing is a lock of the `IOfficeLockStore`, so WOPI clients and desktop Office do not edit a file at the same time. A file changed outside desktop Office is synced as a new revision, keeping the unchanged chunks.
 * Word coauthors: several users edit a document at once, sharing its lock. Excel does not: the first user to type in a workbook takes an exclusive lock, and Excel tells the others who has it.
 

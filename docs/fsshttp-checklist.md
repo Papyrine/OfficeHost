@@ -98,7 +98,8 @@ PowerPoint coauthors as Word does. Put a `.pptx` in `files`.
 | 29 | Open the `.pptx` from the sample, and Enable Editing. | `WhoAmI` and `GetDocMetaInfo`, then `JoinCoauthoring` (with `ExclusiveLockID` and `AllowFallbackToExclusive`) answered `Alone`, the editors table and content queries, then `IsOnlyClient` polls. |
 | 30 | Edit a slide, save, close. | `AutoSaveFile_Save` answered with a Put Changes Response, the file in `files` has the edit, and `ExitCoauthoring` releases the lock. |
 
-Other applications (Visio, Project, OneNote) get no links from `LaunchDesktop`.
+Other applications (Visio, Project, OneNote) get no links from `LaunchDesktop`, nor do the legacy binary formats
+(`.doc`, `.xls`, `.ppt` and their templates) and `.rtf`, which are not supported.
 
 
 ## Last run

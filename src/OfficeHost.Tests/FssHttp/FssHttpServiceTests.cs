@@ -600,6 +600,28 @@ public class FssHttpServiceTests
         await Assert.That(async () => await launcher.LaunchDesktop(TestServerHost.Access(fileId))).Throws<InvalidOperationException>();
     }
 
+    /// <summary>
+    /// The legacy binary formats and .rtf are not supported for desktop editing: LaunchDesktop says so.
+    /// </summary>
+    [Test]
+    [Arguments("old.doc")]
+    [Arguments("old.dot")]
+    [Arguments("old.rtf")]
+    [Arguments("old.xls")]
+    [Arguments("old.xlt")]
+    [Arguments("old.ppt")]
+    [Arguments("old.pps")]
+    [Arguments("old.pot")]
+    [Arguments("OLD.DOC")]
+    public async Task LaunchDesktop_LegacyFormat(string name)
+    {
+        await using var host = await TestServerHost.Start(_ => _.DesktopBaseUrl = "https://office.example");
+        await File.WriteAllBytesAsync(host.PathOf(name), []);
+        var launcher = host.Service<OfficeLauncher>();
+        var exception = await Assert.That(async () => await launcher.LaunchDesktop(TestServerHost.Access(host.Storage.GetFileId(name)))).Throws<InvalidOperationException>();
+        await Assert.That(exception!.Message).Contains("legacy format");
+    }
+
     [Test]
     public async Task LaunchDesktop_BaseUrl()
     {

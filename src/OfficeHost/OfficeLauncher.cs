@@ -74,13 +74,20 @@ public sealed partial class OfficeLauncher
     /// access cannot write), with a token issued for the access in the path of the site.
     /// </summary>
     /// <param name="request">The current request, for the URL of the application when <see cref="OfficeHostOptions.BaseUrl"/> is not set.</param>
-    /// <exception cref="InvalidOperationException">The type of the file is not one of Word, Excel or PowerPoint.</exception>
+    /// <exception cref="InvalidOperationException">The file is not one of the Open XML formats of Word, Excel or
+    /// PowerPoint: the legacy binary formats (.doc, .xls, .ppt and their templates) and .rtf are not supported.</exception>
     public async Task<string> LaunchDesktop(OfficeAccess access, HttpRequest? request = null, Cancel cancel = default)
     {
         var settings = options.Value;
         var file = await storage.GetFile(access.FileId, cancel) ??
                    throw new FileNotFoundException($"No file {access.FileId}");
-        var scheme = DesktopScheme(FileNames.Extension(file.Name)) ??
+        var extension = FileNames.Extension(file.Name).ToLowerInvariant();
+        if (IsLegacyFormat(extension))
+        {
+            throw new InvalidOperationException($"{file.Name} is in a legacy format, which desktop Office does not edit through OfficeHost: save it in an Open XML format (.docx, .xlsx, .pptx)");
+        }
+
+        var scheme = DesktopScheme(extension) ??
                      throw new InvalidOperationException($"Desktop Office does not open {file.Name}");
         string baseUrl;
         if (settings.DesktopBaseUrl != null)
@@ -110,14 +117,24 @@ public sealed partial class OfficeLauncher
         return $"{scheme}:{command}|u|{baseUrl}{settings.DesktopPath.TrimEnd('/')}/{token.Value}/{Uri.EscapeDataString(file.Name)}";
     }
 
+    /// <summary>
+    /// The Office URI scheme of the Open XML formats, the ones the cell storage service syncs by their zip items
+    /// ([MS-FSSHTTPD] 2.4.1).
+    /// </summary>
     static string? DesktopScheme(string extension) =>
-        extension.ToLowerInvariant() switch
+        extension switch
         {
-            ".docx" or ".docm" or ".dotx" or ".dotm" or ".doc" or ".dot" or ".rtf" => "ms-word",
-            ".xlsx" or ".xlsm" or ".xlsb" or ".xltx" or ".xltm" or ".xls" or ".xlt" => "ms-excel",
-            ".pptx" or ".pptm" or ".potx" or ".potm" or ".ppsx" or ".ppsm" or ".ppt" or ".pps" => "ms-powerpoint",
+            ".docx" or ".docm" or ".dotx" or ".dotm" => "ms-word",
+            ".xlsx" or ".xlsm" or ".xlsb" or ".xltx" or ".xltm" => "ms-excel",
+            ".pptx" or ".pptm" or ".potx" or ".potm" or ".ppsx" or ".ppsm" => "ms-powerpoint",
             _ => null
         };
+
+    /// <summary>
+    /// The legacy binary formats of Word, Excel and PowerPoint, and .rtf: not supported for desktop editing.
+    /// </summary>
+    static bool IsLegacyFormat(string extension) =>
+        extension is ".doc" or ".dot" or ".rtf" or ".xls" or ".xlt" or ".ppt" or ".pps" or ".pot";
 
     async Task<string> UrlSrc(OfficeHostOptions settings, string? discoveryUrl, string action, string extension, Cancel cancel)
     {
