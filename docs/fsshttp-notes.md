@@ -375,6 +375,25 @@ the `desktop` launch profile of the sample.
   answer of it. The service answers the exclusive lock (with its user), the shared lock of coauthoring (with the first
   editor), a WOPI lock (exclusive, with neither) or `None`.
 
+### Locked out: File In Use, then File Now Available, then still read-only
+
+Excel against the sample, with the workbook locked by another user (an ExclusiveLock `GetLock` sent as user bob, as
+Excel sends it). A second Windows account or machine running Excel would be the same to the server.
+- **The open** is as usual, read-only, with "We opened this workbook read-only from the server" and an Edit Workbook
+  button.
+- **Typing, or Edit Workbook,** sends the `GetLock` and its `LockStatus`: `FileAlreadyLockedOnServer`, and the
+  `LockStatus` with `LockType="ExclusiveLock"`, the lock id and `LockedBy="Bob User"`. Excel shows "File In Use":
+  "This file is locked for editing by another user", with view a read-only copy, save and edit a copy, and receive a
+  notification when the server file is available.
+- **Excel never names the user:** not from `LockedBy`, nor from `vti_sourcecontrolcheckedoutby` in `GetDocMetaInfo`
+  (SharePoint's property for the user of a lock), both sent.
+- **The notification** polls every 30 seconds or so: ExclusiveLock `CheckLockAvailability`
+  (`Scenario: GetLock_CheckForLockAvailibility`) with a lock id of its own. `FileAlreadyLockedOnServer` while the lock
+  is held; on the first `Success` after the release, Excel shows "File Now Available" with a Read-Write button.
+- **Read-Write leaves the workbook read-only** ("This workbook is locked for editing by another user"), without
+  sending any request, whether or not the open's `GetDocMetaInfo` had the other user's lock properties (tried both).
+  Closing the workbook and opening it again edits it. Whether SharePoint gets the same needs a capture of two users.
+
 ### GetVersions
 
 - **SharePoint** answers it with the versions of the file (`<results><list/><versioning enabled="1"/>…`). The service

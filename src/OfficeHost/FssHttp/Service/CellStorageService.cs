@@ -934,6 +934,10 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
         {
             properties.Add(Property("vti_sourcecontrollockid", session.ExclusiveLockId.Trim('{', '}').ToLowerInvariant()));
             properties.Add(Property("vti_sourcecontrollocktype", "0"));
+            if (session.ExclusiveOwner != null)
+            {
+                properties.Add(Property("vti_sourcecontrolcheckedoutby", session.ExclusiveOwner));
+            }
         }
         else if (session.SchemaLockId != null)
         {

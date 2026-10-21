@@ -85,7 +85,8 @@ in Excel: an edit through its object model does not take the lock.
 | 24 | Type in a cell. | ExclusiveLock `GetLock` (`Timeout="600"`), answered `Success`, with its `LockStatus` answered `DependentOnlyOnFailRequestSucceeded`. |
 | 25 | Save (Ctrl+S). | A Cell `PutChanges` with `BypassLockID`, answered with a Put Changes Response; the file in `files` has the edit. |
 | 26 | Close Excel. | ExclusiveLock `ReleaseLock`; nothing in the `IOfficeLockStore`. |
-| 27 | Open the file as Alice and type, then open it as Bob (`?user=bob`, see Setup) and type. | Bob's `GetLock` fails `FileAlreadyLockedOnServer`, and his `LockStatus` names Alice; Excel tells Bob the file is locked. |
+| 27 | Open the file as Alice and type, then open it as Bob (`?user=bob`, see Setup) and type. | Bob's `GetLock` fails `FileAlreadyLockedOnServer`, and his `LockStatus` names Alice. Excel shows File In Use ("locked for editing by another user": it does not name Alice). |
+| 28 | Bob keeps "Receive a notification" and clicks OK; Alice closes Excel. | Bob's Excel polls `CheckLockAvailability` about every 30 seconds, and shows File Now Available once Alice's lock is gone. Its Read-Write sends nothing and stays read-only: Bob closes and reopens the workbook to edit it. |
 
 
 ## Other applications
@@ -97,7 +98,8 @@ save and close a presentation, and record what it does differently from Word and
 ## Last run
 
 - **Word** 16.0.20326 on Windows 11, one Windows account: steps 1, 2, 3, 5, 9 and 10 passed (2026-10-21).
-- **Excel** 16.0.20326, one Windows account: steps 23 to 26 passed (2026-10-21).
+- **Excel** 16.0.20326, one Windows account: steps 23 to 26 passed (2026-10-21), and 27 and 28 with the other user's
+  lock taken by a script as user bob (Excel's Read-Write after File Now Available stays read-only, see the notes).
 - What they sent is in [fsshttp-notes.md](fsshttp-notes.md).
-- **Not yet run:** the WOPI client steps, and the steps with two users (Word coauthoring, Excel's lock held by another),
-  which need a second Windows account or machine.
+- **Not yet run:** the WOPI client steps, Word coauthoring with two users, and Excel against Excel, which need a second
+  Windows account or machine.

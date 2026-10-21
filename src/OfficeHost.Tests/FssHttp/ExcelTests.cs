@@ -55,6 +55,7 @@ public class ExcelTests
         props = await DocProps(alice);
         await Assert.That(props["vti_sourcecontrollockid"]).IsEqualTo(lockId.Trim('{', '}').ToLowerInvariant());
         await Assert.That(props["vti_sourcecontrollocktype"]).IsEqualTo("0");
+        await Assert.That(props["vti_sourcecontrolcheckedoutby"]).IsEqualTo("Alice");
 
         // the save, with the lock id as BypassLockID alone
         await Assert.That(await alice.Save(Book("saved"), lockId, exclusive: true)).IsTypeOf<PutChangesResponse>();
