@@ -86,16 +86,16 @@ static class FileNames
     /// The name without and with its extension: `report.docx` is (`report`, `.docx`). Leading dots do not start an
     /// extension, so `.profile` has none.
     /// </summary>
-    public static SplitName SplitExtension(string name)
+    public static SplitName SplitExtension(ReadOnlySpan<char> name)
     {
         var dot = name.LastIndexOf('.');
         if (dot <= 0 ||
-            name.AsSpan(0, dot).TrimStart('.').IsEmpty)
+            name[..dot].TrimStart('.').IsEmpty)
         {
             return new(name, default);
         }
 
-        return new(name.AsSpan(0, dot), name.AsSpan(dot));
+        return new(name[..dot], name[dot..]);
     }
 
     public static string Extension(string name) =>
