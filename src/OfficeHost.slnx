@@ -13,6 +13,8 @@
   <Project Path="OfficeHost.SqlServer/OfficeHost.SqlServer.csproj" />
   <Project Path="OfficeHost.SqlServer.Install/OfficeHost.SqlServer.Install.csproj" />
   <Project Path="OfficeHost.SqlServer.Tests/OfficeHost.SqlServer.Tests.csproj" />
+  <Project Path="OfficeHost.AzureBlob/OfficeHost.AzureBlob.csproj" />
+  <Project Path="OfficeHost.AzureBlob.Tests/OfficeHost.AzureBlob.Tests.csproj" />
   <Project Path="OfficeHost.Sample/OfficeHost.Sample.csproj" />
   <Project Path="OfficeHost.Tests/OfficeHost.Tests.csproj" />
   <Project Path="OfficeHost.E2ETests/OfficeHost.E2ETests.csproj" />

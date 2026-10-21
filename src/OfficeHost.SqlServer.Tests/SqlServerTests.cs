@@ -2,25 +2,17 @@
 /// The SQL Server stores, on LocalDB, so on Windows only.
 /// </summary>
 [RunOn(OS.Windows)]
+[InheritsTests]
 [ClassDataSource<SqlDatabase>(Shared = SharedType.PerTestSession)]
-public class SqlServerTests(SqlDatabase database)
+public class SqlServerTests(SqlDatabase database) :
+    StorageContractTests
 {
     string connectionString = database.ConnectionString;
 
-    // each test has a folder and files of its own
-    string folder = Guid.NewGuid().ToString("N");
+    protected override IOfficeStorage Storage => new SqlServerStorage(connectionString);
 
-    static MemoryStream Content(string content) =>
-        new(Encoding.UTF8.GetBytes(content));
-
-    static async Task<string> Read(Stream stream)
-    {
-        await using (stream)
-        {
-            using var reader = new StreamReader(stream);
-            return await reader.ReadToEndAsync();
-        }
-    }
+    protected override Task<OfficeFile?> Add(string folder, string name, Stream content) =>
+        new SqlServerStorage(connectionString).Add(folder, name, "owner", content);
 
     [Test]
     public Task Script() =>
@@ -38,10 +30,10 @@ public class SqlServerTests(SqlDatabase database)
             .SchemaAsDiagram()
             .SchemaFilter(_ => _ is Microsoft.SqlServer.Management.Smo.Table {Schema: "dbo"})
             .UseFileName("SqlServerTables");
-        var folder = ProjectDirectory();
+        var project = ProjectDirectory();
         // mdsnippets marks the first line of an include, which would break the fence of the diagram
-        var diagram = Environment.NewLine + await File.ReadAllTextAsync(Path.Combine(folder, "SqlServerTables.verified.md"));
-        var include = Path.Combine(folder, "..", "..", "docs", "sqlserver-tables.include.md");
+        var diagram = Environment.NewLine + await File.ReadAllTextAsync(Path.Combine(project, "SqlServerTables.verified.md"));
+        var include = Path.Combine(project, "..", "..", "docs", "sqlserver-tables.include.md");
         if (!File.Exists(include) ||
             await File.ReadAllTextAsync(include) != diagram)
         {
@@ -60,75 +52,6 @@ public class SqlServerTests(SqlDatabase database)
         await OfficeHostSqlServerInstaller.Install(connectionString, "other");
         var locks = new SqlServerLockStore(connectionString, TimeProvider.System, "other");
         await Assert.That(await locks.Get("file")).IsNull();
-    }
-
-    [Test]
-    public async Task Storage()
-    {
-        var storage = new SqlServerStorage(connectionString);
-        var file = (await storage.Add(folder, "test.docx", "owner", Content("12345")))!;
-        await Assert.That(file.Name).IsEqualTo("test.docx");
-        await Assert.That(file.Size).IsEqualTo(5);
-        await Assert.That(file.OwnerId).IsEqualTo("owner");
-        await Assert.That(await storage.GetFile(file.Id)).IsEqualTo(file);
-        await Assert.That(await storage.Add(folder, "TEST.docx", "owner", Content(""))).IsNull();
-        await Assert.That(await Read(await storage.OpenRead(file.Id))).IsEqualTo("12345");
-
-        var written = await storage.Write(file.Id, Content("changed"));
-        await Assert.That(written.Id).IsEqualTo(file.Id);
-        await Assert.That(written.Size).IsEqualTo(7);
-        await Assert.That(written.Version).IsNotEqualTo(file.Version);
-        await Assert.That(await Read(await storage.OpenRead(file.Id))).IsEqualTo("changed");
-
-        await Assert.That(await storage.GetSibling(file.Id, "other.docx")).IsNull();
-        var sibling = (await storage.CreateSibling(file.Id, "other.docx", Content("other"), false))!;
-        await Assert.That(sibling.Id).IsNotEqualTo(file.Id);
-        await Assert.That(sibling.OwnerId).IsEqualTo("owner");
-        await Assert.That(await storage.GetSibling(file.Id, "other.docx")).IsEqualTo(sibling);
-        await Assert.That(await storage.CreateSibling(file.Id, "other.docx", Content("again"), false)).IsNull();
-        var overwritten = (await storage.CreateSibling(file.Id, "other.docx", Content("again"), true))!;
-        await Assert.That(overwritten.Id).IsEqualTo(sibling.Id);
-        await Assert.That(await Read(await storage.OpenRead(sibling.Id))).IsEqualTo("again");
-
-        // a sibling is in the same folder only
-        var elsewhere = (await storage.Add($"{folder}/sub", "other.docx", "owner", Content("")))!;
-        await Assert.That(await storage.GetSibling(elsewhere.Id, "test.docx")).IsNull();
-
-        await Assert.That(await storage.Rename(file.Id, "other.docx")).IsNull();
-        var renamed = (await storage.Rename(file.Id, "renamed.docx"))!;
-        await Assert.That(renamed.Id).IsEqualTo(file.Id);
-        await Assert.That(renamed.Name).IsEqualTo("renamed.docx");
-        // a change of case only is the same file
-        await Assert.That((await storage.Rename(file.Id, "Renamed.docx"))!.Name).IsEqualTo("Renamed.docx");
-
-        await storage.Delete(file.Id);
-        await Assert.That(await storage.GetFile(file.Id)).IsNull();
-    }
-
-    [Test]
-    public async Task Storage_Missing()
-    {
-        var storage = new SqlServerStorage(connectionString);
-        await Assert.That(await storage.GetFile("missing")).IsNull();
-        await Assert.ThrowsAsync<FileNotFoundException>(() => storage.OpenRead("missing"));
-        await Assert.ThrowsAsync<FileNotFoundException>(() => storage.Write("missing", Content("")));
-        await Assert.ThrowsAsync<FileNotFoundException>(() => storage.GetSibling("missing", "a.docx"));
-        await Assert.ThrowsAsync<FileNotFoundException>(() => storage.CreateSibling("missing", "a.docx", Content(""), true));
-        await Assert.ThrowsAsync<FileNotFoundException>(() => storage.Rename("missing", "a.docx"));
-        await Assert.ThrowsAsync<FileNotFoundException>(() => storage.Delete("missing"));
-    }
-
-    [Test]
-    public async Task Storage_Large()
-    {
-        var storage = new SqlServerStorage(connectionString);
-        var bytes = RandomNumberGenerator.GetBytes(20 * 1024 * 1024);
-        var file = (await storage.Add(folder, "large.docx", "owner", new MemoryStream(bytes)))!;
-        await Assert.That(file.Size).IsEqualTo(bytes.Length);
-        await using var stream = await storage.OpenRead(file.Id);
-        var read = new MemoryStream();
-        await stream.CopyToAsync(read);
-        await Assert.That(read.ToArray().SequenceEqual(bytes)).IsTrue();
     }
 
     [Test]

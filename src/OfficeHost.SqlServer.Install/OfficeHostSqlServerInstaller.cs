@@ -45,7 +45,7 @@ public static class OfficeHostSqlServerInstaller
                         OwnerId nvarchar(450) not null,
                         Content varbinary(max) not null,
                         Size as datalength(Content),
-                        Version rowversion not null,
+                        Version uniqueidentifier not null,
                         LastModified datetimeoffset not null);
                     create unique index IX_{SqlServerTables.Files}_Folder_Name on {files} (Folder, Name);
                 end;

@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+  <ItemGroup>
+    <Using Include="System.Net" />
+    <Using Include="System.Text" />
+    <Using Include="System.Security.Cryptography" />
+    <Using Include="Azure.Storage.Blobs" />
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.AspNetCore.Hosting" />
+    <Using Include="Microsoft.AspNetCore.TestHost" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Logging" />
+    <Using Include="OfficeHost" />
+    <Using Include="TUnit.Core" />
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+    <PackageReference Include="Testcontainers.Azurite" />
+    <PackageReference Include="ProjectDefaults" PrivateAssets="all" />
+    <Compile Include="..\StorageContract\StorageContractTests.cs" Link="StorageContractTests.cs" />
+    <ProjectReference Include="..\OfficeHost.AzureBlob\OfficeHost.AzureBlob.csproj" />
+  </ItemGroup>
+</Project>

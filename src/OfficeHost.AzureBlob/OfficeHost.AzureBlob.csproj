@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>An Azure Blob Storage storage for OfficeHost: the files in a blob container, shared by all the instances of the application, with no other service.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <Using Include="System.Buffers.Text" />
+    <Using Include="System.Security.Cryptography" />
+    <Using Include="System.Text" />
+    <Using Include="Azure" />
+    <Using Include="Azure.Storage.Blobs" />
+    <Using Include="Azure.Storage.Blobs.Models" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="OfficeHost" />
+    <PackageReference Include="Azure.Storage.Blobs" />
+    <PackageReference Include="ProjectDefaults" PrivateAssets="all" />
+    <ProjectReference Include="..\OfficeHost\OfficeHost.csproj" />
+  </ItemGroup>
+</Project>

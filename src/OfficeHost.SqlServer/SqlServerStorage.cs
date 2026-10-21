@@ -3,7 +3,7 @@ namespace OfficeHost;
 /// <summary>
 /// The files in a SQL Server table, shared by all the instances of the application. A file is in a folder, a path the
 /// application chooses, and file names are unique in a folder as the collation of the database compares them. The ids
-/// of the files are chosen by <see cref="Add"/>, and the version of a file is its rowversion.
+/// of the files are chosen by <see cref="Add"/>, and the version of a file changes only with its content.
 /// </summary>
 public sealed class SqlServerStorage(string connectionString, string schema = "dbo") :
     IOfficeStorage
@@ -57,7 +57,7 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
             reader.GetString(1),
             reader.GetInt64(2),
             reader.GetString(3),
-            Convert.ToHexString((byte[]) reader[4]),
+            reader.GetGuid(4).ToString("N"),
             reader.GetDateTimeOffset(5));
     }
 
@@ -79,8 +79,8 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
         var id = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(12));
         await using var command = Command(
             $"""
-             insert into {table} (Id, Folder, Name, OwnerId, Content, LastModified)
-             values (@id, @folder, @name, @ownerId, @content, sysdatetimeoffset());
+             insert into {table} (Id, Folder, Name, OwnerId, Content, Version, LastModified)
+             values (@id, @folder, @name, @ownerId, @content, newid(), sysdatetimeoffset());
              """,
             connection,
             transaction,
@@ -145,7 +145,7 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
         await using var connection = await Open(cancel);
         await using var command = Command(
             $"""
-             update {table} set Content = @content, LastModified = sysdatetimeoffset() where Id = @id;
+             update {table} set Content = @content, Version = newid(), LastModified = sysdatetimeoffset() where Id = @id;
              select {columns} from {table} where Id = @id;
              """,
             connection,
@@ -194,7 +194,7 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
                 return null;
             }
 
-            await using var update = Command($"update {table} set Content = @content, LastModified = sysdatetimeoffset() where Id = @id", connection, transaction, existing);
+            await using var update = Command($"update {table} set Content = @content, Version = newid(), LastModified = sysdatetimeoffset() where Id = @id", connection, transaction, existing);
             AddContent(update, content);
             await update.ExecuteNonQueryAsync(cancel);
             file = await Select(connection, transaction, existing, cancel);

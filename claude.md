@@ -8,7 +8,7 @@ OfficeHost (formerly WopiServer) is a library for ASP.NET Core that implements t
 protocols: WOPI ([MS-WOPI]) for Office for the web, Collabora and ONLYOFFICE, and, in progress on the `fsshttp` branch,
 MS-FSSHTTP for desktop Office coauthoring (docs/fsshttp-spike.md, docs/fsshttp-notes.md). `AddOfficeHost` registers the
 services, `MapOfficeHost` maps the endpoints, and the application supplies the storage. The protocols are in the
-`OfficeHost` project and package, the SQL Server stores in `OfficeHost.SqlServer` and `OfficeHost.SqlServer.Install`. The WOPI part started as a port of the Python CS3 WOPI server, but is not compatible
+`OfficeHost` project and package, the SQL Server stores in `OfficeHost.SqlServer` and `OfficeHost.SqlServer.Install`, the blob storage in `OfficeHost.AzureBlob`. The WOPI part started as a port of the Python CS3 WOPI server, but is not compatible
 with it and does not follow it: design on the merits of the protocols and ASP.NET Core, with no CS3, Reva or container
 specifics.
 
@@ -52,6 +52,10 @@ specifics.
   `SqlServerFssHttpStore`, `SqlServerUserInfoStore`, `AddOfficeHostSqlServer`), with no DDL. `OfficeHost.SqlServer.Install`
   (own package): `OfficeHostSqlServerInstaller` creates the tables, sharing their names through the linked
   `SqlServerTables.cs`. Tests in `src/OfficeHost.SqlServer.Tests`, on LocalDB (Windows only).
+- `OfficeHost.AzureBlob` (own package): `BlobStorage`, the files in a blob container, names kept unique by name blobs
+  created only when missing. Tests in `src/OfficeHost.AzureBlob.Tests`, on Azurite through Testcontainers (Docker,
+  Linux containers), or a storage account with `OFFICEHOST_BLOB_CONNECTION_STRING`. The storage tests both share are
+  `src/StorageContract/StorageContractTests.cs`, linked into each.
 - Manual test with Word, Excel or PowerPoint: the `desktop` launch profile of the sample (HTTPS, requests logged to `request-logs`
   by `RequestLog.cs`), then `/desktop/{fileId}` (`?user=` for a second user); the steps are in
   docs/fsshttp-checklist.md. Excel takes its lock when the user types, not when COM edits. The simulated clients are

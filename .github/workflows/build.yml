@@ -71,6 +71,13 @@ jobs:
           dotnet run --project src/OfficeHost.SqlServer.Tests --configuration Release --no-build --
           --report-trx --results-directory ${{ github.workspace }}/TestResults
 
+      # On Azurite in Docker (Testcontainers), which needs Linux containers: Ubuntu only.
+      - name: Test Azure Blob
+        if: runner.os == 'Linux'
+        run: >-
+          dotnet run --project src/OfficeHost.AzureBlob.Tests --configuration Release --no-build --
+          --report-trx --results-directory ${{ github.workspace }}/TestResults
+
       - name: Coverage
         shell: pwsh
         run: ./src/coverage-summary.ps1 TestResults/coverage.cobertura.xml -Summary $env:GITHUB_STEP_SUMMARY

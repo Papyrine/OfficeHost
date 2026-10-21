@@ -8,7 +8,7 @@ erDiagram
     nvarchar(450) OwnerId
     varbinary(max) Content
     bigint(nullable) Size "computed"
-    timestamp Version
+    uniqueidentifier Version
     datetimeoffset LastModified
   }
   OfficeHostFssHttpStates["**OfficeHostFssHttpStates**"] {

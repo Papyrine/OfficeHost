@@ -228,7 +228,7 @@ await OfficeHostSqlServerInstaller.Install(connectionString);
 // in the application, before or after AddOfficeHost
 builder.Services.AddOfficeHostSqlServer(connectionString);
 ```
-<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerTests.cs#L228-L234' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServer' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerTests.cs#L151-L157' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServer' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 
@@ -244,7 +244,7 @@ erDiagram
     nvarchar(450) OwnerId
     varbinary(max) Content
     bigint(nullable) Size "computed"
-    timestamp Version
+    uniqueidentifier Version
     datetimeoffset LastModified
   }
   OfficeHostFssHttpStates["**OfficeHostFssHttpStates**"] {
@@ -266,6 +266,12 @@ erDiagram
 <!-- endInclude -->
 
 The tests of the package run on LocalDB, so on Windows only.
+
+### Azure Blob Storage
+
+The [OfficeHost.AzureBlob](https://www.nuget.org/packages/OfficeHost.AzureBlob/) package keeps the files in a blob container, with no other service: `BlobStorage`, registered by `AddOfficeHostBlobStorage(container)`, over a container that exists. Files are added with `Add(folder, name, ownerId, content)`, which gives the id. A file is the blob `files/{id}`, its folder, name and owner in its metadata, so a rename copies nothing; a small blob per name, created only when missing, keeps names unique in a folder, ignoring case. The locks and the state of desktop coauthoring need stores of their own, such as those of OfficeHost.SqlServer on Azure SQL.
+
+The tests of the package run on [Azurite](https://github.com/Azure/Azurite) in Docker, through Testcontainers, or on a storage account when `OFFICEHOST_BLOB_CONNECTION_STRING` is set. The storage tests are shared with OfficeHost.SqlServer (`src/StorageContract`), so both storages behave the same.
 
 
 ## Desktop Office
