@@ -257,10 +257,7 @@ The test project is a TUnit executable: run it, rather than `dotnet test`. It ho
 * `KestrelTests`: the request size limits, on Kestrel.
 * `SampleTests`: the sample application, with a stubbed WOPI client.
 
-`src/OfficeHost.E2ETests` hosts the endpoints on a real port and opens documents in real editors, Collabora and
-ONLYOFFICE, in Docker, driven with Playwright: Collabora opens, edits and saves a document, and ONLYOFFICE opens one
-with every request validated against its proof keys. It needs Docker and the Playwright browser, and pulls the editor
-images on the first run (about 1.5 and 4.3 GB):
+`src/OfficeHost.E2ETests` hosts the endpoints on a real port and opens documents in real editors, Collabora and ONLYOFFICE, in Docker, driven with Playwright: Collabora opens, edits and saves a document, and ONLYOFFICE opens one with every request validated against its proof keys. It needs Docker and the Playwright browser, and pulls the editor images on the first run (about 1.5 and 4.3 GB):
 
 ```pwsh
 dotnet build src/OfficeHost.E2ETests
@@ -268,10 +265,7 @@ pwsh src/OfficeHost.E2ETests/bin/Debug/net10.0/playwright.ps1 install chromium
 dotnet run --project src/OfficeHost.E2ETests --no-build -- --treenode-filter '/*/*/EditorTests/*'
 ```
 
-Microsoft's [WOPI validator](https://github.com/microsoft/wopi-validator-core) runs with
-`pwsh src/wopi-validator.ps1` (`-Configuration Debug` for a Debug build): it builds the validator, then runs
-`ValidatorTests` of the same project, each test group of the validator on a fresh storage. The ProofKeys group is left
-out: the validator's command line sends no proofs, so `ProofKeyTests` covers them instead.
+Microsoft's [WOPI validator](https://github.com/microsoft/wopi-validator-core) runs with `pwsh src/wopi-validator.ps1` (`-Configuration Debug` for a Debug build): it builds the validator, then runs `ValidatorTests` of the same project, each test group of the validator on a fresh storage. The ProofKeys group is left out: the validator's command line sends no proofs, so `ProofKeyTests` covers them instead.
 
 Code coverage of the library, with a per-file table:
 
@@ -282,12 +276,9 @@ pwsh src/coverage-summary.ps1 TestResults/coverage.cobertura.xml
 
 `-Filter FssHttp/Binary/` limits the table and the total to the files of a folder, here the FSSHTTPB codec.
 
-CI builds and runs the tests on Linux and Windows, with the coverage in the job summary, and runs the WOPI validator on
-Linux. The editor tests run nightly and on demand (`e2e.yml`), not on every push.
+CI builds and runs the tests on Linux and Windows, with the coverage in the job summary, and runs the WOPI validator on Linux. The editor tests run nightly and on demand (`e2e.yml`), not on every push.
 
-A Release build packs the library into `nugets/`. Pushing a tag releases it: the tag is the version (`1.2.3` or
-`v1.2.3`), and the `publish` job of `build.yml` pushes the package to nuget.org through trusted publishing, once the
-tests and the validator pass.
+A Release build packs the library into `nugets/`. Pushing a tag releases it: the tag is the version (`1.2.3` or `v1.2.3`), and the `publish` job of `build.yml` pushes the package to nuget.org through trusted publishing, once the tests and the validator pass.
 
 
 ## Credits and license
