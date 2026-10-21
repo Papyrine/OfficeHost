@@ -231,7 +231,8 @@ builder.Services.AddOfficeHostSqlServer(connectionString);
 <sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerTests.cs#L228-L234' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServer' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-The tables, from a test of the package with [Verify.SqlServer](https://github.com/VerifyTests/Verify.SqlServer#diagram):
+
+#### The tables
 
 <!-- include: sqlserver-tables. path: /docs/sqlserver-tables.include.md -->
 ```mermaid
