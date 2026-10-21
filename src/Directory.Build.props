@@ -14,4 +14,7 @@
     <Verify_SponsorshipExemption>OpenSource</Verify_SponsorshipExemption>
     <Verify_SponsorshipExemptionUntil>2027-08</Verify_SponsorshipExemptionUntil>
   </PropertyGroup>
+  <ItemGroup>
+    <Using Include="System.ReadOnlySpan&lt;System.Char&gt;" Alias="CharSpan" />
+  </ItemGroup>
 </Project>
