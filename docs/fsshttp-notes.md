@@ -362,6 +362,10 @@ the `desktop` launch profile of the sample.
   - **The close** sends ExclusiveLock `ReleaseLock` alone.
 - An edit through Excel's object model (COM) did not take the lock: the workbook stayed read-only, and saving it wrote a
   local copy. Check Excel by typing in it.
+- **Without Protected View** (once Office trusts the document), Excel opens it read-only, with "We opened this workbook
+  read-only from the server" and an Edit Workbook button, against SharePoint and OfficeHost alike. Typing in it then
+  takes no lock (the edits stay local); Edit Workbook sends the `GetLock`. Through Protected View, Enable Editing opens
+  it editable, and the first keystroke takes the lock.
 
 ### GetDocMetaInfo has vti_canmaybeedit
 
