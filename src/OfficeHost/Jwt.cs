@@ -10,12 +10,10 @@ static class Jwt
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    public static string Encode<T>(T payload, string key) =>
-        Encode(JsonSerializer.SerializeToUtf8Bytes(payload, jsonOptions), key);
-
-    public static string Encode(byte[] payload, string key)
+    public static string Encode<T>(T payload, string key)
     {
-        var signingInput = $"{encodedHeader}.{Base64Url.EncodeToString(payload)}";
+        var payloadBytes = JsonSerializer.SerializeToUtf8Bytes(payload, jsonOptions);
+        var signingInput = $"{encodedHeader}.{Base64Url.EncodeToString(payloadBytes)}";
         return $"{signingInput}.{Base64Url.EncodeToString(Sign(signingInput, key))}";
     }
 

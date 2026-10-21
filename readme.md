@@ -3,14 +3,24 @@
 [![Build](https://github.com/Papyrine/OfficeHost/actions/workflows/build.yml/badge.svg)](https://github.com/Papyrine/OfficeHost/actions/workflows/build.yml)
 [![NuGet Status](https://img.shields.io/nuget/v/OfficeHost.svg?label=OfficeHost)](https://www.nuget.org/packages/OfficeHost/)
 
-The host side of the Office document protocols as a library for ASP.NET Core. Add it to a web application, and clients of the Web Application Open Platform Interface ([WOPI](https://learn.microsoft.com/en-us/microsoft-365/cloud-storage-partner-program/online/)) (Collabora Online, ONLYOFFICE, Microsoft 365 for the web) open, edit and save the files of any storage the application has.
+The host side of the Office document protocols as a library for ASP.NET Core. Add it to a web application, and the files of any storage the application has open, edit and save in:
+
+* the clients of the Web Application Open Platform Interface ([WOPI](https://learn.microsoft.com/en-us/microsoft-365/cloud-storage-partner-program/online/)): Collabora Online, ONLYOFFICE, Microsoft 365 for the web.
+* desktop Word, Excel and PowerPoint, in preview, through the cell storage service of SharePoint ([MS-FSSHTTP]), with coauthoring in Word and PowerPoint.
 
 
 ## How it works
 
+In a WOPI client:
+
 1. A user opens a document in the application. The application asks `OfficeLauncher` for the URL of the editor and a WOPI access token, scoped to that file and user.
 2. The page of the application posts the token to the editor URL, usually in an iframe.
 3. The editor calls the WOPI endpoints the library maps (`/wopi/files/{fileId}`) to read the file metadata, lock the file, and get and save its content. The library checks the token and the locks, and goes to the storage of the application through `IOfficeStorage`.
+
+In desktop Office:
+
+1. The application asks `OfficeLauncher.LaunchDesktop` for an `ms-word:` (or `ms-excel:`, `ms-powerpoint:`) link to the file, holding an access token in its URL.
+2. Office calls the sites the library maps (`/fsshttp/{token}/{name}`) as it calls a SharePoint site: it syncs the file in chunks, takes or shares its lock, and coauthors with the other users. The library keeps the file in `IOfficeStorage`, the lock in `IOfficeLockStore`, and the state of the sync in `IFssHttpStore`.
 
 
 ## Features
@@ -24,7 +34,7 @@ The host side of the Office document protocols as a library for ASP.NET Core. Ad
 
 ## Usage
 
-The code below is from [the sample](#sample), which imports the `OfficeHost` namespace. Register a storage and the WOPI services, map the WOPI endpoints, and add the pages that open a file:
+The code below is from [the sample](#sample), which imports the `OfficeHost` namespace. Register a storage and the services, map the WOPI endpoints and the desktop sites, and add the pages that open a file:
 
 <!-- snippet: Registration -->
 <a id='snippet-Registration'></a>
@@ -161,7 +171,7 @@ Then run the sample, and open http://localhost:5000:
 dotnet run --project src/OfficeHost.Sample
 ```
 
-It starts with a `Welcome.docx` in `src/OfficeHost.Sample/files`; add files there to open them too. Edit opens a file with write access, View read only. The URLs and the signing key are in its `appsettings.json`: `OfficeHost:BaseUrl` is how Collabora reaches the sample (`host.docker.internal` from the container), and `Sample:AppUrl` how the browser does.
+It starts with a `Welcome.docx` in `src/OfficeHost.Sample/files`; add files there to open them too. Edit opens a file with write access, View read only. Desktop Office needs HTTPS: the `desktop` launch profile (`dotnet run --project src/OfficeHost.Sample --launch-profile desktop`) serves it, and `/desktop/{fileId}` opens a file in Word, Excel or PowerPoint, `?user=` for a second user to coauthor. The URLs and the signing key are in its `appsettings.json`: `OfficeHost:BaseUrl` is how Collabora reaches the sample (`host.docker.internal` from the container), and `Sample:AppUrl` how the browser does.
 
 
 ## Options
@@ -224,14 +234,14 @@ The state of desktop coauthoring (the data elements Office syncs, the coauthorin
 
 ## Desktop Office
 
-Preview. Desktop Word opens files as it opens those of a SharePoint site: through the cell storage service of [MS-FSSHTTP], which syncs a file in chunks ([MS-FSSHTTPB], [MS-FSSHTTPD]), shares the lock between the users of a coauthoring session, and keeps an editors table.
+Preview. Desktop Word, Excel and PowerPoint open files as they open those of a SharePoint site: through the cell storage service of [MS-FSSHTTP], which syncs a file in chunks ([MS-FSSHTTPB], [MS-FSSHTTPD]), shares the lock between the users of a coauthoring session, and keeps an editors table.
 
 * `MapFssHttp()` maps the sites: `{DesktopPath}/{token}/{name}` is the URL of a file, the token of `IOfficeTokens` in its path standing for the file and the user, as Office blocks Basic and forms-based sign-in by default.
 * `OfficeLauncher.LaunchDesktop(access, request)` gives the link that opens the file: `ms-word:ofe|u|{url}` (or `ms-excel:`, `ms-powerpoint:`; `ofv` without write access).
 * Only the Open XML formats are supported (`.docx`, `.docm`, `.dotx`, `.dotm`, `.xlsx`, `.xlsm`, `.xlsb`, `.xltx`, `.xltm`, `.pptx`, `.pptm`, `.potx`, `.potm`, `.ppsx`, `.ppsm`). `LaunchDesktop` refuses the legacy binary formats (`.doc`, `.dot`, `.xls`, `.xlt`, `.ppt`, `.pot`, `.pps`) and `.rtf` with an `InvalidOperationException`: save them in an Open XML format.
 * Office can rename the file (from its title bar) through `IOfficeStorage.Rename` when the access has `CanRename`, as for WOPI. Version history is not supported: Office opens, edits and saves without it.
 * The lock of desktop editing is a lock of the `IOfficeLockStore`, so WOPI clients and desktop Office do not edit a file at the same time. A file changed outside desktop Office is synced as a new revision, keeping the unchanged chunks.
-* Word coauthors: several users edit a document at once, sharing its lock. Excel does not: the first user to type in a workbook takes an exclusive lock, and Excel tells the others who has it.
+* Word and PowerPoint coauthor: several users edit a document at once, sharing its lock. Excel does not: the first user to type in a workbook takes an exclusive lock, and Excel tells the others who has it.
 
 The host must use HTTPS with a certificate Windows trusts. A host in the Internet zone opens in Protected View first, as SharePoint Online does. Tested with Word, Excel and PowerPoint for Microsoft 365 16.0.20326 on Windows, with `.docx`, `.xlsx` and `.pptx` files. Notes on what Office does that the specs do not say are in [docs/fsshttp-notes.md](docs/fsshttp-notes.md), and the check by hand in [docs/fsshttp-checklist.md](docs/fsshttp-checklist.md).
 
@@ -250,15 +260,25 @@ dotnet build src
 dotnet run --project src/OfficeHost.Tests --no-build
 ```
 
-The test project is a TUnit executable: run it, rather than `dotnet test`. It holds:
+The test project is a TUnit executable: run it, rather than `dotnet test`. It holds, for WOPI (`Wopi/`):
 
 * `SpecTests`: conformance to the server side of [MS-WOPI], each test citing its section.
 * `EdgeCaseTests`: protocol edge cases ported from [WopiHost](https://github.com/petrsvihlik/WopiHost).
 * `ProofKeyTests`: the proof key validation, including key rotation.
 * `FailureTests`: storage failures, through a storage that fails on demand.
+* `KestrelTests`: the request size limits, on Kestrel.
+
+For desktop Office (`FssHttp/`):
+
+* `FssHttpB*Tests`: the FSSHTTPB codec, against vectors, round trips and fuzzing.
+* `FileChunkerTests`, `FileCellTests`: the file in a cell, its chunking and revisions.
+* `FssHttpServiceTests`, `FileOperationTests`, `PutChangesTests`, `FssHttpCellsTests`, `FssHttpStoreTests`: the sites, the sub-requests and the stores.
+* `CoauthoringSimulationTests`, `ExcelTests`, `PowerPointTests`: simulated Office clients (`WordClient`) opening, editing and coauthoring files.
+
+And for both:
+
 * `StorageTests`: `FileSystemStorage` and `MemoryLockStore`.
 * `ApiTests`: the launcher, the tokens, the options and the registration.
-* `KestrelTests`: the request size limits, on Kestrel.
 * `SampleTests`: the sample application, with a stubbed WOPI client.
 
 `src/OfficeHost.E2ETests` hosts the endpoints on a real port and opens documents in real editors, Collabora and ONLYOFFICE, in Docker, driven with Playwright: Collabora opens, edits and saves a document, and ONLYOFFICE opens one with every request validated against its proof keys. It needs Docker and the Playwright browser, and pulls the editor images on the first run (about 1.5 and 4.3 GB):

@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <Description>The host side of the Office document protocols for ASP.NET Core (formerly WopiServer): WOPI, which lets WOPI clients such as Collabora Online, ONLYOFFICE or Office for the web open and save files from any storage.</Description>
+    <Description>The host side of the Office document protocols for ASP.NET Core (formerly WopiServer): WOPI, which lets WOPI clients such as Collabora Online, ONLYOFFICE or Office for the web open and save files from any storage, and, in preview, MS-FSSHTTP, which lets desktop Word, Excel and PowerPoint open, save and coauthor them.</Description>
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />

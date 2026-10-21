@@ -10,7 +10,7 @@
     <SuppressNETCoreSdkPreviewMessage>true</SuppressNETCoreSdkPreviewMessage>
     <!-- The WOPI logic started as a port of the CS3 WOPI server, which is under the Apache 2.0 license. -->
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
-    <PackageTags>office;wopi;ms-wopi;collabora;onlyoffice;office-online;aspnetcore</PackageTags>
+    <PackageTags>office;wopi;ms-wopi;collabora;onlyoffice;office-online;fsshttp;ms-fsshttp;cobalt;coauthoring;sharepoint;word;excel;powerpoint;aspnetcore</PackageTags>
     <Verify_SponsorshipExemption>OpenSource</Verify_SponsorshipExemption>
     <Verify_SponsorshipExemptionUntil>2027-08</Verify_SponsorshipExemptionUntil>
   </PropertyGroup>
