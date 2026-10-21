@@ -420,6 +420,24 @@ OfficeHost disagreed. OfficeHost now answers as SharePoint SE does:
 
 - **`OnExecute`** still runs after a dependency that ran and failed, and after one kept from running by
   `OnNotSupported`: Word's open has its Cell queries `OnExecute` a SchemaLock kept so.
+- **Requests Office does not send** (none of the captures has an `Etag` on a Cell sub-request, or `Properties`), now
+  answered as SharePoint SE does:
+
+  | Request | SharePoint SE | OfficeHost before |
+  |---|---|---|
+  | A join, schema lock or exclusive lock with a `Timeout` of 120000 or more (119999 is accepted, 30 too) | `LockRequestFail` | `Success`, clamped |
+  | A Cell sub-request with the `Etag` of another version | `CellRequestFail` | ignored the `Etag` |
+  | Properties `PropertyGet` | `Success`, `<PropertyValues/>` | `RequestNotSupported` |
+  | Properties `PropertyEnumerate` | `RequestNotSupported` | the same |
+  | `AmIAlone` | `True` or `False`, capitalized | `true`, `false` |
+
+- **The same already:** `AmIAlone` with the session's `TransitionID` or another one (it answers by the number of
+  clients); twelve coauthors (no limit reached); a Cell query with `ExpectNoFileExists` on an existing file (`Success`).
+- **Office quirks reported by cellbridge** (a similar MIT-licensed host): Word rejecting an `ErrorStringSupplementalInfo`
+  in UTF-8 (the codec writes string items in UTF-16, as [MS-FSSHTTPB] 2.2.1.4); Word turning read-only when the content
+  query answers an empty Storage Index (the content partition always holds the file); Word resuming an upload without
+  a Query Changes, with a stale expected Storage Index (a coherency failure, as on SharePoint, after which the client
+  queries).
 - **Where SharePoint fails** (a 302 to its error page, "Object reference not set to an instance of an object"), OfficeHost
   keeps its answers: a Coauth or ExclusiveLock without its request type (`InvalidArgument`), `AmIAlone` without data,
   a dependency on an unknown token, a `RequestVersion` of 1.

@@ -47,9 +47,13 @@ $targets = @(
     @{ Name = 'OfficeHost'; Endpoint = "$sampleSite/_vti_bin/cellstorage.svc/CellStorageService"; Folder = $sampleSite }
 )
 
+# the TransitionID of the last join of each target, for {TransitionID} in the sub-requests after it
+$transitions = @{}
+
 # $name: the file the request is for, -File by default, another after a rename
 function Send($target, [string[]] $subRequests, [int] $version = 2, [string] $name = $File) {
-    $envelope = "<s:Envelope xmlns:s=`"http://schemas.xmlsoap.org/soap/envelope/`"><s:Body><RequestVersion Version=`"$version`" MinorVersion=`"2`" xmlns=`"$soap`" /><RequestCollection CorrelationId=`"{$([guid]::NewGuid())}`" xmlns=`"$soap`"><Request Url=`"$($target.Folder)/$name`" RequestToken=`"1`">$($subRequests -join '')</Request></RequestCollection></s:Body></s:Envelope>"
+    $subRequests = $subRequests | ForEach-Object { $_.Replace('{TransitionID}', "$($transitions[$target.Name])") }
+    $envelope ="<s:Envelope xmlns:s=`"http://schemas.xmlsoap.org/soap/envelope/`"><s:Body><RequestVersion Version=`"$version`" MinorVersion=`"2`" xmlns=`"$soap`" /><RequestCollection CorrelationId=`"{$([guid]::NewGuid())}`" xmlns=`"$soap`"><Request Url=`"$($target.Folder)/$name`" RequestToken=`"1`">$($subRequests -join '')</Request></RequestCollection></s:Body></s:Envelope>"
     # MTOM as Word sends it, with a line break before the first boundary: without it, SharePoint redirects to its error
     # page ("Object reference not set to an instance of an object")
     $boundary = "urn:uuid:$([guid]::NewGuid())"
@@ -76,6 +80,11 @@ function Send($target, [string[]] $subRequests, [int] $version = 2, [string] $na
     if ($response.StatusCode -ne 200 -or $text -notmatch 'ResponseVersion') {
         $error = [regex]::Match($text, 'ErrorText=([^"&]+)').Groups[1].Value
         return @("HTTP $($response.StatusCode) $([Uri]::UnescapeDataString($error.Replace('+', ' ')))".Trim())
+    }
+
+    $transition = [regex]::Match($text, 'TransitionID="([^"]+)"')
+    if ($transition.Success) {
+        $transitions[$target.Name] = $transition.Groups[1].Value
     }
 
     $results = foreach ($match in [regex]::Matches($text, '<SubResponse ([^>]*?)/?>(?:<SubResponseData([^>]*?)/?>)?')) {
@@ -146,7 +155,7 @@ function Scenario([string] $name, [scriptblock] $steps, [scriptblock] $cleanup =
     for ($i = 0; $i -lt $answers['SharePoint'].Count; $i++) {
         $sharePoint = $answers['SharePoint'][$i]
         $officeHost = $answers['OfficeHost'][$i]
-        if ($sharePoint -eq $officeHost) {
+        if ($sharePoint -ceq $officeHost) {
             Write-Host "  $($i + 1). same: $sharePoint"
         }
         else {
@@ -187,6 +196,38 @@ Scenario 'Dependency on an unknown token' { ,@((SubRequest 'ServerTime' 1 $null 
 Scenario 'An unknown sub-request type' { ,@((SubRequest 'Bogus' 1 $null)) }
 Scenario 'Request version 1' { @{ Version = 1; SubRequests = @((SubRequest 'WhoAmI' 1 $null)) } }
 Scenario 'GetVersions' { ,@((SubRequest 'GetVersions' 1 $null)) }
+
+# AmIAlone with the TransitionID of the session, and with another
+Scenario 'AmIAlone with the TransitionID' { param($a, $b) (Coauth JoinCoauthoring $a), (SubRequest 'AmIAlone' 1 'TransitionID="{TransitionID}"'), (Coauth JoinCoauthoring $b), (SubRequest 'AmIAlone' 1 'TransitionID="{TransitionID}"'), (SubRequest 'AmIAlone' 1 'TransitionID="{00000000-0000-0000-0000-000000000001}"') } { param($a, $b) (Coauth ExitCoauthoring $a), (Coauth ExitCoauthoring $b) }
+
+# coauthoring timeouts, the spec's range being 60 to 120000
+function Join([string] $client, [int] $timeout) {
+    SubRequest 'Coauth' 1 "CoauthRequestType=`"JoinCoauthoring`" SchemaLockID=`"$schemaLockId`" ClientID=`"$client`" Timeout=`"$timeout`""
+}
+Scenario 'Join with a timeout of 30' { param($a) (Join $a 30) } { param($a) (Coauth ExitCoauthoring $a) }
+Scenario 'Join with a timeout of 60' { param($a) (Join $a 60) } { param($a) (Coauth ExitCoauthoring $a) }
+Scenario 'Join with a timeout of 3599' { param($a) (Join $a 3599) } { param($a) (Coauth ExitCoauthoring $a) }
+Scenario 'Join with a timeout of 120000' { param($a) (Join $a 120000) } { param($a) (Coauth ExitCoauthoring $a) }
+Scenario 'Join with a timeout of 120001' { param($a) (Join $a 120001) } { param($a) (Coauth ExitCoauthoring $a) }
+
+# the number of coauthors
+$coauthors = 1..12 | ForEach-Object { "{$([guid]::NewGuid().ToString().ToUpperInvariant())}" }
+Scenario 'Twelve coauthors' { $coauthors | ForEach-Object { Coauth JoinCoauthoring $_ } } { $coauthors | ForEach-Object { Coauth ExitCoauthoring $_ } }
+
+# Cell queries: Excel's query of the content, with its attributes
+$contentQuery = 'DgALAJzPKfM5lAabBgIAAO4CAACqAiAABvWzkcnfuk2ORYXED+IRNloEFgANbXNleGNsB3dpbnoCCABm9qA5dwFqBAIAARYCBgADBQCKAgQAAEjaAgYAAwAAygIIAAgAgAOEAEELAawCAFUDAQ=='
+function CellQuery([string] $extra = '') {
+    "<SubRequest Type=`"Cell`" SubRequestToken=`"1`"><SubRequestData GetFileProps=`"true`" BinaryDataSize=`"109`" $extra>$contentQuery</SubRequestData></SubRequest>"
+}
+Scenario 'Cell query' { (CellQuery) }
+Scenario 'Cell query with another Etag' { (CellQuery 'Etag="&quot;{00000000-0000-0000-0000-000000000001},1&quot;"') }
+Scenario 'Cell query expecting no file' { (CellQuery 'ExpectNoFileExists="true"') }
+
+# Properties and Versioning
+Scenario 'Properties enumerate' { (SubRequest 'Properties' 1 'Properties="PropertyEnumerate"') }
+Scenario 'Properties get' { "<SubRequest Type=`"Properties`" SubRequestToken=`"1`"><SubRequestData Properties=`"PropertyGet`"><PropertyIds><PropertyId id=`"RealtimeTypingEndpointUrl`" /></PropertyIds></SubRequestData></SubRequest>" }
+Scenario 'Versioning version list' { (SubRequest 'Versioning' 1 'VersioningRequestType="GetVersionList"') }
+Scenario 'Versioning restore of a version that does not exist' { (SubRequest 'Versioning' 1 'VersioningRequestType="RestoreVersion" Version="99.0"') }
 
 # renames, each renamed back: the steps after a rename name the file by its new name
 function Rename([string] $newName, [string] $extra = '') {

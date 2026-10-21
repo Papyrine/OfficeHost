@@ -138,6 +138,7 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
                 "AmIAlone" => await AmIAlone(site, data, cancel),
                 "LockStatus" => await LockStatus(site, data, cancel),
                 "FileOperation" => await FileOperation(requestData, site, cancel),
+                "Properties" => Properties(requestData, data),
                 _ => "RequestNotSupported"
             };
         }
@@ -162,6 +163,13 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
 
         var file = await storage.GetFile(site.FileId, cancel);
         if (file == null)
+        {
+            return "CellRequestFail";
+        }
+
+        // an Etag of another version of the file fails, as on SharePoint Server SE (Office sends none)
+        if (Attribute(requestData, "Etag") is { } etag &&
+            etag != Etag(site, file))
         {
             return "CellRequestFail";
         }
@@ -517,6 +525,11 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
             return "InvalidArgument";
         }
 
+        if (TimeoutTooLong(requestData))
+        {
+            return "LockRequestFail";
+        }
+
         var timeout = CoauthSessions.Timeout(Int(requestData, "Timeout"));
         switch (Attribute(requestData, "CoauthRequestType"))
         {
@@ -618,6 +631,11 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
             return "InvalidArgument";
         }
 
+        if (TimeoutTooLong(requestData))
+        {
+            return "LockRequestFail";
+        }
+
         var timeout = CoauthSessions.Timeout(Int(requestData, "Timeout"));
         switch (Attribute(requestData, "SchemaLockRequestType"))
         {
@@ -653,6 +671,11 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
         if (exclusiveLockId == null)
         {
             return "InvalidArgument";
+        }
+
+        if (TimeoutTooLong(requestData))
+        {
+            return "LockRequestFail";
         }
 
         var timeout = Math.Clamp(Int(requestData, "Timeout") ?? 3600, 60, 120_000);
@@ -1103,8 +1126,32 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
     async Task<string> AmIAlone(FssHttpSite site, XElement data, Cancel cancel)
     {
         var session = await sessions.Get(site.FileId, cancel);
-        data.Add(new XAttribute("AmIAlone", session.Clients.Count <= 1 ? "true" : "false"));
+        // capitalized, as SharePoint Server SE answers
+        var alone = session.Clients.Count <= 1 ? "True" : "False";
+        data.Add(new XAttribute("AmIAlone", alone));
         return success;
     }
+
+    /// <summary>
+    /// Properties (2.3.1.48): as SharePoint Server SE answers, PropertyGet gives no values (the properties of
+    /// SharePoint Online, such as RealtimeTypingEndpointUrl, are not there), and PropertyEnumerate is not supported.
+    /// Office sends neither to a SharePoint Server.
+    /// </summary>
+    static string Properties(XElement? requestData, XElement data)
+    {
+        if (Attribute(requestData, "Properties") != "PropertyGet")
+        {
+            return "RequestNotSupported";
+        }
+
+        data.Add(new XElement(soap + "PropertyValues"));
+        return success;
+    }
+
+    /// <summary>
+    /// A lock timeout of 120000 seconds or more: the spec's range ends at 120000 ([MS-FSSHTTP] 2.3.3.2), but SharePoint
+    /// Server SE fails a join or a lock from 120000 on with LockRequestFail.
+    /// </summary>
+    static bool TimeoutTooLong(XElement? requestData) => Int(requestData, "Timeout") >= 120_000;
 
 }

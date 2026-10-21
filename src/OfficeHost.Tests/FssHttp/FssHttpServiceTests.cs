@@ -483,7 +483,7 @@ public class FssHttpServiceTests
             "Success",
             "InvalidArgument"
         ]);
-        await Assert.That(results[9].Attribute("AmIAlone")).IsEqualTo("true");
+        await Assert.That(results[9].Attribute("AmIAlone")).IsEqualTo("True");
     }
 
     /// <summary>
@@ -543,6 +543,38 @@ public class FssHttpServiceTests
         // still in the session, which still has the lock
         await Assert.That((await word.Coauth("GetCoauthoringStatus")).Attribute("CoauthStatus")).IsEqualTo("Alone");
         await Assert.That((await host.Service<IOfficeLockStore>().Get(fileId))!.Id).IsEqualTo($"fsshttp-schema:{WordClient.SchemaLockId}");
+    }
+
+    /// <summary>
+    /// Requests Office does not send, answered as SharePoint Server SE answers them (src/sharepoint-lab/
+    /// Compare-CellStorage.ps1): a lock timeout of 120000 seconds or more, a Cell sub-request with the Etag of another
+    /// version, and Properties.
+    /// </summary>
+    [Test]
+    public async Task SharePointAnswers()
+    {
+        var (host, _, token) = await Start();
+        await using var _ = host;
+        var word = new WordClient(host, token);
+
+        await Assert.That((await word.Send(word.Join(timeout: 119_999))).Single().ErrorCode).IsEqualTo("Success");
+        await Assert.That((await word.Send(word.Join(timeout: 120_000))).Single().ErrorCode).IsEqualTo("LockRequestFail");
+        await word.Coauth("ExitCoauthoring");
+        var schema = WordClient.SubRequest("SchemaLock", "1", WordClient.Data(new XAttribute("SchemaLockRequestType", "GetLock"), new XAttribute("SchemaLockID", WordClient.SchemaLockId), new XAttribute("ClientID", word.ClientId), new XAttribute("Timeout", 120_001)));
+        await Assert.That((await word.Send(schema)).Single().ErrorCode).IsEqualTo("LockRequestFail");
+        var exclusive = WordClient.SubRequest("ExclusiveLock", "1", WordClient.Data(new XAttribute("ExclusiveLockRequestType", "GetLock"), new XAttribute("ExclusiveLockID", "{E}"), new XAttribute("Timeout", 120_000)));
+        await Assert.That((await word.Send(exclusive)).Single().ErrorCode).IsEqualTo("LockRequestFail");
+
+        var query = (await word.Send(WordClient.Cell("1", WordClient.Query(), new XAttribute("GetFileProps", "true")))).Single();
+        var etag = query.Attribute("Etag")!;
+        await Assert.That((await word.Send(WordClient.Cell("1", WordClient.Query(), new XAttribute("Etag", etag)))).Single().ErrorCode).IsEqualTo("Success");
+        await Assert.That((await word.Send(WordClient.Cell("1", WordClient.Query(), new XAttribute("Etag", "\"{00000000-0000-0000-0000-000000000001},1\"")))).Single().ErrorCode).IsEqualTo("CellRequestFail");
+
+        var get = WordClient.SubRequest("Properties", "1", WordClient.Data(new XAttribute("Properties", "PropertyGet"), new XElement(XName.Get("PropertyIds", "http://schemas.microsoft.com/sharepoint/soap/"), new XElement(XName.Get("PropertyId", "http://schemas.microsoft.com/sharepoint/soap/"), new XAttribute("id", "RealtimeTypingEndpointUrl")))));
+        var got = (await word.Send(get)).Single();
+        await Assert.That(got.ErrorCode).IsEqualTo("Success");
+        await Assert.That(got.Data.Elements().Single().Name.LocalName).IsEqualTo("PropertyValues");
+        await Assert.That((await word.Send(WordClient.SubRequest("Properties", "1", WordClient.Data(new XAttribute("Properties", "PropertyEnumerate"))))).Single().ErrorCode).IsEqualTo("RequestNotSupported");
     }
 
     /// <summary>
