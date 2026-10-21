@@ -364,7 +364,13 @@ public class ApiTests
     [Arguments(".profile", ".profile", "")]
     [Arguments("..double", "..double", "")]
     public async Task FileNames_SplitExtension(string name, string root, string extension) =>
-        await Assert.That(FileNames.SplitExtension(name)).IsEqualTo((root, extension));
+        await Assert.That(Split(name)).IsEqualTo((root, extension));
+
+    static (string Root, string Extension) Split(string name)
+    {
+        var (root, extension) = FileNames.SplitExtension(name);
+        return (root.ToString(), extension.ToString());
+    }
 
     [Test]
     public async Task FileNames_Utf7()

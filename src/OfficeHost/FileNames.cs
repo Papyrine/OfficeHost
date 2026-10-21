@@ -67,7 +67,8 @@ static class FileNames
             var (root, extension) = SplitExtension(legal);
             if (Encoding.UTF8.GetByteCount(extension) > MaxBytes / 2)
             {
-                (root, extension) = (legal, "");
+                root = legal;
+                extension = default;
             }
 
             legal = $"{Truncate(root, MaxBytes - Encoding.UTF8.GetByteCount(extension)).TrimEnd(". ")}{extension}";
@@ -85,20 +86,20 @@ static class FileNames
     /// The name without and with its extension: `report.docx` is (`report`, `.docx`). Leading dots do not start an
     /// extension, so `.profile` has none.
     /// </summary>
-    public static (string Root, string Extension) SplitExtension(string name)
+    public static SplitName SplitExtension(string name)
     {
         var dot = name.LastIndexOf('.');
         if (dot <= 0 ||
-            name[..dot].All(_ => _ == '.'))
+            name.AsSpan(0, dot).TrimStart('.').IsEmpty)
         {
-            return (name, "");
+            return new(name, default);
         }
 
-        return (name[..dot], name[dot..]);
+        return new(name.AsSpan(0, dot), name.AsSpan(dot));
     }
 
     public static string Extension(string name) =>
-        SplitExtension(name).Extension;
+        SplitExtension(name).Extension.ToString();
 
     /// <summary>
     /// The legal name with a number before its extension: `report (2).docx`, shortening the root to fit.
@@ -113,7 +114,7 @@ static class FileNames
     /// <summary>
     /// The longest start of the value that fits in the given number of UTF-8 bytes, without splitting a character.
     /// </summary>
-    static ReadOnlySpan<char> Truncate(string value, int maxBytes)
+    static CharSpan Truncate(CharSpan value, int maxBytes)
     {
         var length = 0;
         var bytes = 0;
@@ -128,6 +129,21 @@ static class FileNames
             length += rune.Utf16SequenceLength;
         }
 
-        return value.AsSpan(0, length);
+        return value[..length];
+    }
+}
+
+/// <summary>
+/// A file name split before its extension, as views of the name.
+/// </summary>
+readonly ref struct SplitName(CharSpan root, CharSpan extension)
+{
+    public CharSpan Root { get; } = root;
+    public CharSpan Extension { get; } = extension;
+
+    public void Deconstruct(out CharSpan root, out CharSpan extension)
+    {
+        root = Root;
+        extension = Extension;
     }
 }
