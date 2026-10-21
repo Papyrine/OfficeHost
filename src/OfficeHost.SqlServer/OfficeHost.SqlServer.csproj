@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>SQL Server stores for OfficeHost: the files, the WOPI locks, the state of desktop Office coauthoring and the user info, shared by all the instances of the application. The tables are created by OfficeHost.SqlServer.Install.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <Using Include="System.Data" />
+    <Using Include="System.Security.Cryptography" />
+    <Using Include="System.Buffers.Text" />
+    <Using Include="Microsoft.Data.SqlClient" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="OfficeHost" />
+    <PackageReference Include="Microsoft.Data.SqlClient" />
+    <PackageReference Include="ProjectDefaults" PrivateAssets="all" />
+    <ProjectReference Include="..\OfficeHost\OfficeHost.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Creates the SQL Server tables of OfficeHost.SqlServer, from a deployment or migration step, so that the application itself needs no rights to change the schema.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\OfficeHost.SqlServer\SqlServerTables.cs" Link="SqlServerTables.cs" />
+    <Using Include="Microsoft.Data.SqlClient" />
+    <PackageReference Include="Microsoft.Data.SqlClient" />
+    <PackageReference Include="ProjectDefaults" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

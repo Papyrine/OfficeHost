@@ -1,0 +1,35 @@
+﻿if schema_id(N'office') is null
+    exec(N'create schema [office]');
+
+if object_id(N'[office].[OfficeHostFiles]') is null
+begin
+    create table [office].[OfficeHostFiles] (
+        Id nvarchar(450) not null primary key,
+        Folder nvarchar(400) not null,
+        Name nvarchar(255) not null,
+        OwnerId nvarchar(450) not null,
+        Content varbinary(max) not null,
+        Size as datalength(Content),
+        Version rowversion not null,
+        LastModified datetimeoffset not null);
+    create unique index IX_OfficeHostFiles_Folder_Name on [office].[OfficeHostFiles] (Folder, Name);
+end;
+
+if object_id(N'[office].[OfficeHostLocks]') is null
+    create table [office].[OfficeHostLocks] (
+        FileId nvarchar(450) not null primary key,
+        LockId nvarchar(1024) not null,
+        Expires datetimeoffset not null);
+
+if object_id(N'[office].[OfficeHostFssHttpStates]') is null
+    create table [office].[OfficeHostFssHttpStates] (
+        FileId nvarchar(450) not null,
+        Partition uniqueidentifier not null,
+        Version nvarchar(max) not null,
+        Data varbinary(max) not null,
+        primary key (FileId, Partition));
+
+if object_id(N'[office].[OfficeHostUserInfo]') is null
+    create table [office].[OfficeHostUserInfo] (
+        UserId nvarchar(450) not null primary key,
+        Info nvarchar(max) not null);

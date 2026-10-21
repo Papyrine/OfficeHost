@@ -215,6 +215,24 @@ PutUserInfo, where the editors keep per-user data such as the tips a user has se
 
 The state of desktop coauthoring (the data elements Office syncs, the coauthoring session) is kept by an `IFssHttpStore`: the default `MemoryFssHttpStore` for a single instance, `FileSystemFssHttpStore` for a single machine, or a shared store with an atomic compare and exchange. The file stays in the storage: a lost state only makes Office download the file again. A WOPI DeleteFile deletes the state of the file too; an application that deletes files itself calls `IFssHttpStore.Delete` after them, or the state stays, unused.
 
+### SQL Server
+
+The [OfficeHost.SqlServer](https://www.nuget.org/packages/OfficeHost.SqlServer/) package keeps everything in SQL Server, shared by all the instances of the application: `SqlServerStorage` (the files, in folders the application names, added with `Add(folder, name, ownerId, content)`, which gives the id), `SqlServerLockStore`, `SqlServerFssHttpStore` and `SqlServerUserInfoStore`. Each can be used alone, or `AddOfficeHostSqlServer` registers them all. The tables are created by [OfficeHost.SqlServer.Install](https://www.nuget.org/packages/OfficeHost.SqlServer.Install/), so the application needs no rights to change the schema; `OfficeHostSqlServerInstaller.GetScript()` gives the script to apply by hand. Both take a schema, `dbo` by default.
+
+<!-- snippet: SqlServer -->
+<a id='snippet-SqlServer'></a>
+```cs
+// once, from a deployment step, with rights to create tables
+await OfficeHostSqlServerInstaller.Install(connectionString);
+
+// in the application, before or after AddOfficeHost
+builder.Services.AddOfficeHostSqlServer(connectionString);
+```
+<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerTests.cs#L202-L208' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServer' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+The tests of the package run on LocalDB, so on Windows only.
+
 
 ## Desktop Office
 

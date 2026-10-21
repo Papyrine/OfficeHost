@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+  <ItemGroup>
+    <Using Include="System.Net" />
+    <Using Include="System.Text" />
+    <Using Include="System.Security.Cryptography" />
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.AspNetCore.Hosting" />
+    <Using Include="Microsoft.AspNetCore.TestHost" />
+    <Using Include="Microsoft.Data.SqlClient" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Logging" />
+    <Using Include="OfficeHost" />
+    <Using Include="TUnit.Core" />
+    <Using Include="TUnit.Core.Enums" />
+    <Using Include="VerifyTUnit.Verifier" Static="true" />
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="Verify.TUnit" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+    <PackageReference Include="Microsoft.Data.SqlClient" />
+    <PackageReference Include="ProjectDefaults" PrivateAssets="all" />
+    <ProjectReference Include="..\OfficeHost.SqlServer\OfficeHost.SqlServer.csproj" />
+    <ProjectReference Include="..\OfficeHost.SqlServer.Install\OfficeHost.SqlServer.Install.csproj" />
+  </ItemGroup>
+</Project>

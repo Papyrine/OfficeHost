@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 OfficeHost (formerly WopiServer) is a library for ASP.NET Core that implements the host side of the Office document
 protocols: WOPI ([MS-WOPI]) for Office for the web, Collabora and ONLYOFFICE, and, in progress on the `fsshttp` branch,
 MS-FSSHTTP for desktop Office coauthoring (docs/fsshttp-spike.md, docs/fsshttp-notes.md). `AddOfficeHost` registers the
-services, `MapOfficeHost` maps the endpoints, and the application supplies the storage. Everything is in the one
-`OfficeHost` project and package. The WOPI part started as a port of the Python CS3 WOPI server, but is not compatible
+services, `MapOfficeHost` maps the endpoints, and the application supplies the storage. The protocols are in the
+`OfficeHost` project and package, the SQL Server stores in `OfficeHost.SqlServer` and `OfficeHost.SqlServer.Install`. The WOPI part started as a port of the Python CS3 WOPI server, but is not compatible
 with it and does not follow it: design on the merits of the protocols and ASP.NET Core, with no CS3, Reva or container
 specifics.
 
@@ -48,6 +48,10 @@ specifics.
   `FssHttp/Service/`: the desktop sites of `MapFssHttp` (`FssHttpHandler`: OPTIONS, cellstorage.svc, sharedaccess.asmx,
   GET), SOAP and MTOM (`SoapMessage`), the sub-requests (`CellStorageService`), Query and Put Changes (`CellSync`), and
   the coauthoring tracker with its lock in the `IOfficeLockStore` (`CoauthSessions`).
+- `OfficeHost.SqlServer` (own package): the SQL Server stores (`SqlServerStorage`, `SqlServerLockStore`,
+  `SqlServerFssHttpStore`, `SqlServerUserInfoStore`, `AddOfficeHostSqlServer`), with no DDL. `OfficeHost.SqlServer.Install`
+  (own package): `OfficeHostSqlServerInstaller` creates the tables, sharing their names through the linked
+  `SqlServerTables.cs`. Tests in `src/OfficeHost.SqlServer.Tests`, on LocalDB (Windows only).
 - Manual test with Word, Excel or PowerPoint: the `desktop` launch profile of the sample (HTTPS, requests logged to `request-logs`
   by `RequestLog.cs`), then `/desktop/{fileId}` (`?user=` for a second user); the steps are in
   docs/fsshttp-checklist.md. Excel takes its lock when the user types, not when COM edits. The simulated clients are

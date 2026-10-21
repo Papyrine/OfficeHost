@@ -65,6 +65,12 @@ jobs:
           --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml
           --coverage-settings ${{ github.workspace }}/src/coverage.config
 
+      # On LocalDB, which the Windows runners have: skipped on Ubuntu.
+      - name: Test SQL Server
+        run: >-
+          dotnet run --project src/OfficeHost.SqlServer.Tests --configuration Release --no-build --
+          --report-trx --results-directory ${{ github.workspace }}/TestResults
+
       - name: Coverage
         shell: pwsh
         run: ./src/coverage-summary.ps1 TestResults/coverage.cobertura.xml -Summary $env:GITHUB_STEP_SUMMARY
