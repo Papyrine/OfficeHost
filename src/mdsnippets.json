@@ -1,5 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/SimonCropp/MarkdownSnippets/master/schema.json",
   "MaxWidth": 120,
-  "Convention": "InPlaceOverwrite"
+  "Convention": "InPlaceOverwrite",
+  "ExcludeMarkdownDirectories": ["OfficeHost.SqlServer.Tests"]
 }

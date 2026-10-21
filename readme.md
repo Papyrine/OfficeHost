@@ -228,8 +228,41 @@ await OfficeHostSqlServerInstaller.Install(connectionString);
 // in the application, before or after AddOfficeHost
 builder.Services.AddOfficeHostSqlServer(connectionString);
 ```
-<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerTests.cs#L202-L208' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServer' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerTests.cs#L228-L234' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServer' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
+
+The tables, from a test of the package with [Verify.SqlServer](https://github.com/VerifyTests/Verify.SqlServer#diagram):
+
+<!-- include: sqlserver-tables. path: /docs/sqlserver-tables.include.md -->
+```mermaid
+erDiagram
+  OfficeHostFiles["**OfficeHostFiles**"] {
+    nvarchar(450) Id pk
+    nvarchar(400) Folder
+    nvarchar(255) Name
+    nvarchar(450) OwnerId
+    varbinary(max) Content
+    bigint(nullable) Size "computed"
+    timestamp Version
+    datetimeoffset LastModified
+  }
+  OfficeHostFssHttpStates["**OfficeHostFssHttpStates**"] {
+    nvarchar(450) FileId pk
+    uniqueidentifier Partition pk
+    nvarchar(max) Version
+    varbinary(max) Data
+  }
+  OfficeHostLocks["**OfficeHostLocks**"] {
+    nvarchar(450) FileId pk
+    nvarchar(1024) LockId
+    datetimeoffset Expires
+  }
+  OfficeHostUserInfo["**OfficeHostUserInfo**"] {
+    nvarchar(450) UserId pk
+    nvarchar(max) Info
+  }
+```
+<!-- endInclude -->
 
 The tests of the package run on LocalDB, so on Windows only.
 

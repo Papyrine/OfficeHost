@@ -26,6 +26,32 @@ public class SqlServerTests(SqlDatabase database)
     public Task Script() =>
         Verify(OfficeHostSqlServerInstaller.GetScript("office"));
 
+    /// <summary>
+    /// The tables as a Mermaid diagram, also written to <c>docs/sqlserver-tables.include.md</c>, which the readme includes.
+    /// </summary>
+    [Test]
+    public async Task Diagram()
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await Verify(connection)
+            .SchemaAsDiagram()
+            .SchemaFilter(_ => _ is Microsoft.SqlServer.Management.Smo.Table {Schema: "dbo"})
+            .UseFileName("SqlServerTables");
+        var folder = ProjectDirectory();
+        // mdsnippets marks the first line of an include, which would break the fence of the diagram
+        var diagram = Environment.NewLine + await File.ReadAllTextAsync(Path.Combine(folder, "SqlServerTables.verified.md"));
+        var include = Path.Combine(folder, "..", "..", "docs", "sqlserver-tables.include.md");
+        if (!File.Exists(include) ||
+            await File.ReadAllTextAsync(include) != diagram)
+        {
+            await File.WriteAllTextAsync(include, diagram);
+        }
+    }
+
+    static string ProjectDirectory([CallerFilePath] string path = "") =>
+        Path.GetDirectoryName(path)!;
+
     [Test]
     public async Task Install_Again()
     {

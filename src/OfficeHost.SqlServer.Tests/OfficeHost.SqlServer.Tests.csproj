@@ -7,6 +7,7 @@
   <ItemGroup>
     <Using Include="System.Net" />
     <Using Include="System.Text" />
+    <Using Include="System.Runtime.CompilerServices" />
     <Using Include="System.Security.Cryptography" />
     <Using Include="Microsoft.AspNetCore.Builder" />
     <Using Include="Microsoft.AspNetCore.Hosting" />
@@ -20,6 +21,7 @@
     <Using Include="VerifyTUnit.Verifier" Static="true" />
     <PackageReference Include="TUnit" />
     <PackageReference Include="Verify.TUnit" />
+    <PackageReference Include="Verify.SqlServer" />
     <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
     <PackageReference Include="Microsoft.Data.SqlClient" />
