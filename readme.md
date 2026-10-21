@@ -3,41 +3,28 @@
 [![Build](https://github.com/Papyrine/OfficeHost/actions/workflows/build.yml/badge.svg)](https://github.com/Papyrine/OfficeHost/actions/workflows/build.yml)
 [![NuGet Status](https://img.shields.io/nuget/v/OfficeHost.svg?label=OfficeHost)](https://www.nuget.org/packages/OfficeHost/)
 
-The host side of the Office document protocols as a library for ASP.NET Core (.NET 10), formerly the WopiServer
-package. Add it to a web application, and clients of the Web Application Open Platform Interface
-([WOPI](https://learn.microsoft.com/en-us/microsoft-365/cloud-storage-partner-program/online/)) (Collabora Online,
-ONLYOFFICE, Microsoft 365 for the web) open, edit and save the files of any storage the application has.
+The host side of the Office document protocols as a library for ASP.NET Core. Add it to a web application, and clients of the Web Application Open Platform Interface ([WOPI](https://learn.microsoft.com/en-us/microsoft-365/cloud-storage-partner-program/online/)) (Collabora Online, ONLYOFFICE, Microsoft 365 for the web) open, edit and save the files of any storage the application has.
 
 
 ## How it works
 
-1. A user opens a document in the application. The application asks `OfficeLauncher` for the URL of the editor and a WOPI
-   access token, scoped to that file and user.
+1. A user opens a document in the application. The application asks `OfficeLauncher` for the URL of the editor and a WOPI access token, scoped to that file and user.
 2. The page of the application posts the token to the editor URL, usually in an iframe.
-3. The editor calls the WOPI endpoints the library maps (`/wopi/files/{fileId}`) to read the file metadata, lock the
-   file, and get and save its content. The library checks the token and the locks, and goes to the storage of the
-   application through `IOfficeStorage`.
+3. The editor calls the WOPI endpoints the library maps (`/wopi/files/{fileId}`) to read the file metadata, lock the file, and get and save its content. The library checks the token and the locks, and goes to the storage of the application through `IOfficeStorage`.
 
 
 ## Features
 
-* The WOPI file operations: CheckFileInfo, GetFile, PutFile, Lock, GetLock, RefreshLock, Unlock, UnlockAndRelock,
-  PutRelativeFile, RenameFile, DeleteFile, PutUserInfo. Conformance to [MS-WOPI] is tested section by section, and
-  Microsoft's WOPI validator passes.
-* Access tokens that grant a user's access to one file: signed tokens out of the box, or any token scheme through
-  `IOfficeTokens`.
-* The discovery of the WOPI clients, to launch their actions and validate the proof keys of their requests
-  (`X-WOPI-Proof`).
+* The WOPI file operations: CheckFileInfo, GetFile, PutFile, Lock, GetLock, RefreshLock, Unlock, UnlockAndRelock, PutRelativeFile, RenameFile, DeleteFile, PutUserInfo. Conformance to [MS-WOPI] is tested section by section, and Microsoft's WOPI validator passes.
+* Access tokens that grant a user's access to one file: signed tokens out of the box, or any token scheme through `IOfficeTokens`.
+* The discovery of the WOPI clients, to launch their actions and validate the proof keys of their requests (`X-WOPI-Proof`).
 * Pluggable storage and locks: `FileSystemStorage` and `MemoryLockStore` are included.
-* Desktop Office, in preview: Word and Excel open, edit and save files through the cell storage service of SharePoint
-  ([MS-FSSHTTP]), Word with the shared lock and coauthoring, Excel with an exclusive lock. See
-  [Desktop Office](#desktop-office).
+* Desktop Office, in preview: Word and Excel open, edit and save files through the cell storage service of SharePoint ([MS-FSSHTTP]), Word with the shared lock and coauthoring, Excel with an exclusive lock. See [Desktop Office](#desktop-office).
 
 
 ## Usage
 
-The code below is from [the sample](#sample), which imports the `OfficeHost` namespace. Register a storage and the WOPI
-services, map the WOPI endpoints, and add the pages that open a file:
+The code below is from [the sample](#sample), which imports the `OfficeHost` namespace. Register a storage and the WOPI services, map the WOPI endpoints, and add the pages that open a file:
 
 <!-- snippet: Registration -->
 <a id='snippet-Registration'></a>
@@ -105,9 +92,7 @@ app.MapGet(
 <sup><a href='/src/OfficeHost.Sample/Program.cs#L11-L71' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-A page decides what the user may do with the file, gets the URL of the editor and an access token from `OfficeLauncher`,
-and returns a page that posts the token to the editor in an iframe
-([`SamplePages.Editor`](src/OfficeHost.Sample/SamplePages.cs)):
+A page decides what the user may do with the file, gets the URL of the editor and an access token from `OfficeLauncher`, and returns a page that posts the token to the editor in an iframe ([`SamplePages.Editor`](src/OfficeHost.Sample/SamplePages.cs)):
 
 <!-- snippet: Launch -->
 <a id='snippet-Launch'></a>
@@ -157,16 +142,12 @@ static async Task<IResult> Open(
 <sup><a href='/src/OfficeHost.Sample/Program.cs#L82-L124' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-The WOPI clients call back the application: they must reach it at the URL of the request that launched the editor, or
-at `BaseUrl` when it differs, as when the editor runs in a container or behind a reverse proxy.
+The WOPI clients call back the application: they must reach it at the URL of the request that launched the editor, or at `BaseUrl` when it differs, as when the editor runs in a container or behind a reverse proxy.
 
 
 ## Sample
 
-[src/OfficeHost.Sample](src/OfficeHost.Sample) is this setup as a running application: it lists the files of a folder
-and opens them in Collabora Online, with a host page that loads the editor in an iframe. To try it, start Collabora
-Online (CODE) in Docker, allowing it to call back the sample. Home mode turns off its welcome dialog, and caps it at 20
-connections and 10 documents, which is plenty for trying the sample:
+[src/OfficeHost.Sample](src/OfficeHost.Sample) is this setup as a running application: it lists the files of a folder and opens them in Collabora Online, with a host page that loads the editor in an iframe. To try it, start Collabora Online (CODE) in Docker, allowing it to call back the sample. Home mode turns off its welcome dialog, and caps it at 20 connections and 10 documents, which is plenty for trying the sample:
 
 ```pwsh
 docker run --rm --publish 9980:9980 --add-host host.docker.internal:host-gateway --env "domain=host\.docker\.internal.*" --env "extra_params=--o:ssl.enable=false --o:ssl.termination=false --o:home_mode.enable=true" collabora/code
@@ -178,9 +159,7 @@ Then run the sample, and open http://localhost:5000:
 dotnet run --project src/OfficeHost.Sample
 ```
 
-It starts with a `Welcome.docx` in `src/OfficeHost.Sample/files`; add files there to open them too. Edit opens a file
-with write access, View read only. The URLs and the signing key are in its `appsettings.json`: `OfficeHost:BaseUrl` is how
-Collabora reaches the sample (`host.docker.internal` from the container), and `Sample:AppUrl` how the browser does.
+It starts with a `Welcome.docx` in `src/OfficeHost.Sample/files`; add files there to open them too. Edit opens a file with write access, View read only. The URLs and the signing key are in its `appsettings.json`: `OfficeHost:BaseUrl` is how Collabora reaches the sample (`host.docker.internal` from the container), and `Sample:AppUrl` how the browser does.
 
 
 ## Options
@@ -212,16 +191,12 @@ editor.
 * `ViewOnly`: no download, print or copy.
 * `IsAnonymous`, `UserName`: how the editor shows the user.
 
-The built-in tokens carry the access, signed with `SigningKey`, so they need no storage, but cannot be revoked before
-they expire. To keep tokens in a database, or tie them to the application's sessions, register an `IOfficeTokens`.
+The built-in tokens carry the access, signed with `SigningKey`, so they need no storage, but cannot be revoked before they expire. To keep tokens in a database, or tie them to the application's sessions, register an `IOfficeTokens`.
 
 
 ## Storage
 
-The storage is the application's: implement `IOfficeStorage` over a database, blob storage or a document management
-system. File ids are chosen by the storage, and must not change when a file is saved or renamed, as WOPI clients keep
-using them. A missing file throws `FileNotFoundException`. The storage, the stores below and `IOfficeTokens` can be
-registered with any lifetime, as scoped for a storage over a database context.
+The storage is the application's: implement `IOfficeStorage` over a database, blob storage or a document management system. File ids are chosen by the storage, and must not change when a file is saved or renamed, as WOPI clients keep using them. A missing file throws `FileNotFoundException`. The storage, the stores below and `IOfficeTokens` can be registered with any lifetime, as scoped for a storage over a database context.
 
 ```csharp
 public interface IOfficeStorage
@@ -236,54 +211,32 @@ public interface IOfficeStorage
 }
 ```
 
-`FileSystemStorage` keeps the files in a folder, for development, tests and single machines. It gives each file an id
-on first use (`GetFileId("reports/q3.docx")`), kept in a hidden `.wopi` folder so that ids survive renames, and writes
-through a temporary file so that a save never leaves a partial file.
+`FileSystemStorage` keeps the files in a folder, for development, tests and single machines. It gives each file an id on first use (`GetFileId("reports/q3.docx")`), kept in a hidden `.wopi` folder so that ids survive renames, and writes through a temporary file so that a save never leaves a partial file.
 
-Locks are kept by an `IOfficeLockStore`. The default `MemoryLockStore` suits a single instance of the application;
-several instances need a shared store, such as one over Redis or a database, with an atomic compare and exchange.
+Locks are kept by an `IOfficeLockStore`. The default `MemoryLockStore` suits a single instance of the application; several instances need a shared store, such as one over Redis or a database, with an atomic compare and exchange.
 
-PutUserInfo, where the editors keep per-user data such as the tips a user has seen, is supported when an
-`IOfficeUserInfoStore` is registered.
+PutUserInfo, where the editors keep per-user data such as the tips a user has seen, is supported when an `IOfficeUserInfoStore` is registered.
 
-The state of desktop coauthoring (the data elements Office syncs, the coauthoring session) is kept by an
-`IFssHttpStore`: the default `MemoryFssHttpStore` for a single instance, `FileSystemFssHttpStore` for a single machine,
-or a shared store with an atomic compare and exchange. The file stays in the storage: a lost state only makes Office
-download the file again. A WOPI DeleteFile deletes the state of the file too; an application that deletes files itself
-calls `IFssHttpStore.Delete` after them, or the state stays, unused.
+The state of desktop coauthoring (the data elements Office syncs, the coauthoring session) is kept by an `IFssHttpStore`: the default `MemoryFssHttpStore` for a single instance, `FileSystemFssHttpStore` for a single machine, or a shared store with an atomic compare and exchange. The file stays in the storage: a lost state only makes Office download the file again. A WOPI DeleteFile deletes the state of the file too; an application that deletes files itself calls `IFssHttpStore.Delete` after them, or the state stays, unused.
 
 
 ## Desktop Office
 
-Preview. Desktop Word opens files as it opens those of a SharePoint site: through the cell storage service of
-[MS-FSSHTTP], which syncs a file in chunks ([MS-FSSHTTPB], [MS-FSSHTTPD]), shares the lock between the users of a
-coauthoring session, and keeps an editors table.
+Preview. Desktop Word opens files as it opens those of a SharePoint site: through the cell storage service of [MS-FSSHTTP], which syncs a file in chunks ([MS-FSSHTTPB], [MS-FSSHTTPD]), shares the lock between the users of a coauthoring session, and keeps an editors table.
 
-* `MapFssHttp()` maps the sites: `{DesktopPath}/{token}/{name}` is the URL of a file, the token of `IOfficeTokens` in its
-  path standing for the file and the user, as Office blocks Basic and forms-based sign-in by default.
-* `OfficeLauncher.LaunchDesktop(access, request)` gives the link that opens the file: `ms-word:ofe|u|{url}` (or
-  `ms-excel:`, `ms-powerpoint:`; `ofv` without write access).
-* The lock of desktop editing is a lock of the `IOfficeLockStore`, so WOPI clients and desktop Office do not edit a file
-  at the same time. A file changed outside desktop Office is synced as a new revision, keeping the unchanged chunks.
-* Word coauthors: several users edit a document at once, sharing its lock. Excel does not: the first user to type in a
-  workbook takes an exclusive lock, and Excel tells the others who has it.
+* `MapFssHttp()` maps the sites: `{DesktopPath}/{token}/{name}` is the URL of a file, the token of `IOfficeTokens` in its path standing for the file and the user, as Office blocks Basic and forms-based sign-in by default.
+* `OfficeLauncher.LaunchDesktop(access, request)` gives the link that opens the file: `ms-word:ofe|u|{url}` (or `ms-excel:`, `ms-powerpoint:`; `ofv` without write access).
+* The lock of desktop editing is a lock of the `IOfficeLockStore`, so WOPI clients and desktop Office do not edit a file at the same time. A file changed outside desktop Office is synced as a new revision, keeping the unchanged chunks.
+* Word coauthors: several users edit a document at once, sharing its lock. Excel does not: the first user to type in a workbook takes an exclusive lock, and Excel tells the others who has it.
 
-The host must use HTTPS with a certificate Windows trusts. A host in the Internet zone opens in Protected View first, as
-SharePoint Online does. Tested with Word and Excel for Microsoft 365 16.0.20326 on Windows; PowerPoint is not tested.
-Notes on what Office does that the specs do not say are in [docs/fsshttp-notes.md](docs/fsshttp-notes.md), and the
-check by hand in [docs/fsshttp-checklist.md](docs/fsshttp-checklist.md).
+The host must use HTTPS with a certificate Windows trusts. A host in the Internet zone opens in Protected View first, as SharePoint Online does. Tested with Word and Excel for Microsoft 365 16.0.20326 on Windows; PowerPoint is not tested. Notes on what Office does that the specs do not say are in [docs/fsshttp-notes.md](docs/fsshttp-notes.md), and the check by hand in [docs/fsshttp-checklist.md](docs/fsshttp-checklist.md).
 
 
 ## Proof keys
 
-WOPI clients that publish a `proof-key` in their discovery sign their requests ([MS-WOPI] 2.2.1). The requests that
-carry `X-WOPI-Proof` are validated against the keys of `DiscoveryUrls`: the current and the old key, for clients that
-rotate theirs. The keys are cached for an hour, and refetched on a mismatch when over a minute old, so forged requests
-do not turn into a discovery request each. When a client is down, its last keys are kept, and its discovery is attempted
-again once a minute.
+WOPI clients that publish a `proof-key` in their discovery sign their requests ([MS-WOPI] 2.2.1). The requests that carry `X-WOPI-Proof` are validated against the keys of `DiscoveryUrls`: the current and the old key, for clients that rotate theirs. The keys are cached for an hour, and refetched on a mismatch when over a minute old, so forged requests do not turn into a discovery request each. When a client is down, its last keys are kept, and its discovery is attempted again once a minute.
 
-Requests without proof are accepted unless `RequireProof` is set. The signed URL is `BaseUrl` (or the request's) and the
-path and query of the request, so `BaseUrl` must be the URL the clients call.
+Requests without proof are accepted unless `RequireProof` is set. The signed URL is `BaseUrl` (or the request's) and the path and query of the request, so `BaseUrl` must be the URL the clients call.
 
 
 ## Development
