@@ -68,7 +68,8 @@ public class ExcelTests
     }
 
     /// <summary>
-    /// A second Excel cannot take the lock or save, and the LockStatus says who has the file.
+    /// A second Excel cannot take the lock or save. The refusal names the user in its ErrorMessage, which Excel shows in
+    /// its File In Use, and the LockStatus has the lock, as SharePoint answers.
     /// </summary>
     [Test]
     public async Task LockedByAnother()
@@ -80,9 +81,11 @@ public class ExcelTests
 
         var refused = await Lock(bob, id: "{B0B0B0B0-0000-4000-8000-000000000000}");
         await Assert.That(refused[0].ErrorCode).IsEqualTo("FileAlreadyLockedOnServer");
+        await Assert.That(refused[0].ErrorMessage).IsEqualTo("Alice");
         await Assert.That(refused[1].ErrorCode).IsEqualTo("Success");
-        await Assert.That(refused[1].Attribute("LockType")).IsEqualTo("ExclusiveLock");
-        await Assert.That(refused[1].Attribute("LockID")).IsEqualTo(lockId.Trim('{', '}'));
+        await Assert.That(refused[1].ErrorMessage).IsNull();
+        await Assert.That(refused[1].Attribute("LockType")).IsEqualTo("2");
+        await Assert.That(refused[1].Attribute("LockID")).IsEqualTo(lockId.Trim('{', '}').ToLowerInvariant());
         await Assert.That(refused[1].Attribute("LockedBy")).IsEqualTo("Alice");
 
         var save = await bob.Save(Book("bob"), "{B0B0B0B0-0000-4000-8000-000000000000}", exclusive: true);
@@ -103,14 +106,16 @@ public class ExcelTests
         async Task<SubResult> Status(WordClient client) =>
             (await client.Send(WordClient.SubRequest("LockStatus", "1"))).Single();
 
-        await Assert.That((await Status(bob)).Attribute("LockType")).IsEqualTo("None");
+        await Assert.That((await Status(bob)).Attribute("LockType")).IsEqualTo("0");
 
         await alice.Send(alice.Join());
         var schema = await Status(bob);
-        await Assert.That(schema.Attribute("LockType")).IsEqualTo("SchemaLock");
-        await Assert.That(schema.Attribute("LockID")).IsEqualTo(WordClient.SchemaLockId.Trim('{', '}'));
+        await Assert.That(schema.Attribute("LockType")).IsEqualTo("1");
+        await Assert.That(schema.Attribute("LockID")).IsEqualTo(WordClient.SchemaLockId.Trim('{', '}').ToLowerInvariant());
         await Assert.That(schema.Attribute("LockedBy")).IsEqualTo("Alice");
-        await Assert.That((await Lock(bob))[0].ErrorCode).IsEqualTo("FileAlreadyLockedOnServer");
+        var refused = (await Lock(bob))[0];
+        await Assert.That(refused.ErrorCode).IsEqualTo("FileAlreadyLockedOnServer");
+        await Assert.That(refused.ErrorMessage).IsEqualTo("Alice");
         await alice.Coauth("ExitCoauthoring");
 
         var token = await host.Token(TestServerHost.Access(fileId, userId: "carol"));
@@ -120,9 +125,12 @@ public class ExcelTests
         }
 
         var wopiLock = await Status(bob);
-        await Assert.That(wopiLock.Attribute("LockType")).IsEqualTo("ExclusiveLock");
+        await Assert.That(wopiLock.Attribute("LockType")).IsEqualTo("2");
         await Assert.That(wopiLock.Attribute("LockID")).IsNull();
-        await Assert.That((await Lock(bob))[0].ErrorCode).IsEqualTo("FileAlreadyLockedOnServer");
+        var wopiRefused = (await Lock(bob))[0];
+        await Assert.That(wopiRefused.ErrorCode).IsEqualTo("FileAlreadyLockedOnServer");
+        // nobody to name for a WOPI lock
+        await Assert.That(wopiRefused.ErrorMessage).IsNull();
     }
 
     /// <summary>

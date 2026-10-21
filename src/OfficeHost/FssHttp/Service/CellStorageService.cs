@@ -66,13 +66,19 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
                 hResult = failHResult;
             }
 
-            subResponses.Add(
-                new(
-                    soap + "SubResponse",
-                    new XAttribute("SubRequestToken", token),
-                    new XAttribute("ErrorCode", errorCode),
-                    new XAttribute("HResult", hResult),
-                    data));
+            var subResponse = new XElement(
+                soap + "SubResponse",
+                new XAttribute("SubRequestToken", token),
+                new XAttribute("ErrorCode", errorCode));
+            // SharePoint names the user who has the lock in the ErrorMessage, which Excel shows in its File In Use
+            if (errorCode == "FileAlreadyLockedOnServer" &&
+                LockHolder(await sessions.Get(site.FileId, cancel)) is { } holder)
+            {
+                subResponse.Add(new XAttribute("ErrorMessage", holder));
+            }
+
+            subResponse.Add(new XAttribute("HResult", hResult), data);
+            subResponses.Add(subResponse);
         }
 
         return new(
@@ -951,29 +957,26 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
 
     /// <summary>
     /// LockStatus (2.3.1.50): the lock of the file, its id and its user, as Excel asks when it cannot take the exclusive
-    /// lock. A WOPI lock is exclusive, with neither.
+    /// lock, and names the user in its File In Use. A WOPI lock is exclusive, with neither. The LockType is a number, as
+    /// SharePoint sends it (0 none, 1 shared, 2 exclusive): Excel ignores the answer with the name of the type
+    /// (docs/fsshttp-notes.md).
     /// </summary>
     async Task<string> LockStatus(FssHttpSite site, XElement data, Cancel cancel)
     {
         var session = await sessions.Get(site.FileId, cancel);
-        if (session.ExclusiveLockId != null)
+        var lockId = session.ExclusiveLockId ?? session.SchemaLockId;
+        if (lockId != null)
         {
-            data.Add(new XAttribute("LockType", "ExclusiveLock"), new XAttribute("LockID", session.ExclusiveLockId.Trim('{', '}')));
-            if (session.ExclusiveOwner != null)
+            var type = "1";
+            if (session.ExclusiveLockId != null)
             {
-                data.Add(new XAttribute("LockedBy", session.ExclusiveOwner));
+                type = "2";
             }
 
-            return success;
-        }
-
-        if (session.SchemaLockId != null)
-        {
-            data.Add(new XAttribute("LockType", "SchemaLock"), new XAttribute("LockID", session.SchemaLockId.Trim('{', '}')));
-            if (session.Editors.Count > 0)
+            data.Add(new XAttribute("LockType", type), new XAttribute("LockID", lockId.Trim('{', '}').ToLowerInvariant()));
+            if (LockHolder(session) is { } holder)
             {
-                var editor = session.Editors[0];
-                data.Add(new XAttribute("LockedBy", editor.UserName ?? editor.UserId));
+                data.Add(new XAttribute("LockedBy", holder));
             }
 
             return success;
@@ -981,12 +984,33 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
 
         if (await sessions.ForeignLock(site.FileId, cancel) != null)
         {
-            data.Add(new XAttribute("LockType", "ExclusiveLock"));
+            data.Add(new XAttribute("LockType", "2"));
             return success;
         }
 
-        data.Add(new XAttribute("LockType", "None"));
+        data.Add(new XAttribute("LockType", "0"));
         return success;
+    }
+
+    /// <summary>
+    /// The name of the user who has the lock of the session: that of the exclusive lock, or the first editor of the
+    /// shared lock; null when unknown.
+    /// </summary>
+    static string? LockHolder(Session session)
+    {
+        if (session.ExclusiveLockId != null)
+        {
+            return session.ExclusiveOwner;
+        }
+
+        if (session.SchemaLockId != null &&
+            session.Editors.Count > 0)
+        {
+            var editor = session.Editors[0];
+            return editor.UserName ?? editor.UserId;
+        }
+
+        return null;
     }
 
     /// <summary>

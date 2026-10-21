@@ -368,31 +368,30 @@ the `desktop` launch profile of the sample.
 - **The service** sends `vti_canmaybeedit` (false without write access) and the lock id and type. Excel locked and
   saved with it; whether Excel needs it was not isolated, as the tests without it were through COM.
 
-### LockStatus
+### Locked out: the user is named in the ErrorMessage of the refusal
 
-- **Spec:** [MS-FSSHTTP] 2.3.1.50: `LockType`, `LockID` and `LockedBy`, all optional.
-- **SharePoint** answered `DependentOnlyOnFailRequestSucceeded`, the lock having succeeded, so the capture has no
-  answer of it. The service answers the exclusive lock (with its user), the shared lock of coauthoring (with the first
-  editor), a WOPI lock (exclusive, with neither) or `None`.
-
-### Locked out: File In Use, then File Now Available, then still read-only
-
-Excel against the sample, with the workbook locked by another user (an ExclusiveLock `GetLock` sent as user bob, as
-Excel sends it). A second Windows account or machine running Excel would be the same to the server.
-- **The open** is as usual, read-only, with "We opened this workbook read-only from the server" and an Edit Workbook
-  button.
-- **Typing, or Edit Workbook,** sends the `GetLock` and its `LockStatus`: `FileAlreadyLockedOnServer`, and the
-  `LockStatus` with `LockType="ExclusiveLock"`, the lock id and `LockedBy="Bob User"`. Excel shows "File In Use":
-  "This file is locked for editing by another user", with view a read-only copy, save and edit a copy, and receive a
-  notification when the server file is available.
-- **Excel never names the user:** not from `LockedBy`, nor from `vti_sourcecontrolcheckedoutby` in `GetDocMetaInfo`
-  (SharePoint's property for the user of a lock), both sent.
-- **The notification** polls every 30 seconds or so: ExclusiveLock `CheckLockAvailability`
-  (`Scenario: GetLock_CheckForLockAvailibility`) with a lock id of its own. `FileAlreadyLockedOnServer` while the lock
-  is held; on the first `Success` after the release, Excel shows "File Now Available" with a Read-Write button.
-- **Read-Write leaves the workbook read-only** ("This workbook is locked for editing by another user"), without
-  sending any request, whether or not the open's `GetDocMetaInfo` had the other user's lock properties (tried both).
-  Closing the workbook and opening it again edits it. Whether SharePoint gets the same needs a capture of two users.
+Two users on SharePoint Server: one had the workbook open in Excel and had typed in it, the other (captured) opened
+it, typed, kept the notification, and clicked Read-Write once the first closed Excel. Then the same against the sample,
+with the lock taken by a script as user bob, as Excel takes it.
+- **The open** of the second user is as usual, read-only, with "We opened this workbook read-only from the server"
+  and an Edit Workbook button. SharePoint's `GetDocMetaInfo` has the first user's lock: `vti_sourcecontrollockid` and
+  `vti_sourcecontrollocktype=0`.
+- **Typing, or Edit Workbook,** sends the `GetLock` and its `LockStatus`. SharePoint answers:
+  - the `GetLock` with `ErrorCode="FileAlreadyLockedOnServer"` and **`ErrorMessage`, the display name of the user who
+    has the lock**, the optional ErrorMessage of the SubResponse, which the spec does not tie to locks;
+  - the `LockStatus` with `LockType="2"` (the number, where the spec's LockTypes, 2.2.5.9, are names), the lock id in
+    lower case without braces, and `LockedBy`, the display name again.
+- **File In Use** says "This file is locked for editing by <ErrorMessage>". Without the `ErrorMessage` it says
+  "another user", whatever the `LockStatus` (`LockedBy`, and `LockType` as a name or a number) and `GetDocMetaInfo`
+  (`vti_sourcecontrolcheckedoutby`) say: tried each against the sample. The service sends the `ErrorMessage` with
+  every `FileAlreadyLockedOnServer` whose lock it knows the user of, and `LockStatus` as SharePoint does.
+- **The notification** polls every 30 seconds: ExclusiveLock `CheckLockAvailability`
+  (`Scenario: GetLock_CheckForLockAvailibility`) with a lock id of its own, `FileAlreadyLockedOnServer` while the lock
+  is held. On the first `Success`, Excel shows "File Now Available" with a Read-Write button.
+- **Read-Write leaves the workbook read-only, on SharePoint too.** Against SharePoint it opens the workbook again
+  (`WhoAmI` and `GetDocMetaInfo`, then `OpenFile_Open`) and stays read-only, without a `GetLock` when the user types;
+  a save is a Save As. Against the sample it sends nothing, and the bar says "This workbook is locked for editing by
+  another user". Either way the user closes the workbook and opens it again to edit it.
 
 ### GetVersions
 

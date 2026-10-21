@@ -5,7 +5,7 @@ using Microsoft.Net.Http.Headers;
 /// <summary>
 /// A sub-response of the cell storage service, with the binary data of a Cell sub-response.
 /// </summary>
-record SubResult(string Token, string ErrorCode, XElement Data, byte[]? Binary)
+record SubResult(string Token, string ErrorCode, XElement Data, byte[]? Binary, string? ErrorMessage = null)
 {
     public FssHttpBResponse FssHttpB => FssHttpBResponse.Read(Binary!);
 
@@ -126,7 +126,7 @@ class WordClient(TestServerHost host, string accessToken, string? clientId = nul
                     binary = parts[href["cid:".Length..]];
                 }
 
-                return new SubResult((string) _.Attribute("SubRequestToken")!, (string) _.Attribute("ErrorCode")!, data, binary);
+                return new SubResult((string) _.Attribute("SubRequestToken")!, (string) _.Attribute("ErrorCode")!, data, binary, (string?) _.Attribute("ErrorMessage"));
             })
             .ToList();
     }
