@@ -95,9 +95,11 @@ public static class OfficeHostExtensions
 
     /// <summary>
     /// Maps the pages that open a file in a WOPI client, <c>/edit/{fileId}</c> and <c>/view/{fileId}</c>, which
-    /// <see cref="OfficeHostOptions.HostEditUrl"/> and <see cref="OfficeHostOptions.HostViewUrl"/> can point at; map them
-    /// on a group for a prefix. <paramref name="access"/> decides the access of the user of the request to the file, for
-    /// the action (<c>edit</c> or <c>view</c>), or null to refuse it with a 403. The page is
+    /// <see cref="OfficeHostOptions.HostEditUrl"/> and <see cref="OfficeHostOptions.HostViewUrl"/> can point at, and
+    /// <c>/editnew/{fileId}</c>, for a new document: an empty file the application created, which the WOPI client fills
+    /// on its first save. Map them on a group for a prefix. <paramref name="access"/> decides the access of the user of
+    /// the request to the file, for the action (<c>edit</c>, <c>editnew</c> or <c>view</c>), or null to refuse it with a
+    /// 403. The page is
     /// <see cref="OfficeLaunch.HostPage"/>. A missing file is a 404, an unreachable WOPI client a 503, and an action no
     /// WOPI client offers for the file a 400, unless <paramref name="onError"/> returns a result of its own for them.
     /// </summary>
@@ -109,6 +111,7 @@ public static class OfficeHostExtensions
         var group = endpoints.MapGroup("");
         group.MapGet("/edit/{fileId}", (HttpContext context, string fileId, OfficeLauncher launcher) => OpenPage(context, fileId, "edit", launcher, access, onError));
         group.MapGet("/view/{fileId}", (HttpContext context, string fileId, OfficeLauncher launcher) => OpenPage(context, fileId, "view", launcher, access, onError));
+        group.MapGet("/editnew/{fileId}", (HttpContext context, string fileId, OfficeLauncher launcher) => OpenPage(context, fileId, "editnew", launcher, access, onError));
         return group;
     }
 

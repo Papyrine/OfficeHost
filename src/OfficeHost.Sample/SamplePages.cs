@@ -50,6 +50,15 @@ static class SamplePages
              <main>
                <h1>Files</h1>
                <p>The files of <code>{WebUtility.HtmlEncode(storage.Root)}</code>. Add files to the folder to see them here.</p>
+               <form method="post" action="/new">
+                 <select name="type" aria-label="Type">
+                   <option value="docx">Word document</option>
+                   <option value="xlsx">Excel workbook</option>
+                   <option value="pptx">PowerPoint presentation</option>
+                 </select>
+                 <button name="open" value="browser">New, in the browser</button>
+                 <button name="open" value="desktop">New, in desktop Office</button>
+               </form>
                <table>{rows}</table>
              </main>
              """);

@@ -15,6 +15,10 @@ public partial class SampleTests : IAsyncDisposable
             <app name="writer">
               <action name="edit" ext="docx" urlsrc="https://collabora/browser/1/cool.html?"/>
               <action name="view" ext="docx" urlsrc="https://collabora/browser/1/cool.html?permission=readonly&amp;"/>
+              <action name="editnew" ext="docx" urlsrc="https://collabora/browser/1/cool.html?new=docx&amp;"/>
+            </app>
+            <app name="calc">
+              <action name="editnew" ext="xlsx" urlsrc="https://collabora/browser/1/cool.html?new=xlsx&amp;"/>
             </app>
           </net-zone>
         </wopi-discovery>
@@ -145,6 +149,59 @@ public partial class SampleTests : IAsyncDisposable
         var access = (await factory.Services.GetRequiredService<IOfficeTokens>().Validate(token))!.Access;
         await Assert.That(access.UserId).IsEqualTo(userId);
         await Assert.That(access.UserName).IsEqualTo(userName);
+    }
+
+    /// <summary>
+    /// A new document is an empty file of the first free name, opened with the editnew action of the WOPI client,
+    /// whose first save writes it, or in desktop Office.
+    /// </summary>
+    [Test]
+    public async Task NewDocument_Browser()
+    {
+        using var client = factory.CreateClient(new() { AllowAutoRedirect = false });
+        var location = await New(client, "xlsx", "browser");
+        var fileId = factory.Services.GetRequiredService<FileSystemStorage>().GetFileId("Workbook 1.xlsx");
+        await Assert.That(location).IsEqualTo($"/editnew/{Uri.EscapeDataString(fileId)}");
+        await Assert.That(new FileInfo(Path.Combine(folder, "Workbook 1.xlsx")).Length).IsEqualTo(0);
+        await Assert.That(await New(client, "xlsx", "browser")).Contains("/editnew/");
+        await Assert.That(File.Exists(Path.Combine(folder, "Workbook 2.xlsx"))).IsTrue();
+
+        var page = await client.GetStringAsync(location);
+        var form = LaunchForm().Match(page);
+        await Assert.That(WebUtility.HtmlDecode(form.Groups[1].Value)).StartsWith("https://collabora/browser/1/cool.html?new=xlsx&WOPISrc=");
+
+        // the first save of the editor needs no lock, as the file is empty
+        var token = WebUtility.HtmlDecode(form.Groups[2].Value);
+        using var save = new HttpRequestMessage(HttpMethod.Post, $"/wopi/files/{Uri.EscapeDataString(fileId)}/contents?access_token={Uri.EscapeDataString(token)}")
+        {
+            Content = new ByteArrayContent("saved"u8.ToArray())
+        };
+        save.Headers.Add("X-WOPI-Override", "PUT");
+        using var saved = await client.SendAsync(save);
+        await Assert.That(saved.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await Assert.That(await File.ReadAllTextAsync(Path.Combine(folder, "Workbook 1.xlsx"))).IsEqualTo("saved");
+    }
+
+    [Test]
+    public async Task NewDocument_Desktop()
+    {
+        using var client = factory.CreateClient(new() { AllowAutoRedirect = false });
+        var location = await New(client, "docx", "desktop");
+        var fileId = factory.Services.GetRequiredService<FileSystemStorage>().GetFileId("Document 1.docx");
+        await Assert.That(location).IsEqualTo($"/desktop/{Uri.EscapeDataString(fileId)}");
+        var page = await client.GetStringAsync(location);
+        var link = WebUtility.HtmlDecode(DesktopLink().Match(page).Groups[1].Value);
+        await Assert.That(link).StartsWith("ms-word:ofe|u|http://localhost/fsshttp/");
+        await Assert.That(link).EndsWith("/Document%201.docx");
+    }
+
+    static async Task<string> New(HttpClient client, string type, string open)
+    {
+        using var response = await client.PostAsync(
+            "/new",
+            new FormUrlEncodedContent([new("type", type), new("open", open)]));
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Redirect);
+        return response.Headers.Location!.ToString();
     }
 
     [Test]
