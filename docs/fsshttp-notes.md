@@ -470,8 +470,9 @@ OfficeHost disagreed. OfficeHost now answers as SharePoint SE does:
   | No `FileOperation` | SharePoint fails; OfficeHost `InvalidArgument` |
 
 - **OfficeHost** renames through `IOfficeStorage.Rename`, with the `CanRename` of the access, as WOPI's RenameFile.
-  The site of the file keeps working under its new name, the token in its path standing for the file; so a request to
-  the old name finds the file too, where SharePoint answers `FileNotExistsOrCannotBeCreated`.
+  The site of the file keeps working under its new name, the token in its path standing for the file. A request to the
+  old name fails with `FileNotExistsOrCannotBeCreated` (a GET or HEAD with a 404), as on SharePoint: the name in the
+  URL picks the file since Save As (see "New files" below).
 
 ### Versions
 
@@ -525,6 +526,45 @@ now answers the same:
   the data elements added: a GUID that was the same on every save of the run, `7A 05 24 00 03 05 44 00`, then a number
   that grew from save to save. Office saves to OfficeHost without them; the codec keeps them as `Extra`. SharePoint also
   returns the data elements added without B being set.
+
+### New files
+
+Word 16.0.20326 against the lab and the sample, driven through COM (`SaveAs2`), captured with `fsshttp-capture.ps1`.
+
+- **An empty file** (0 bytes, as an application makes for a new document): SharePoint serves it as any file, and Word
+  opens a blank document; against the sample too, which syncs the empty stream as a cell (`NewFileTests.EmptyFile`).
+  Its first save is an ordinary Put Changes. Office for the web does the same through WOPI: the `editnew` action of
+  the discovery, on an empty file, whose first PutFile needs no lock ([MS-WOPI] 3.3.5.3.2, `ApiTests.Launch_EditNew`).
+- **Save As to the same library**, against the lab:
+  1. a FrontPage RPC (`application/x-vermeer-rpc`, the web of the new URL) and `lists.asmx`
+     `GetListContentTypesAndProperties`, through WinINet; against the sample, whose OPTIONS announces no FrontPage,
+     neither;
+  2. `HEAD` of the new URL: 404;
+  3. one cell storage Request to the new URL (`X-RequestStats: Operation=SaveAs`): a Cell sub-request whose Put
+     Changes has the whole file, a new Storage Index and no expected one, flags `0x48` (no imply null), additional
+     flags `0x0004`, with `Coalesce`, `CoauthVersioning`, `GetFileProps`, and `BypassLockID` and `ExclusiveLockID` of
+     a new id with `Timeout="600"`; then, on its success, ExclusiveLock `ConvertToSchemaJoinCoauth` (and
+     `ConvertToSchema` on not supported), the editors table metadata, a Cell query of the editors table, `WhoAmI`,
+     `GetDocMetaInfo`, `GetVersions` and `ServerTime`. SharePoint answers all `Success`: the Cell created the file
+     and took the exclusive lock, which the ExclusiveLock turned into a session;
+  4. Word goes on with the new file: IsOnlyClient with its ResourceID as the `id`, its saves, and the lock release of
+     the old one.
+- **OfficeHost** (`NewFileTests`): the name in a document URL of the site (`{site}/{name}`, the Request `Url`, the
+  path of a GET or HEAD) picks the file: the file of the token under its current name, or a file the site made by
+  Save As. With `CanWriteRelative` (and `CanWrite`), as the Save As of WOPI, a Request with a Put Changes to a free
+  name creates the file next to the file of the token (`IOfficeStorage.CreateSibling`), or takes over an unlocked file
+  of that name; the Cell takes the exclusive lock its `ExclusiveLockID` and `Timeout` name. A created file whose Put
+  fails is deleted again. The files a site made are kept with the state of the file of its token (`SaveAsFiles`, a
+  partition of the `IFssHttpStore`), by a hash of the token until it expires, so the site reaches those and no other
+  file of the folder; IsOnlyClient finds them by ResourceID. Only the Open XML formats are created; another name
+  answers `FileNotExistsOrCannotBeCreated`, as does any name without `CanWriteRelative`. A HEAD of a file the site
+  could take over answers 200 without the content, so that Word asks before replacing it.
+- **Against the sample**, with tokens of 12 characters, Word saved as `SavedAs.docx`, then edited and coauthored it
+  through the site. With the built-in tokens as they were, JSON Web Tokens of about 270 characters, it did not: Word
+  refuses a document URL of more than 255 characters ("String is longer than 255 characters"). The built-in tokens
+  are now compact (`SignedToken`, about 70 characters), and Word saved as through them too.
+- **The cell partitions** of OfficeHost's own state (the coauthoring session, the Save As files) are refused to Cell
+  sub-requests with `InvalidPartition`: a client could otherwise read or forge them.
 
 ### SharePoint wants a line break before the first MIME boundary
 

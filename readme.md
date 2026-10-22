@@ -187,7 +187,7 @@ editor.
 * `ViewOnly`: no download, print or copy.
 * `IsAnonymous`, `UserName`: how the editor shows the user.
 
-The built-in tokens carry the access, signed with `SigningKey`, so they need no storage, but cannot be revoked before they expire. To keep tokens in a database, or tie them to the application's sessions, register an `IOfficeTokens`.
+The built-in tokens carry the access, signed with `SigningKey`, so they need no storage, but cannot be revoked before they expire. They are short (about 70 characters, longer with long ids or user names), as desktop Office holds the token in the URL of the file and refuses a Save As to a URL of more than 255 characters; a custom `IOfficeTokens` should keep its tokens short too. To keep tokens in a database, or tie them to the application's sessions, register an `IOfficeTokens`.
 
 
 ## Storage

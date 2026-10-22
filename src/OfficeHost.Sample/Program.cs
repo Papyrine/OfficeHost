@@ -57,6 +57,8 @@ app.MapGet(
         {
             UserName = $"{char.ToUpperInvariant(user[0])}{user[1..]} User",
             CanWrite = true,
+            // Save As to a new name in the folder
+            CanWriteRelative = true,
             // the rename of Office's title bar
             CanRename = true
         };

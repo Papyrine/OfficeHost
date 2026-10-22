@@ -31,7 +31,7 @@ specifics.
 - `OfficeHostExtensions.cs`: `AddOfficeHost` and `MapOfficeHost`, with the endpoint filter adding the X-WOPI headers of
   [MS-WOPI] 2.2.1 and turning unexpected exceptions into 500s.
 - `OfficeHostOptions.cs`, `OfficeAccess.cs` (the access a token grants, `IOfficeTokens` and the built-in signed tokens
-  on `Jwt.cs`), `OfficeLauncher.cs` (the links that open a file in a WOPI client or in desktop Office), `FileNames.cs`
+  on `SignedToken.cs`, a compact format so that desktop URLs stay short), `OfficeLauncher.cs` (the links that open a file in a WOPI client or in desktop Office), `FileNames.cs`
   (legal names, UTF-7 names of PutRelativeFile and RenameFile).
 - `Storage/`: `IOfficeStorage.cs` (with `IOfficeUserInfoStore`), `FileSystemStorage.cs`, and the state of desktop
   coauthoring, opaque to its store: `IFssHttpStore.cs`, `MemoryFssHttpStore.cs`, `FileSystemFssHttpStore.cs`. `Lock/`:
