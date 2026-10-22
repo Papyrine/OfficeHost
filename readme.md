@@ -89,6 +89,8 @@ app.MapGet(
         {
             UserName = $"{char.ToUpperInvariant(user[0])}{user[1..]} User",
             CanWrite = true,
+            // Save As to a new name in the folder
+            CanWriteRelative = true,
             // the rename of Office's title bar
             CanRename = true
         };
@@ -96,10 +98,10 @@ app.MapGet(
         return Results.Content(SamplePages.Desktop(link), "text/html");
     });
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L11-L66' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L11-L68' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-`MapOfficePages` maps the pages that open a file in a WOPI client, `/edit/{fileId}` and `/view/{fileId}`. The application gives it the access of the user to the file, which only it can decide from its own users and permissions, or null to refuse it with a 403, and optionally its own results for the errors:
+`MapOfficePages` maps the pages that open a file in a WOPI client, `/edit/{fileId}` and `/view/{fileId}`, and `/editnew/{fileId}` for a new document. The application gives it the access of the user to the file, which only it can decide from its own users and permissions, or null to refuse it with a 403, and optionally its own results for the errors:
 
 <!-- snippet: Launch -->
 <a id='snippet-Launch'></a>
@@ -108,7 +110,7 @@ app.MapGet(
 // refuse it
 static ValueTask<OfficeAccess?> Access(HttpContext context, string fileId, string action)
 {
-    var canWrite = action == "edit";
+    var canWrite = action is "edit" or "editnew";
     var access = new OfficeAccess(fileId, "demo")
     {
         UserName = "Demo User",
@@ -133,12 +135,40 @@ static IResult? OnError(HttpContext context, Exception exception)
     return null;
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L77-L106' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L99-L128' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The page is `OfficeLaunch.HostPage()`: a form posts the access token to the editor, in a full-page iframe. An application that puts the editor in a page of its own calls `OfficeLauncher.Launch` itself, and takes the form, the iframe and the script from `HostPageHtml()`. A missing file is a 404, a WOPI client that cannot be reached a 503, and an action no WOPI client offers for the file a 400.
 
 The WOPI clients call back the application: they must reach it at the URL of the request that launched the editor, or at `BaseUrl` when it differs, as when the editor runs in a container or behind a reverse proxy.
+
+A new document is an empty file the application creates in its storage, then opens: with the `editnew` action of the WOPI client (Office for the web and Collabora Online offer it), or in desktop Office. The first save writes it, and a WOPI client's first PutFile needs no lock, as the file is empty:
+
+<!-- snippet: NewDocument -->
+<a id='snippet-NewDocument'></a>
+```cs
+// a new document: an empty file, which the WOPI client (its editnew action) or desktop Office fills on the first save
+app.MapPost(
+    "/new",
+    async (HttpRequest request) =>
+    {
+        var form = await request.ReadFormAsync();
+        var name = SampleFiles.NewName(folder, form["type"].ToString());
+        await File.WriteAllBytesAsync(Path.Combine(folder, name), []);
+        var fileId = Uri.EscapeDataString(storage.GetFileId(name));
+        var page = $"/editnew/{fileId}";
+        if (form["open"] == "desktop")
+        {
+            page = $"/desktop/{fileId}";
+        }
+
+        return Results.Redirect(page);
+    });
+```
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L70-L88' title='Snippet source file'>snippet source</a> | <a href='#snippet-NewDocument' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+Desktop Office can also Save As: with `CanWriteRelative`, as for the Save As of the WOPI clients, the file is created next to the one being edited, and edited on through the same link.
 
 
 ## Sample
@@ -155,7 +185,7 @@ Then run the sample, and open http://localhost:5000:
 dotnet run --project src/OfficeHost.Sample
 ```
 
-It starts with a `Welcome.docx` in `src/OfficeHost.Sample/files`; add files there to open them too. Edit opens a file with write access, View read only. Desktop Office needs HTTPS: the `desktop` launch profile (`dotnet run --project src/OfficeHost.Sample --launch-profile desktop`) serves it, and `/desktop/{fileId}` opens a file in Word, Excel or PowerPoint, `?user=` for a second user to coauthor. The URLs and the signing key are in its `appsettings.json`: `OfficeHost:BaseUrl` is how Collabora reaches the sample (`host.docker.internal` from the container), and `Sample:AppUrl` how the browser does.
+It starts with a `Welcome.docx` in `src/OfficeHost.Sample/files`; add files there to open them too, or make a new Word document, Excel workbook or PowerPoint presentation from the top of the list. Edit opens a file with write access, View read only. Desktop Office needs HTTPS: the `desktop` launch profile (`dotnet run --project src/OfficeHost.Sample --launch-profile desktop`) serves it, and `/desktop/{fileId}` opens a file in Word, Excel or PowerPoint, `?user=` for a second user to coauthor. The URLs and the signing key are in its `appsettings.json`: `OfficeHost:BaseUrl` is how Collabora reaches the sample (`host.docker.internal` from the container), and `Sample:AppUrl` how the browser does.
 
 
 ## Options
@@ -187,7 +217,7 @@ editor.
 * `ViewOnly`: no download, print or copy.
 * `IsAnonymous`, `UserName`: how the editor shows the user.
 
-The built-in tokens carry the access, signed with `SigningKey`, so they need no storage, but cannot be revoked before they expire. To keep tokens in a database, or tie them to the application's sessions, register an `IOfficeTokens`.
+The built-in tokens carry the access, signed with `SigningKey`, so they need no storage, but cannot be revoked before they expire. They are short (about 70 characters, longer with long ids or user names), as desktop Office holds the token in the URL of the file and refuses a Save As to a URL of more than 255 characters; a custom `IOfficeTokens` should keep its tokens short too. To keep tokens in a database, or tie them to the application's sessions, register an `IOfficeTokens`.
 
 
 ## Storage

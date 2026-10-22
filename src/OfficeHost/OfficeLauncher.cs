@@ -121,7 +121,7 @@ public sealed partial class OfficeLauncher
     /// The Office URI scheme of the Open XML formats, the ones the cell storage service syncs by their zip items
     /// ([MS-FSSHTTPD] 2.4.1).
     /// </summary>
-    static string? DesktopScheme(string extension) =>
+    internal static string? DesktopScheme(string extension) =>
         extension switch
         {
             ".docx" or ".docm" or ".dotx" or ".dotm" => "ms-word",

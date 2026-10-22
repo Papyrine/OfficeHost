@@ -16,6 +16,7 @@ public class ApiTests
             <app name="Word">
               <action name="view" ext="docx" urlsrc="https://office/wv/wordviewerframe.aspx?&lt;ui=UI_LLCC&amp;&gt;&lt;rs=DC_LLCC&amp;&gt;"/>
               <action name="edit" ext="docx" urlsrc="https://office/we/wordeditorframe.aspx?lang=en"/>
+              <action name="editnew" ext="docx" requires="locks,update" urlsrc="https://office/we/wordeditorframe.aspx?new=1"/>
             </app>
           </net-zone>
         </wopi-discovery>
@@ -109,6 +110,42 @@ public class ApiTests
         await Assert.That(launch.Url).StartsWith(expected);
     }
 
+    /// <summary>
+    /// A new document in Office for the web: the application creates an empty file in its storage and launches the
+    /// editnew action on it; the client's first save is a PutFile without a lock, which an empty file accepts
+    /// ([MS-WOPI] 3.3.5.3.2), and after it the file is no longer empty.
+    /// </summary>
+    [Test]
+    public async Task Launch_EditNew()
+    {
+        await using var host = await StartWithDiscovery();
+        await File.WriteAllBytesAsync(host.PathOf("/new.docx"), []);
+        var fileId = host.Storage.GetFileId("new.docx");
+        var launch = await host.Service<OfficeLauncher>().Launch(TestServerHost.Access(fileId), "editnew");
+        await Assert.That(launch.Url).StartsWith("https://office/we/wordeditorframe.aspx?new=1&WOPISrc=");
+
+        var path = $"/wopi/files/{Uri.EscapeDataString(fileId)}";
+        using var info = await host.Client.GetAsync($"{path}?access_token={launch.AccessToken}");
+        await Assert.That((long?) JsonNode.Parse(await info.Content.ReadAsStringAsync())!["Size"]).IsEqualTo(0);
+
+        static HttpRequestMessage PutFile(string path, string token, string content)
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{path}/contents?access_token={token}")
+            {
+                Content = new StringContent(content)
+            };
+            request.Headers.Add("X-WOPI-Override", "PUT");
+            return request;
+        }
+
+        using var first = await host.Client.SendAsync(PutFile(path, launch.AccessToken, "new content"));
+        await Assert.That(first.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await Assert.That(await File.ReadAllTextAsync(host.PathOf("/new.docx"))).IsEqualTo("new content");
+
+        using var second = await host.Client.SendAsync(PutFile(path, launch.AccessToken, "other"));
+        await Assert.That(second.StatusCode).IsEqualTo(HttpStatusCode.Conflict);
+    }
+
     [Test]
     public async Task Launch_NoAction()
     {
@@ -185,28 +222,80 @@ public class ApiTests
 
         await Assert.That(await tokens.Validate($"{token.Value}x")).IsNull();
         await Assert.That(await tokens.Validate("not a token")).IsNull();
-        await Assert.That(await tokens.Validate(Jwt.Encode(new { fid = "file", uid = "alice", w = true, exp = 4102444800 }, "another key that is long enough, too"))).IsNull();
+        var otherKey = Encoding.UTF8.GetBytes("another key that is long enough, too");
+        await Assert.That(await tokens.Validate(SignedToken.Encode(TestServerHost.Access("file"), DateTimeOffset.UtcNow.AddHours(1), otherKey))).IsNull();
         time.Advance(TimeSpan.FromHours(1));
         await Assert.That(await tokens.Validate(token.Value)).IsNull();
     }
 
     /// <summary>
-    /// The tokens are HS256 JSON Web Tokens that need an exp claim.
+    /// The signed tokens hold every right of the access, and nothing but a token signed with the key, whole and unchanged,
+    /// is one.
     /// </summary>
     [Test]
-    public async Task Jwt_RoundTrip()
+    public async Task SignedToken_RoundTrip()
     {
-        const string key = "a key for the JSON web tokens";
-        var token = Jwt.Encode(new { a = "b", exp = 2000 }, key);
-        await Assert.That(Jwt.Decode<JsonObject>(token, key, 1999)["a"]!.GetValue<string>()).IsEqualTo("b");
-        Assert.Throws<JwtException>(() => Jwt.Decode<JsonObject>(token, key, 2000));
-        Assert.Throws<JwtException>(() => Jwt.Decode<JsonObject>(Jwt.Encode(new { a = "b" }, key), key, 0));
-        var none = $"{Base64Url(new { alg = "none" })}.{token.Split('.')[1]}.";
-        Assert.Throws<JwtException>(() => Jwt.Decode<JsonObject>(none, key, 0));
+        var key = Encoding.UTF8.GetBytes("a key for the signed tokens, long enough");
+        var expires = DateTimeOffset.FromUnixTimeSeconds(2000);
+        var now = DateTimeOffset.FromUnixTimeSeconds(1999);
+        OfficeAccess[] accesses =
+        [
+            new("file", "user"),
+            new("fïlé/ünicode", "üser")
+            {
+                UserName = "Zoë Example",
+                IsAnonymous = true,
+                CanWrite = true,
+                CanWriteRelative = true,
+                CanRename = true,
+                ViewOnly = true
+            },
+            new("file", "user")
+            {
+                CanWriteRelative = true
+            }
+        ];
+        foreach (var access in accesses)
+        {
+            var token = SignedToken.Encode(access, expires, key);
+            await Assert.That(SignedToken.Decode(token, key, now)).IsEqualTo((access, expires));
+        }
+
+        var valid = SignedToken.Encode(accesses[1], expires, key);
+        await Assert.That(SignedToken.Decode(valid, key, expires)).IsNull();
+        await Assert.That(SignedToken.Decode(valid[..^1], key, now)).IsNull();
+        await Assert.That(SignedToken.Decode(valid[1..], key, now)).IsNull();
+        await Assert.That(SignedToken.Decode("", key, now)).IsNull();
+        await Assert.That(SignedToken.Decode("not a token!", key, now)).IsNull();
+        await Assert.That(SignedToken.Decode(new('A', 5000), key, now)).IsNull();
+
+        // any byte changed fails the signature
+        var bytes = System.Buffers.Text.Base64Url.DecodeFromChars(valid);
+        for (var index = 0; index < bytes.Length; index++)
+        {
+            var changed = bytes.ToArray();
+            changed[index] ^= 0x01;
+            await Assert.That(SignedToken.Decode(System.Buffers.Text.Base64Url.EncodeToString(changed), key, now)).IsNull();
+        }
     }
 
-    static string Base64Url(object value) =>
-        System.Buffers.Text.Base64Url.EncodeToString(JsonSerializer.SerializeToUtf8Bytes(value));
+    /// <summary>
+    /// A token for an access of the sample is short, so that a desktop site URL with a file name stays under the 255
+    /// characters Word accepts for a Save As.
+    /// </summary>
+    [Test]
+    public async Task SignedToken_Short()
+    {
+        var access = new OfficeAccess("jCT-Sx_4ei7yZbxe", "demo")
+        {
+            UserName = "Demo User",
+            CanWrite = true,
+            CanWriteRelative = true,
+            CanRename = true
+        };
+        var token = SignedToken.Encode(access, DateTimeOffset.UtcNow.AddHours(10), Encoding.UTF8.GetBytes("a key for the signed tokens, long enough"));
+        await Assert.That(token.Length).IsLessThan(80);
+    }
 
     [Test]
     public async Task SigningKey_Required()

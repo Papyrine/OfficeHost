@@ -29,6 +29,28 @@ static class SampleFiles
             """<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Welcome to the OfficeHost sample. Edit this document, and save it.</w:t></w:r></w:p></w:body></w:document>""");
     }
 
+    /// <summary>
+    /// The first free name of a new document of the type (docx, xlsx or pptx; docx for any other): Document 1.docx,
+    /// Workbook 1.xlsx, Presentation 1.pptx, and so on.
+    /// </summary>
+    public static string NewName(string folder, string type)
+    {
+        var (root, extension) = type switch
+        {
+            "xlsx" => ("Workbook", "xlsx"),
+            "pptx" => ("Presentation", "pptx"),
+            _ => ("Document", "docx")
+        };
+        for (var number = 1; ; number++)
+        {
+            var name = $"{root} {number}.{extension}";
+            if (!File.Exists(Path.Combine(folder, name)))
+            {
+                return name;
+            }
+        }
+    }
+
     static void Add(ZipArchive zip, string name, string content)
     {
         using var writer = new StreamWriter(zip.CreateEntry(name).Open());

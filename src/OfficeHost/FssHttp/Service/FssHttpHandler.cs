@@ -14,6 +14,7 @@ class FssHttpHandler(
     IOfficeStorage storage,
     CellStorageService service,
     CoauthSessions sessions,
+    FssHttpTargets targets,
     IOptions<OfficeHostOptions> options)
 {
     const string defaultServerVersion = "16.0.0.0";
@@ -33,7 +34,7 @@ class FssHttpHandler(
 
         var settings = options.Value;
         var sitePath = $"{request.PathBase}{settings.DesktopPath.TrimEnd('/')}/{token}";
-        var site = new FssHttpSite(validated.Access, $"{request.DesktopBaseUrl(settings)}{settings.DesktopPath.TrimEnd('/')}/{token}");
+        var site = new FssHttpSite(validated.Access, $"{request.DesktopBaseUrl(settings)}{settings.DesktopPath.TrimEnd('/')}/{token}", token, validated.Expires);
         response.Headers["MicrosoftSharePointTeamServices"] = settings.ServerVersion ?? defaultServerVersion;
         var path = rest ?? "";
         var method = request.Method;
@@ -64,7 +65,7 @@ class FssHttpHandler(
         if ((HttpMethods.IsGet(method) || HttpMethods.IsHead(method)) &&
             !path.Contains("_vti_", StringComparison.OrdinalIgnoreCase))
         {
-            await Document(context, validated.Access, cancel);
+            await Document(context, site, path, cancel);
             return;
         }
 
@@ -130,6 +131,22 @@ class FssHttpHandler(
     /// </summary>
     async Task IsOnlyClient(HttpContext context, FssHttpSite site, Cancel cancel)
     {
+        // the id is the ResourceID of the document: after a Save As, that of the new file
+        string? id = null;
+        try
+        {
+            var document = await XDocument.LoadAsync(context.Request.Body, LoadOptions.None, cancel);
+            id = document.Descendants().FirstOrDefault(_ => _.Name.LocalName == "id")?.Value;
+        }
+        catch (XmlException)
+        {
+        }
+
+        if (Guid.TryParse(id, out var resourceId))
+        {
+            site = await targets.Find(site, resourceId, cancel) ?? site;
+        }
+
         var result = await sessions.Change(
             site.FileId,
             _ => new("Success", _ with
@@ -154,12 +171,35 @@ class FssHttpHandler(
     }
 
     /// <summary>
-    /// The document itself, for a client that falls back from the cell storage service.
+    /// The document the path names (<see cref="FssHttpTargets"/>), for a client that falls back from the cell storage
+    /// service. Before a Save As, Word checks with a HEAD that the new name is free: a file of that name that the site
+    /// could take over is answered without its content.
     /// </summary>
-    async Task Document(HttpContext context, OfficeAccess access, Cancel cancel)
+    async Task Document(HttpContext context, FssHttpSite site, string path, Cancel cancel)
     {
         var response = context.Response;
-        var file = await storage.GetFile(access.FileId, cancel);
+        string? name = null;
+        if (path.Length > 0)
+        {
+            name = path;
+        }
+
+        var target = await targets.Find(site, name, cancel);
+        OfficeFile? file;
+        if (target.Site != null)
+        {
+            file = await storage.GetFile(target.Site.FileId, cancel);
+        }
+        else if (target.SaveAsExisting != null &&
+                 HttpMethods.IsHead(context.Request.Method))
+        {
+            file = target.SaveAsExisting;
+        }
+        else
+        {
+            file = null;
+        }
+
         if (file == null)
         {
             response.StatusCode = StatusCodes.Status404NotFound;

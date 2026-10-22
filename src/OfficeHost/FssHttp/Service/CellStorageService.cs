@@ -3,9 +3,22 @@ using System.IO.Compression;
 /// <summary>
 /// The file and user a cell storage request is for, from the token in its path, and the URL of its site.
 /// </summary>
-record FssHttpSite(OfficeAccess Access, string WebUrl)
+/// <param name="Token">The token in the path of the site, and when it expires.</param>
+record FssHttpSite(OfficeAccess Access, string WebUrl, string Token, DateTimeOffset Expires)
 {
     public string FileId => Access.FileId;
+
+    /// <summary>
+    /// The site as it reaches another file, one it made by Save As: the same user, with the same rights.
+    /// </summary>
+    public FssHttpSite For(string fileId) =>
+        this with
+        {
+            Access = Access with
+            {
+                FileId = fileId
+            }
+        };
 
     /// <summary>
     /// The ResourceID and TransitionID of the file ([MS-FSSHTTP] 2.3.1.7): a GUID of its id.
@@ -19,7 +32,7 @@ record FssHttpSite(OfficeAccess Access, string WebUrl)
 /// The cell storage service ([MS-FSSHTTP] 3.1.4): runs the sub-requests of each Request, in order, as their dependencies
 /// allow (2.2.5.3), and answers each with a SubResponse.
 /// </summary>
-class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessions sessions)
+class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessions sessions, FssHttpTargets targets, SaveAsFiles saveAs, IFssHttpStore store)
 {
     static XNamespace soap = SoapMessage.Soap;
     // E_FAIL, the HResult of SharePoint with an error code (MS-FSSHTTP 4.1.2)
@@ -36,7 +49,7 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
         var responses = new List<XElement>();
         foreach (var request in body.Descendants(soap + "Request"))
         {
-            responses.Add(await Request(message, request, site, mtom, cancel));
+            responses.Add(await Target(message, request, site, mtom, cancel));
         }
 
         return new(
@@ -48,6 +61,101 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
                 new XElement(soap + "ResponseVersion", new XAttribute("Version", "2"), new XAttribute("MinorVersion", "3")),
                 new XElement(soap + "ResponseCollection", new XAttribute("WebUrl", site.WebUrl), responses)));
     }
+
+    /// <summary>
+    /// A Request for the file its Url names (<see cref="FssHttpTargets"/>). A Save As is a Request to the URL of a new
+    /// name in the site, whose Cell puts the whole file (docs/fsshttp-notes.md): the file is created, or an unlocked file
+    /// of that name taken over, and the Request runs on it; a file it created is deleted again when the Cell fails. A
+    /// name that names no file fails every sub-request, as on SharePoint.
+    /// </summary>
+    async Task<XElement> Target(SoapMessage message, XElement request, FssHttpSite site, MtomResponse mtom, Cancel cancel)
+    {
+        var target = await targets.Find(site, FssHttpTargets.NameOf(site, (string?) request.Attribute("Url")), cancel);
+        if (target.Site != null)
+        {
+            return await Request(message, request, target.Site, mtom, cancel);
+        }
+
+        var putTokens = request.Elements(soap + "SubRequest")
+            .Where(_ => (string?) _.Attribute("Type") == "Cell" && Puts(message, _))
+            .Select(_ => (string?) _.Attribute("SubRequestToken") ?? "")
+            .ToList();
+        if (target.SaveAsName == null ||
+            putTokens.Count == 0)
+        {
+            return Failed(request, "FileNotExistsOrCannotBeCreated");
+        }
+
+        var file = target.SaveAsExisting;
+        var created = false;
+        if (file == null)
+        {
+            file = await storage.CreateSibling(site.FileId, target.SaveAsName, Stream.Null, false, cancel);
+            created = file != null;
+        }
+        else if ((await sessions.Get(file.Id, cancel)).Lock() != null ||
+                 await sessions.ForeignLock(file.Id, cancel) != null)
+        {
+            return Failed(request, "FileAlreadyLockedOnServer");
+        }
+
+        if (file == null)
+        {
+            // another file took the name meanwhile
+            return Failed(request, "FileAlreadyExists");
+        }
+
+        await saveAs.Add(site, file.Id, cancel);
+        var response = await Request(message, request, site.For(file.Id), mtom, cancel);
+        var failed = response.Elements(soap + "SubResponse")
+            .Any(_ => putTokens.Contains((string?) _.Attribute("SubRequestToken") ?? "") &&
+                      (string?) _.Attribute("ErrorCode") != success);
+        if (created && failed)
+        {
+            await storage.Delete(file.Id, cancel);
+            await store.Delete(file.Id, cancel);
+        }
+
+        return response;
+    }
+
+    /// <summary>
+    /// Whether a Cell sub-request puts changes.
+    /// </summary>
+    static bool Puts(SoapMessage message, XElement subRequest)
+    {
+        if (subRequest.Element(soap + "SubRequestData") is not { } data ||
+            message.Binary(data) is not { } binary)
+        {
+            return false;
+        }
+
+        try
+        {
+            return FssHttpBRequest.Read(binary).SubRequests.Any(_ => _ is PutChangesRequest);
+        }
+        catch (FssHttpBException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// A Response whose sub-requests all fail with the error code.
+    /// </summary>
+    static XElement Failed(XElement request, string errorCode) =>
+        new(
+            soap + "Response",
+            new XAttribute("Url", (string?) request.Attribute("Url") ?? ""),
+            new XAttribute("RequestToken", (string?) request.Attribute("RequestToken") ?? "1"),
+            new XAttribute("HealthScore", "0"),
+            request.Elements(soap + "SubRequest")
+                .Select(_ => new XElement(
+                    soap + "SubResponse",
+                    new XAttribute("SubRequestToken", (string?) _.Attribute("SubRequestToken") ?? ""),
+                    new XAttribute("ErrorCode", errorCode),
+                    new XAttribute("HResult", failHResult),
+                    new XElement(soap + "SubResponseData"))));
 
     async Task<XElement> Request(SoapMessage message, XElement request, FssHttpSite site, MtomResponse mtom, Cancel cancel)
     {
@@ -183,12 +291,33 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
             defaultPartition = Guid.Parse(partitionAttribute);
         }
 
+        // the Cell of a Save As takes the exclusive lock it names, which its ExclusiveLock ConvertToSchemaJoinCoauth then
+        // turns into a coauthoring session, as on SharePoint Server SE
+        if (Attribute(requestData, "ExclusiveLockID") is { } exclusiveLockId &&
+            Int(requestData, "Timeout") is { } timeout &&
+            request.SubRequests.Any(_ => _ is PutChangesRequest))
+        {
+            var locked = await TakeExclusiveLock(site, exclusiveLockId, timeout, cancel);
+            if (locked != success)
+            {
+                return locked;
+            }
+        }
+
         var subResponses = new List<SubResponse>();
         var elements = new Dictionary<ExtendedGuid, DataElement>();
         var package = request.DataElements?.Elements ?? [];
         foreach (var subRequest in request.SubRequests)
         {
             var partition = subRequest.TargetPartition ?? defaultPartition;
+            // the partitions OfficeHost keeps its own state in are not cells
+            if (partition == CoauthSessions.SessionPartition ||
+                partition == SaveAsFiles.Partition)
+            {
+                subResponses.Add(new FailedSubResponse(subRequest.RequestId, subRequest.Type, ResponseError.Cell(CellErrorCode.InvalidPartition)));
+                continue;
+            }
+
             switch (subRequest)
             {
                 case QueryAccessRequest access:
@@ -691,30 +820,7 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
         {
             case "GetLock":
             case "RefreshLock":
-                return (await Change(
-                    site,
-                    _ =>
-                    {
-                        if (!site.Access.CanWrite)
-                        {
-                            return new("FileUnauthorizedAccess", _);
-                        }
-
-                        if (_.Clients.Count > 0 ||
-                            (_.ExclusiveLockId != null && _.ExclusiveLockId != exclusiveLockId))
-                        {
-                            return new("FileAlreadyLockedOnServer", _);
-                        }
-
-                        return new(success, _ with
-                        {
-                            ExclusiveLockId = exclusiveLockId,
-                            ExclusiveExpires = sessions.Now.AddSeconds(timeout),
-                            ExclusiveOwner = site.Access.UserName ?? site.Access.UserId
-                        });
-                    },
-                    null,
-                    cancel)).ErrorCode;
+                return await TakeExclusiveLock(site, exclusiveLockId, timeout, cancel);
             case "ReleaseLock":
                 return (await Change(
                     site,
@@ -787,6 +893,39 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
             default:
                 return "InvalidArgument";
         }
+    }
+
+    /// <summary>
+    /// Takes, or refreshes, the exclusive lock of the id, for <paramref name="timeout"/> seconds (clamped as the
+    /// ExclusiveLock sub-request clamps it).
+    /// </summary>
+    async Task<string> TakeExclusiveLock(FssHttpSite site, string exclusiveLockId, int timeout, Cancel cancel)
+    {
+        timeout = Math.Clamp(timeout, 60, 120_000);
+        return (await Change(
+            site,
+            _ =>
+            {
+                if (!site.Access.CanWrite)
+                {
+                    return new("FileUnauthorizedAccess", _);
+                }
+
+                if (_.Clients.Count > 0 ||
+                    (_.ExclusiveLockId != null && _.ExclusiveLockId != exclusiveLockId))
+                {
+                    return new("FileAlreadyLockedOnServer", _);
+                }
+
+                return new(success, _ with
+                {
+                    ExclusiveLockId = exclusiveLockId,
+                    ExclusiveExpires = sessions.Now.AddSeconds(timeout),
+                    ExclusiveOwner = site.Access.UserName ?? site.Access.UserId
+                });
+            },
+            null,
+            cancel)).ErrorCode;
     }
 
     /// <summary>

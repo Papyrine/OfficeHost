@@ -57,11 +57,33 @@ app.MapGet(
         {
             UserName = $"{char.ToUpperInvariant(user[0])}{user[1..]} User",
             CanWrite = true,
+            // Save As to a new name in the folder
+            CanWriteRelative = true,
             // the rename of Office's title bar
             CanRename = true
         };
         var link = await launcher.LaunchDesktop(access, request);
         return Results.Content(SamplePages.Desktop(link), "text/html");
+    });
+// end-snippet
+
+// begin-snippet: NewDocument
+// a new document: an empty file, which the WOPI client (its editnew action) or desktop Office fills on the first save
+app.MapPost(
+    "/new",
+    async (HttpRequest request) =>
+    {
+        var form = await request.ReadFormAsync();
+        var name = SampleFiles.NewName(folder, form["type"].ToString());
+        await File.WriteAllBytesAsync(Path.Combine(folder, name), []);
+        var fileId = Uri.EscapeDataString(storage.GetFileId(name));
+        var page = $"/editnew/{fileId}";
+        if (form["open"] == "desktop")
+        {
+            page = $"/desktop/{fileId}";
+        }
+
+        return Results.Redirect(page);
     });
 // end-snippet
 if (!string.IsNullOrEmpty(requestLog))
@@ -79,7 +101,7 @@ app.Run();
 // refuse it
 static ValueTask<OfficeAccess?> Access(HttpContext context, string fileId, string action)
 {
-    var canWrite = action == "edit";
+    var canWrite = action is "edit" or "editnew";
     var access = new OfficeAccess(fileId, "demo")
     {
         UserName = "Demo User",

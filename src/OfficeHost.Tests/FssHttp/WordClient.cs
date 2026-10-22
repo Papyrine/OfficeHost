@@ -36,6 +36,12 @@ class WordClient(TestServerHost host, string accessToken, string? clientId = nul
 
     public byte[] File => FileCell.Read(Content!).Root.ToArray();
 
+    /// <summary>
+    /// The Url of the Request, which names the document; null for one outside the site, which names the file of the
+    /// token.
+    /// </summary>
+    public string? DocumentUrl { get; set; }
+
     public static XElement SubRequest(string type, string token, XElement? data = null, string? dependsOn = null, string? dependencyType = null)
     {
         var element = new XElement(soap + "SubRequest", new XAttribute("Type", type), new XAttribute("SubRequestToken", token));
@@ -85,7 +91,13 @@ class WordClient(TestServerHost host, string accessToken, string? clientId = nul
     /// </summary>
     public async Task<List<SubResult>> Send(params XElement[] subRequests)
     {
-        var content = new StringContent(Envelope(subRequests).ToString(), Encoding.UTF8, "text/xml");
+        var envelope = Envelope(subRequests);
+        if (DocumentUrl != null)
+        {
+            envelope.Descendants(soap + "Request").Single().SetAttributeValue("Url", DocumentUrl);
+        }
+
+        var content = new StringContent(envelope.ToString(), Encoding.UTF8, "text/xml");
         using var response = await Post("_vti_bin/cellstorage.svc/CellStorageService", content);
         if (!response.IsSuccessStatusCode)
         {
@@ -153,9 +165,9 @@ class WordClient(TestServerHost host, string accessToken, string? clientId = nul
     /// <summary>
     /// The poll of Office while it is alone in the session ([MS-SHDACCWS] IsOnlyClient).
     /// </summary>
-    public async Task<bool> IsOnlyClient()
+    public async Task<bool> IsOnlyClient(string id = "x")
     {
-        var body = """<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><IsOnlyClient xmlns="http://schemas.microsoft.com/sharepoint/soap/"><id>x</id></IsOnlyClient></s:Body></s:Envelope>""";
+        var body = $"""<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><IsOnlyClient xmlns="http://schemas.microsoft.com/sharepoint/soap/"><id>{id}</id></IsOnlyClient></s:Body></s:Envelope>""";
         using var response = await Post("_vti_bin/sharedaccess.asmx", new StringContent(body, Encoding.UTF8, "text/xml"));
         var xml = XDocument.Parse(await response.Content.ReadAsStringAsync());
         return bool.Parse(xml.Descendants().Single(_ => _.Name.LocalName == "IsOnlyClientResult").Value);
@@ -238,6 +250,53 @@ class WordClient(TestServerHost host, string accessToken, string? clientId = nul
         }
 
         return response;
+    }
+
+    /// <summary>
+    /// A Save As as Word sends it to the URL of the new name (docs/fsshttp-notes.md): one Request whose Cell puts the
+    /// whole file, expecting no Storage Index and implying nothing (flags 0x48), under an exclusive lock of a new id that
+    /// the Cell takes, and an ExclusiveLock ConvertToSchemaJoinCoauth on its success. Then the client holds the new file.
+    /// </summary>
+    public async Task<List<SubResult>> SaveAs(string url, byte[] file)
+    {
+        DocumentUrl = url;
+        var update = FileCell.Write(file, null, ids, ChunkingOptions.Default);
+        var index = update.Storage.StorageIndex;
+        var package = update.Added
+            .Select(_ => _ with { SerialNumber = SerialNumber.Null })
+            .ToList();
+        var put = new PutChangesRequest(1, index.Id, ExtendedGuid.Null, 0x48, new byte[3], new byte[] { 4, 0, 0 });
+        var request = new FssHttpBRequest(new(Guid.NewGuid(), "msword", "win", 1), [put], new(package)).ToArray();
+        var lockId = $"{{{Guid.NewGuid().ToString().ToUpperInvariant()}}}";
+        var results = await Send(
+            Cell(
+                "1",
+                request,
+                new("Coalesce", "true"),
+                new("CoauthVersioning", "true"),
+                new("GetFileProps", "true"),
+                new("BypassLockID", lockId),
+                new("ExclusiveLockID", lockId),
+                new("Timeout", "600")),
+            SubRequest(
+                "ExclusiveLock",
+                "2",
+                Data(
+                    new XAttribute("ExclusiveLockRequestType", "ConvertToSchemaJoinCoauth"),
+                    new XAttribute("ExclusiveLockID", lockId),
+                    new XAttribute("Timeout", "2580"),
+                    CoauthAttributes("").Skip(1)),
+                "1",
+                "OnSuccess"),
+            SubRequest("GetDocMetaInfo", "3"));
+        if (results[0].ErrorCode == "Success" &&
+            results[0].FssHttpB.SubResponses.Single() is PutChangesResponse succeeded)
+        {
+            Content = update.Storage;
+            Knowledge = succeeded.Knowledge;
+        }
+
+        return results;
     }
 
     StorageIndexEntry Remap(StorageIndexEntry entry) =>
