@@ -32,24 +32,39 @@ static class DeadlockRetry
     }
 
     /// <summary>
-    /// Runs an operation that sends the content again once, from where it started, when the content can be read again.
+    /// Runs an operation that sends the content again once, from where it started. A content that cannot be read again,
+    /// as a request body, is copied to a temporary file first, for the run again to send it whole.
     /// </summary>
-    public static async Task<T> Once<T>(Stream content, Func<Task<T>> operation)
+    public static async Task<T> Once<T>(Stream content, Func<Stream, Task<T>> operation, Cancel cancel)
     {
-        long? start = null;
         if (content.CanSeek)
         {
-            start = content.Position;
+            return await Seekable(content, operation);
         }
 
+        await using var buffer = new FileStream(
+            Path.GetTempFileName(),
+            FileMode.Create,
+            FileAccess.ReadWrite,
+            FileShare.None,
+            4096,
+            FileOptions.Asynchronous | FileOptions.DeleteOnClose);
+        await content.CopyToAsync(buffer, cancel);
+        buffer.Position = 0;
+        return await Seekable(buffer, operation);
+    }
+
+    static async Task<T> Seekable<T>(Stream content, Func<Stream, Task<T>> operation)
+    {
+        var start = content.Position;
         try
         {
-            return await operation();
+            return await operation(content);
         }
-        catch (SqlException exception) when (exception.IsDeadlock() && start != null)
+        catch (SqlException exception) when (exception.IsDeadlock())
         {
-            content.Position = start.Value;
-            return await operation();
+            content.Position = start;
+            return await operation(content);
         }
     }
 

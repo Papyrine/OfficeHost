@@ -36,7 +36,7 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
     /// <param name="folder">The folder of the file, of which siblings are the files of the same folder.</param>
     /// <exception cref="ArgumentException">The folder, the name or the owner id is longer than the table holds.</exception>
     public Task<OfficeFile?> Add(string folder, string name, string ownerId, Stream content, Cancel cancel = default) =>
-        DeadlockRetry.Once(content, () => AddAttempt(folder, name, ownerId, content, cancel));
+        DeadlockRetry.Once(content, _ => AddAttempt(folder, name, ownerId, _, cancel), cancel);
 
     async Task<OfficeFile?> AddAttempt(string folder, string name, string ownerId, Stream content, Cancel cancel)
     {
@@ -179,7 +179,7 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
     }
 
     public Task<OfficeFile> Write(string fileId, Stream content, Cancel cancel = default) =>
-        DeadlockRetry.Once(content, () => WriteAttempt(fileId, content, cancel));
+        DeadlockRetry.Once(content, _ => WriteAttempt(fileId, _, cancel), cancel);
 
     async Task<OfficeFile> WriteAttempt(string fileId, Stream content, Cancel cancel)
     {
@@ -199,7 +199,7 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
     /// the table only.
     /// </summary>
     public Task<OfficeFile?> CreateSibling(string fileId, string name, Stream content, bool overwrite, Cancel cancel = default) =>
-        DeadlockRetry.Once(content, () => CreateSiblingAttempt(fileId, name, content, overwrite, cancel));
+        DeadlockRetry.Once(content, _ => CreateSiblingAttempt(fileId, name, _, overwrite, cancel), cancel);
 
     async Task<OfficeFile?> CreateSiblingAttempt(string fileId, string name, Stream content, bool overwrite, Cancel cancel)
     {
