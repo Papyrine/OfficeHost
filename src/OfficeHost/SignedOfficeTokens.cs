@@ -1,10 +1,12 @@
 /// <summary>
-/// Self-contained tokens: the access, signed with the signing key (<see cref="SignedToken"/>).
+/// Self-contained tokens: the access, signed with the signing key (<see cref="SignedToken"/>), and accepted when signed
+/// with a previous one, so that the key can be rotated without ending the sessions.
 /// </summary>
 sealed class SignedOfficeTokens(IOptions<OfficeHostOptions> options, TimeProvider time) :
     IOfficeTokens
 {
     byte[] key = Encoding.UTF8.GetBytes(ValidateKey(options.Value.SigningKey));
+    byte[][] previousKeys = options.Value.PreviousSigningKeys.Select(_ => Encoding.UTF8.GetBytes(ValidateKey(_))).ToArray();
     TimeSpan lifetime = options.Value.TokenLifetime;
 
     static string ValidateKey(string? key)
@@ -25,11 +27,20 @@ sealed class SignedOfficeTokens(IOptions<OfficeHostOptions> options, TimeProvide
 
     public Task<OfficeToken?> Validate(string token, Cancel cancel = default)
     {
-        if (SignedToken.Decode(token, key, time.GetUtcNow()) is not var (access, expires))
+        var now = time.GetUtcNow();
+        if (SignedToken.Decode(token, key, now) is var (access, expires))
         {
-            return Task.FromResult<OfficeToken?>(null);
+            return Task.FromResult<OfficeToken?>(new(token, access, expires));
         }
 
-        return Task.FromResult<OfficeToken?>(new(token, access, expires));
+        foreach (var previous in previousKeys)
+        {
+            if (SignedToken.Decode(token, previous, now) is var (previousAccess, previousExpires))
+            {
+                return Task.FromResult<OfficeToken?>(new(token, previousAccess, previousExpires));
+            }
+        }
+
+        return Task.FromResult<OfficeToken?>(null);
     }
 }

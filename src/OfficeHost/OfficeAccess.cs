@@ -25,7 +25,7 @@ public record OfficeAccess(string FileId, string UserId)
     /// <summary>
     /// The user can create files next to this one, as the Save As of the WOPI clients does (PutRelativeFile), and of
     /// desktop Office, which then edits the new file through the site of the token. Both can also replace an unlocked
-    /// file of the chosen name.
+    /// file of the chosen name, but not this one, nor read a file before replacing it.
     /// </summary>
     public bool CanWriteRelative { get; init; }
 
@@ -35,7 +35,9 @@ public record OfficeAccess(string FileId, string UserId)
     public bool CanRename { get; init; }
 
     /// <summary>
-    /// The user can only view the file in the browser: no download, print or copy (RestrictedWebViewOnly).
+    /// The user can only view the file in the browser: no download, print or copy (RestrictedWebViewOnly). The WOPI
+    /// client enforces it, so it holds only for requests that come from a WOPI client: set
+    /// <see cref="OfficeHostOptions.RequireProof"/>.
     /// </summary>
     public bool ViewOnly { get; init; }
 }

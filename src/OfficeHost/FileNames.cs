@@ -16,9 +16,30 @@ static class FileNames
     /// </summary>
     static SearchValues<char> forbiddenChars = SearchValues.Create("/\\<>:\"|?*");
 
+    /// <summary>
+    /// The names Windows keeps for devices, with or without an extension.
+    /// </summary>
+    static FrozenSet<string> deviceNames = FrozenSet.Create(
+        StringComparer.OrdinalIgnoreCase,
+        [
+            "CON", "PRN", "AUX", "NUL",
+            "COM0", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "COM¹", "COM²", "COM³",
+            "LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "LPT¹", "LPT²", "LPT³"
+        ]);
+
 #pragma warning disable SYSLIB0001
-    public static string DecodeUtf7(string value) =>
-        Encoding.UTF7.GetString(Encoding.UTF8.GetBytes(value));
+    /// <summary>
+    /// The name of UTF-7, which is ASCII: a name that is not, from a client that sent it as is, is kept as is.
+    /// </summary>
+    public static string DecodeUtf7(string value)
+    {
+        if (!Ascii.IsValid(value))
+        {
+            return value;
+        }
+
+        return Encoding.UTF7.GetString(Encoding.UTF8.GetBytes(value));
+    }
 
     public static string EncodeUtf7(string value) =>
         Encoding.ASCII.GetString(Encoding.UTF7.GetBytes(value));
@@ -26,7 +47,7 @@ static class FileNames
 
     /// <summary>
     /// Whether the name designates a file in the current folder. Trailing dots and spaces are illegal too, as Windows
-    /// drops them.
+    /// drops them, and so are the device names of Windows, and a half of a surrogate pair, which UTF-8 cannot hold.
     /// </summary>
     public static bool IsLegal(string name) =>
         name.Length > 0 &&
@@ -35,7 +56,37 @@ static class FileNames
         !name.Any(char.IsControl) &&
         !name.EndsWith('.') &&
         !name.EndsWith(' ') &&
+        !IsDeviceName(name) &&
+        !HasLoneSurrogate(name) &&
         Encoding.UTF8.GetByteCount(name) <= MaxBytes;
+
+    static bool IsDeviceName(string name)
+    {
+        var dot = name.IndexOf('.');
+        var root = dot < 0 ? name.AsSpan() : name.AsSpan(0, dot);
+        return deviceNames.GetAlternateLookup<CharSpan>().Contains(root.TrimEnd(' '));
+    }
+
+    static bool HasLoneSurrogate(CharSpan name)
+    {
+        for (var i = 0; i < name.Length; i++)
+        {
+            if (char.IsHighSurrogate(name[i]) &&
+                i + 1 < name.Length &&
+                char.IsLowSurrogate(name[i + 1]))
+            {
+                i++;
+                continue;
+            }
+
+            if (char.IsSurrogate(name[i]))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// The name with the characters that would make it illegal replaced, and shortened to fit, keeping its extension.
@@ -52,8 +103,20 @@ static class FileNames
                 for (var i = 0; i < span.Length; i++)
                 {
                     var c = name[i];
+                    var pair = char.IsHighSurrogate(c) &&
+                               i + 1 < span.Length &&
+                               char.IsLowSurrogate(name[i + 1]);
+                    if (pair)
+                    {
+                        span[i] = c;
+                        span[i + 1] = name[i + 1];
+                        i++;
+                        continue;
+                    }
+
                     if (forbiddenChars.Contains(c) ||
-                        char.IsControl(c))
+                        char.IsControl(c) ||
+                        char.IsSurrogate(c))
                     {
                         c = '_';
                     }
@@ -61,6 +124,11 @@ static class FileNames
                     span[i] = c;
                 }
             });
+
+        if (IsDeviceName(legal))
+        {
+            legal = $"_{legal}";
+        }
 
         if (Encoding.UTF8.GetByteCount(legal) > MaxBytes)
         {

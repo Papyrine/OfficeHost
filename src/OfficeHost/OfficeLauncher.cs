@@ -20,7 +20,8 @@ public sealed partial class OfficeLauncher
         this.discovery = discovery;
     }
 
-    [GeneratedRegex("<[^>]*>")]
+    // <ui=UI_LLCC&>: the parameter and the placeholder of its value
+    [GeneratedRegex("<(?:(?<parameter>[^=<>]+)=(?<name>[^&<>]+)&?)?[^>]*>")]
     private static partial Regex Placeholder();
 
     /// <summary>
@@ -51,8 +52,8 @@ public sealed partial class OfficeLauncher
         }
 
         var token = await tokens.Issue(access, cancel);
-        // the placeholders like <ui=UI_LLCC&> are optional: drop them
-        var url = Placeholder().Replace(urlSrc, "");
+        // the placeholders like <ui=UI_LLCC&> are optional: those the application gives no value are dropped
+        var url = Placeholder().Replace(urlSrc, _ => PlaceholderValue(settings, access, _));
         var separator = "&";
         if (url.EndsWith('?') ||
             url.EndsWith('&'))
@@ -66,6 +67,19 @@ public sealed partial class OfficeLauncher
 
         url = $"{url}{separator}WOPISrc={Uri.EscapeDataString(WopiHandler.FileUrl(baseUrl, file.Id))}";
         return new(url, token.Value, token.Expires.ToUnixTimeMilliseconds());
+    }
+
+    static string PlaceholderValue(OfficeHostOptions settings, OfficeAccess access, Match match)
+    {
+        var parameter = match.Groups["parameter"];
+        var name = match.Groups["name"];
+        if (!parameter.Success ||
+            settings.UrlPlaceholder?.Invoke(access, name.Value) is not { } value)
+        {
+            return "";
+        }
+
+        return $"{parameter.Value}={Uri.EscapeDataString(value)}&";
     }
 
     /// <summary>

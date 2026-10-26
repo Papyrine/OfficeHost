@@ -6,6 +6,9 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <Using Include="System.Buffers" />
+    <Using Include="System.Collections.Concurrent" />
+    <Using Include="System.Collections.Frozen" />
+    <Using Include="System.Diagnostics.CodeAnalysis" />
     <Using Include="System.Buffers.Text" />
     <Using Include="System.Globalization" />
     <Using Include="System.Net" />

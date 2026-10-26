@@ -123,6 +123,72 @@ public abstract class StorageContractTests
     }
 
     /// <summary>
+    /// A content that cannot be read twice, as a request body, is written whole, also when siblings of the same name are
+    /// created at once with an overwrite: none is left empty.
+    /// </summary>
+    [Test]
+    public async Task Storage_NonSeekable()
+    {
+        var file = (await Add(folder, "file.docx", Content("")))!;
+        await Storage.Write(file.Id, new NonSeekable("written"));
+        await Assert.That(await Read(await Storage.OpenRead(file.Id))).IsEqualTo("written");
+
+        var results = await Task.WhenAll(
+            Enumerable.Range(0, 10)
+                .Select(_ => Task.Run(() => Storage.CreateSibling(file.Id, "race.docx", new NonSeekable($"content {_}"), true))));
+        var sibling = (await Storage.GetSibling(file.Id, "race.docx"))!;
+        await Assert.That(results.All(_ => _!.Id == sibling.Id)).IsTrue();
+        await Assert.That(await Read(await Storage.OpenRead(sibling.Id))).StartsWith("content ");
+    }
+
+    /// <summary>
+    /// Folders that differ by case only are the same folder, as names are.
+    /// </summary>
+    [Test]
+    public async Task Storage_FolderCase()
+    {
+        await Assert.That(await Add($"{folder}/Ab", "x.docx", Content(""))).IsNotNull();
+        await Assert.That(await Add($"{folder}/aB", "x.docx", Content(""))).IsNull();
+        await Assert.That(await Add($"{folder}/Ab", "X.docx", Content(""))).IsNull();
+    }
+
+    /// <summary>
+    /// A stream that can be read once, from start to end.
+    /// </summary>
+    sealed class NonSeekable(string content) :
+        Stream
+    {
+        MemoryStream inner = new(Encoding.UTF8.GetBytes(content));
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            inner.Read(buffer, offset, count);
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+    }
+
+    /// <summary>
     /// Of renames at once to the same name, one is.
     /// </summary>
     [Test]

@@ -5,19 +5,24 @@
 /// </summary>
 /// <param name="Storage">The data elements, null for a partition Office has not written yet.</param>
 /// <param name="FileVersion">The <see cref="OfficeFile.Version"/> the cell holds, null for the other partitions.</param>
-record CellState(CellStorage? Storage, Guid IdGuid, ulong NextId, string? FileVersion)
+/// <param name="BaseFileVersion">For a content cell a Put Changes stored before writing its file (with no
+/// <paramref name="FileVersion"/>), the version of the file the cell was changed from: once the file has another, the
+/// cell is out of date and not written.</param>
+record CellState(CellStorage? Storage, Guid IdGuid, ulong NextId, string? FileVersion, string? BaseFileVersion = null)
 {
-    // "OHC" and the version of the format
-    static ReadOnlySpan<byte> magic => "OHC1"u8;
+    // "OHC" and the version of the format: 2 adds the base file version
+    static ReadOnlySpan<byte> magic => "OHC2"u8;
+
+    static ReadOnlySpan<byte> magic1 => "OHC1"u8;
 
     public static CellState New() => new(null, Guid.NewGuid(), 1, null);
 
     public IdAllocator Ids() => new(IdGuid, NextId);
 
-
     /// <summary>
-    /// The magic and format version, the file version as an optional String Item, the GUID and next value of the
-    /// identifiers, then the Storage Index and a Data Element Package ([MS-FSSHTTPB] 2.2.1), when there is a storage.
+    /// The magic and format version, the file version and the base file version as optional String Items, the GUID and
+    /// next value of the identifiers, then the Storage Index and a Data Element Package ([MS-FSSHTTPB] 2.2.1), when there
+    /// is a storage.
     /// </summary>
     public byte[] ToArray()
     {
@@ -28,6 +33,12 @@ record CellState(CellStorage? Storage, Guid IdGuid, ulong NextId, string? FileVe
         if (FileVersion != null)
         {
             writer.WriteStringItem(FileVersion);
+        }
+
+        WriteOptional(ref writer, BaseFileVersion != null);
+        if (BaseFileVersion != null)
+        {
+            writer.WriteStringItem(BaseFileVersion);
         }
 
         writer.WriteGuid(IdGuid);
@@ -61,7 +72,10 @@ record CellState(CellStorage? Storage, Guid IdGuid, ulong NextId, string? FileVe
         try
         {
             var reader = new FssHttpBReader(data);
-            if (!reader.ReadBytes(4).Span.SequenceEqual(magic))
+            var format = reader.ReadBytes(4).Span;
+            var withBase = format.SequenceEqual(magic);
+            if (!withBase &&
+                !format.SequenceEqual(magic1))
             {
                 throw new InvalidDataException("Not the state of a cell");
             }
@@ -70,6 +84,13 @@ record CellState(CellStorage? Storage, Guid IdGuid, ulong NextId, string? FileVe
             if (ReadOptional(ref reader))
             {
                 fileVersion = reader.ReadStringItem();
+            }
+
+            string? baseFileVersion = null;
+            if (withBase &&
+                ReadOptional(ref reader))
+            {
+                baseFileVersion = reader.ReadStringItem();
             }
 
             var idGuid = reader.ReadGuid();
@@ -82,7 +103,7 @@ record CellState(CellStorage? Storage, Guid IdGuid, ulong NextId, string? FileVe
             }
 
             reader.EnsureEnd("the state of a cell");
-            return new(storage, idGuid, nextId, fileVersion);
+            return new(storage, idGuid, nextId, fileVersion, baseFileVersion);
         }
         catch (FssHttpBException exception)
         {

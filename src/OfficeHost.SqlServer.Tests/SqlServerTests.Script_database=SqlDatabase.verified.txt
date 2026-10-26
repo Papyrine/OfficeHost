@@ -1,6 +1,21 @@
-﻿if schema_id(N'office') is null
+﻿set xact_abort on;
+begin transaction;
+-- instances that install at once take turns
+exec sp_getapplock @Resource = N'OfficeHost.Install office', @LockMode = 'Exclusive', @LockOwner = 'Transaction';
+
+if schema_id(N'office') is null
     exec(N'create schema [office]');
 
+if object_id(N'[office].[OfficeHostSchemaVersion]') is null
+    create table [office].[OfficeHostSchemaVersion] (Version int not null);
+
+declare @version int = (select max(Version) from [office].[OfficeHostSchemaVersion]);
+-- the tables of before the version table are version 1
+if @version is null and object_id(N'[office].[OfficeHostFiles]') is not null
+    set @version = 1;
+
+if isnull(@version, 0) < 1
+begin
 if object_id(N'[office].[OfficeHostFiles]') is null
 begin
     create table [office].[OfficeHostFiles] (
@@ -33,3 +48,30 @@ if object_id(N'[office].[OfficeHostUserInfo]') is null
     create table [office].[OfficeHostUserInfo] (
         UserId nvarchar(450) not null primary key,
         Info nvarchar(max) not null);
+end;
+
+if isnull(@version, 0) < 2
+begin
+declare @OfficeHostFilesDrop nvarchar(max) = N'alter table [office].[OfficeHostFiles] drop constraint ' + quotename((select name from sys.key_constraints where parent_object_id = object_id(N'[office].[OfficeHostFiles]') and type = 'PK'));
+exec(@OfficeHostFilesDrop);
+exec(N'alter table [office].[OfficeHostFiles] alter column Id nvarchar(450) collate Latin1_General_100_BIN2 not null');
+exec(N'alter table [office].[OfficeHostFiles] add constraint [PK_OfficeHostFiles] primary key (Id)');
+declare @OfficeHostLocksDrop nvarchar(max) = N'alter table [office].[OfficeHostLocks] drop constraint ' + quotename((select name from sys.key_constraints where parent_object_id = object_id(N'[office].[OfficeHostLocks]') and type = 'PK'));
+exec(@OfficeHostLocksDrop);
+exec(N'alter table [office].[OfficeHostLocks] alter column FileId nvarchar(450) collate Latin1_General_100_BIN2 not null');
+exec(N'alter table [office].[OfficeHostLocks] add constraint [PK_OfficeHostLocks] primary key (FileId)');
+exec(N'alter table [office].[OfficeHostLocks] alter column LockId nvarchar(1024) collate Latin1_General_100_BIN2 not null');
+declare @OfficeHostFssHttpStatesDrop nvarchar(max) = N'alter table [office].[OfficeHostFssHttpStates] drop constraint ' + quotename((select name from sys.key_constraints where parent_object_id = object_id(N'[office].[OfficeHostFssHttpStates]') and type = 'PK'));
+exec(@OfficeHostFssHttpStatesDrop);
+exec(N'alter table [office].[OfficeHostFssHttpStates] alter column FileId nvarchar(450) collate Latin1_General_100_BIN2 not null');
+exec(N'alter table [office].[OfficeHostFssHttpStates] add constraint [PK_OfficeHostFssHttpStates] primary key (FileId, Partition)');
+exec(N'alter table [office].[OfficeHostFssHttpStates] alter column Version nvarchar(max) collate Latin1_General_100_BIN2 not null');
+declare @OfficeHostUserInfoDrop nvarchar(max) = N'alter table [office].[OfficeHostUserInfo] drop constraint ' + quotename((select name from sys.key_constraints where parent_object_id = object_id(N'[office].[OfficeHostUserInfo]') and type = 'PK'));
+exec(@OfficeHostUserInfoDrop);
+exec(N'alter table [office].[OfficeHostUserInfo] alter column UserId nvarchar(450) collate Latin1_General_100_BIN2 not null');
+exec(N'alter table [office].[OfficeHostUserInfo] add constraint [PK_OfficeHostUserInfo] primary key (UserId)');
+end;
+
+delete from [office].[OfficeHostSchemaVersion];
+insert into [office].[OfficeHostSchemaVersion] (Version) values (2);
+commit;

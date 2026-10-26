@@ -7,6 +7,7 @@ static class SqlServerTables
     public const string Locks = "OfficeHostLocks";
     public const string FssHttpStates = "OfficeHostFssHttpStates";
     public const string UserInfo = "OfficeHostUserInfo";
+    public const string SchemaVersion = "OfficeHostSchemaVersion";
 
     public static string Quote(string identifier) =>
         $"[{identifier.Replace("]", "]]")}]";

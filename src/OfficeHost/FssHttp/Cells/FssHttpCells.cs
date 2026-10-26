@@ -4,7 +4,7 @@
 /// the application), its bytes are written as the next revision of the cell, which keeps the chunks that did not change,
 /// so that Office downloads only the others.
 /// </summary>
-class FssHttpCells(IFssHttpStore store, IOfficeStorage storage)
+class FssHttpCells(IFssHttpStore store, IOfficeStorage storage, FssHttpCellCache cache)
 {
     /// <summary>
     /// The partitions of [MS-FSSHTTP] 2.3.3.1 (PartitionID): the content of the file, its metadata, and the editors
@@ -20,13 +20,23 @@ class FssHttpCells(IFssHttpStore store, IOfficeStorage storage)
 
     public async Task<StoredCell> Get(string fileId, Guid partition, Cancel cancel = default)
     {
+        var key = (fileId, partition);
+        if (cache.TryGet(key, out var cached) &&
+            await store.GetVersion(fileId, partition, cancel) == cached.Version)
+        {
+            return cached;
+        }
+
         var stored = await store.Get(fileId, partition, cancel);
         if (stored == null)
         {
+            cache.Remove(key);
             return new(null, CellState.New());
         }
 
-        return new(stored.Version, CellState.Read(stored.Data));
+        var cell = new StoredCell(stored.Version, CellState.Read(stored.Data));
+        cache.Set(key, cell);
+        return cell;
     }
 
     /// <summary>
@@ -51,11 +61,15 @@ class FssHttpCells(IFssHttpStore store, IOfficeStorage storage)
                 return cell;
             }
 
-            if (cell.State is { Storage: { } pending, FileVersion: null })
+            if (cell.State is { Storage: { } pending, FileVersion: null } &&
+                cell.State.BaseFileVersion == file.Version)
             {
-                // a Put Changes stored the cell, but did not get to write the file
+                // a Put Changes stored the cell, but did not get to write the file, which has not changed since
                 return await WriteFile(fileId, cell, FileCell.Read(pending).Root.ToArray(), cancel);
             }
+
+            // otherwise a cell the file left behind, or that was not written to the file before the file changed, is
+            // written again from the file
 
             var bytes = await ReadFile(fileId, cancel);
             var ids = cell.State.Ids();
@@ -85,10 +99,12 @@ class FssHttpCells(IFssHttpStore store, IOfficeStorage storage)
     /// </summary>
     public async Task<StoredCell> WriteFile(string fileId, StoredCell cell, byte[] bytes, Cancel cancel = default)
     {
-        var file = await storage.Write(fileId, new MemoryStream(bytes), cancel);
+        // the file is written whatever the request becomes: a write left halfway would leave the cell pending
+        var file = await storage.Write(fileId, new MemoryStream(bytes), Cancel.None);
         var state = cell.State with
         {
-            FileVersion = file.Version
+            FileVersion = file.Version,
+            BaseFileVersion = null
         };
         return await TryUpdate(fileId, ContentPartition, cell.Version, state, cancel) ??
                cell with
@@ -106,6 +122,24 @@ class FssHttpCells(IFssHttpStore store, IOfficeStorage storage)
     }
 
     /// <summary>
+    /// Replaces the cell of a partition with one that holds nothing yet and allocates from new ids: the content
+    /// partition is then written again from the file.
+    /// </summary>
+    public async Task Reset(string fileId, Guid partition, Cancel cancel = default)
+    {
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            var cell = await Get(fileId, partition, cancel);
+            if (await TryUpdate(fileId, partition, cell.Version, CellState.New(), cancel) != null)
+            {
+                return;
+            }
+        }
+
+        throw new InvalidOperationException($"The cell of the file {fileId} changed {maxAttempts} times while it was reset");
+    }
+
+    /// <summary>
     /// Stores the state when the stored one still has the version <paramref name="comparand"/>, with a new version.
     /// Null when another write came first.
     /// </summary>
@@ -117,6 +151,8 @@ class FssHttpCells(IFssHttpStore store, IOfficeStorage storage)
             return null;
         }
 
-        return new(version, state);
+        var cell = new StoredCell(version, state);
+        cache.Set((fileId, partition), cell);
+        return cell;
     }
 }

@@ -21,6 +21,9 @@ erDiagram
     nvarchar(1024) LockId
     datetimeoffset Expires
   }
+  OfficeHostSchemaVersion["**OfficeHostSchemaVersion**"] {
+    int Version
+  }
   OfficeHostUserInfo["**OfficeHostUserInfo**"] {
     nvarchar(450) UserId pk
     nvarchar(max) Info

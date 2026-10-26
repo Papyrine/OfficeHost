@@ -9,6 +9,11 @@ record FssHttpSite(OfficeAccess Access, string WebUrl, string Token, DateTimeOff
     public string FileId => Access.FileId;
 
     /// <summary>
+    /// The site of a Save As that replaces a file the site cannot reach otherwise: its content is written, not read.
+    /// </summary>
+    public bool Replacing { get; init; }
+
+    /// <summary>
     /// The site as it reaches another file, one it made by Save As: the same user, with the same rights.
     /// </summary>
     public FssHttpSite For(string fileId) =>
@@ -32,12 +37,32 @@ record FssHttpSite(OfficeAccess Access, string WebUrl, string Token, DateTimeOff
 /// The cell storage service ([MS-FSSHTTP] 3.1.4): runs the sub-requests of each Request, in order, as their dependencies
 /// allow (2.2.5.3), and answers each with a SubResponse.
 /// </summary>
-class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessions sessions, FssHttpTargets targets, SaveAsFiles saveAs, IFssHttpStore store)
+class CellStorageService(
+    IOfficeStorage storage,
+    FssHttpCells cells,
+    CoauthSessions sessions,
+    FssHttpTargets targets,
+    SaveAsFiles saveAs,
+    IFssHttpStore store,
+    IOptions<OfficeHostOptions> options,
+    ILogger<CellStorageService> log)
 {
     static XNamespace soap = SoapMessage.Soap;
     // E_FAIL, the HResult of SharePoint with an error code (MS-FSSHTTP 4.1.2)
     const long failHResult = 2147500037;
     const string success = "Success";
+
+    const int maxRequests = 16;
+
+    const int maxSubRequests = 128;
+
+    /// <summary>
+    /// The most clients sharing the lock, and entries in the editors table: SharePoint lets 99 users coauthor, the
+    /// editors table also has the readers.
+    /// </summary>
+    const int maxClients = 99;
+
+    const int maxEditors = 256;
 
     // the Editors Table Zip Stream Header ([MS-FSSHTTPB] 2.2.3.1.2.1.1)
     static byte[] editorsTableHeader = [0x1A, 0x5A, 0x3A, 0x30, 0x00, 0x00, 0x00, 0x00];
@@ -46,8 +71,16 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
     {
         var body = message.Document.Root?.Element(SoapMessage.Envelope + "Body") ??
                    throw new InvalidDataException("No SOAP body");
+        // Office sends a few requests of a few sub-requests: many more are refused before any runs
+        var requests = body.Descendants(soap + "Request").ToList();
+        if (requests.Count > maxRequests ||
+            requests.Any(_ => _.Elements(soap + "SubRequest").Skip(maxSubRequests).Any()))
+        {
+            throw new InvalidDataException($"More than {maxRequests} requests, or {maxSubRequests} sub-requests in a request");
+        }
+
         var responses = new List<XElement>();
-        foreach (var request in body.Descendants(soap + "Request"))
+        foreach (var request in requests)
         {
             responses.Add(await Target(message, request, site, mtom, cancel));
         }
@@ -105,17 +138,35 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
             return Failed(request, "FileAlreadyExists");
         }
 
-        await saveAs.Add(site, file.Id, cancel);
-        var response = await Request(message, request, site.For(file.Id), mtom, cancel);
+        var fileSite = site.For(file.Id);
+        if (!created)
+        {
+            // the file replaced is not read through the site: its cell is written again from the file with new ids, so
+            // that a Put cannot refer to its data elements, and its content is not queried until the site made it
+            await cells.Reset(file.Id, FssHttpCells.ContentPartition, cancel);
+            fileSite = fileSite with
+            {
+                Replacing = true
+            };
+        }
+
+        var response = await Request(message, request, fileSite, mtom, cancel);
         var failed = response.Elements(soap + "SubResponse")
             .Any(_ => putTokens.Contains((string?) _.Attribute("SubRequestToken") ?? "") &&
                       (string?) _.Attribute("ErrorCode") != success);
-        if (created && failed)
+        if (failed)
         {
-            await storage.Delete(file.Id, cancel);
-            await store.Delete(file.Id, cancel);
+            if (created)
+            {
+                await storage.Delete(file.Id, Cancel.None);
+                await store.Delete(file.Id, Cancel.None);
+            }
+
+            return response;
         }
 
+        // the site reaches the file once it wrote it
+        await saveAs.Add(site, file.Id, cancel);
         return response;
     }
 
@@ -124,17 +175,16 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
     /// </summary>
     static bool Puts(SoapMessage message, XElement subRequest)
     {
-        if (subRequest.Element(soap + "SubRequestData") is not { } data ||
-            message.Binary(data) is not { } binary)
+        if (subRequest.Element(soap + "SubRequestData") is not { } data)
         {
             return false;
         }
 
         try
         {
-            return FssHttpBRequest.Read(binary).SubRequests.Any(_ => _ is PutChangesRequest);
+            return message.FssHttpB(data)?.SubRequests.Any(_ => _ is PutChangesRequest) == true;
         }
-        catch (FssHttpBException)
+        catch (Exception exception) when (exception is FssHttpBException or InvalidDataException)
         {
             return false;
         }
@@ -265,7 +315,7 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
     async Task<string> Cell(SoapMessage message, XElement? requestData, FssHttpSite site, XElement data, MtomResponse mtom, Cancel cancel)
     {
         if (requestData == null ||
-            message.Binary(requestData) is not { } binary)
+            message.FssHttpB(requestData) is not { } request)
         {
             return success;
         }
@@ -283,7 +333,6 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
             return "CellRequestFail";
         }
 
-        var request = FssHttpBRequest.Read(binary);
         var partitionAttribute = (string?) requestData.Attribute("PartitionID");
         var defaultPartition = Guid.Empty;
         if (partitionAttribute != null)
@@ -330,6 +379,9 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
 
                     subResponses.Add(new QueryAccessResponse(access.RequestId, ResponseError.Success, write));
                     break;
+                case QueryChangesRequest when site.Replacing && partition == FssHttpCells.ContentPartition:
+                    subResponses.Add(new FailedSubResponse(subRequest.RequestId, subRequest.Type, ResponseError.Cell(CellErrorCode.StorageWriteOnly)));
+                    break;
                 case QueryChangesRequest query:
                     var cell = await Partition(site, partition, cancel);
                     var (response, sent) = CellSync.Query(query, cell.State.Storage!);
@@ -350,12 +402,13 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
                     subResponses.Add(putResponse!);
                     break;
                 case AllocateExtendedGuidRangeRequest allocate:
-                    subResponses.Add(new AllocateExtendedGuidRangeResponse(allocate.RequestId, Guid.NewGuid(), 1, allocate.Count + 1));
+                    // [MS-FSSHTTPB] 2.2.3.1.4: the range ends between 1,000 and 100,000
+                    subResponses.Add(new AllocateExtendedGuidRangeResponse(allocate.RequestId, Guid.NewGuid(), 1, Math.Clamp(allocate.Count, 999UL, 99_999UL) + 1));
                     break;
             }
         }
 
-        var fssHttpB = new FssHttpBResponse(subResponses, new(elements.Values.ToList()), ProtocolVersion: 13).ToArray();
+        var fssHttpB = new FssHttpBResponse(subResponses, new(elements.Values.ToList()), ProtocolVersion: 13).ToMemory();
         if (requestData.Attribute("GetFileProps")?.Value is "true" or "True")
         {
             file = await storage.GetFile(site.FileId, cancel) ?? file;
@@ -434,7 +487,7 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
 
         var lockId = (string?) requestData.Attribute("BypassLockID") ?? (string?) requestData.Attribute("SchemaLockID");
         if (partition == FssHttpCells.ContentPartition &&
-            !await sessions.CanWrite(site.FileId, lockId, cancel))
+            !await sessions.CanWrite(site.FileId, lockId, site.Access.UserId, cancel))
         {
             return ("FileAlreadyLockedOnServer", null);
         }
@@ -478,13 +531,20 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
                 return (null, new FailedSubResponse(put.RequestId, RequestType.PutChanges, ResponseError.Cell(CellErrorCode.InvalidObject)));
             }
 
-            var pending = await cells.TryUpdate(site.FileId, partition, cell.Version, outcome.State with { FileVersion = null }, cancel);
+            var pending = await cells.TryUpdate(site.FileId, partition, cell.Version, outcome.State with { FileVersion = null, BaseFileVersion = cell.State.FileVersion }, cancel);
             if (pending == null)
             {
                 continue;
             }
 
-            await cells.WriteFile(site.FileId, pending, bytes, cancel);
+            var written = await cells.WriteFile(site.FileId, pending, bytes, cancel);
+            if (options.Value.OnFileSaved != null &&
+                await storage.GetFile(site.FileId, cancel) is { } file &&
+                file.Version == written.State.FileVersion)
+            {
+                await WopiHandler.NotifySaved(options.Value, log, new(file, site.Access, [site.Access.UserId], false, false));
+            }
+
             return (null, outcome.Response);
         }
 
@@ -501,7 +561,13 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
             return null;
         }
 
-        return int.Parse(value, CultureInfo.InvariantCulture);
+        // a value out of range is an invalid argument, as one that is not a number
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var result))
+        {
+            throw new FormatException($"{name} is not a number of the range of an int: {value}");
+        }
+
+        return result;
     }
 
     static bool Bool(XElement? element, string name) => Attribute(element, name) is "true" or "True" or "1";
@@ -535,6 +601,12 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
 
         var expires = sessions.Now.AddSeconds(timeout);
         var known = session.Client(clientId) != null;
+        if (!known &&
+            session.Clients.Count >= maxClients)
+        {
+            return new("NumberOfCoauthorsReachedMax", session);
+        }
+
         var clients = session.Clients.Where(_ => _.ClientId != clientId).Append(new(clientId, expires, timeout)).ToList();
         var editor = session.Editors.FirstOrDefault(_ => _.ClientId == clientId);
         var editors = session.Editors.Where(_ => _.ClientId != clientId)
@@ -588,7 +660,7 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
         }).Purge(sessions.Now));
     }
 
-    SessionResult ConvertToExclusive(Session session, string clientId, string schemaLockId, string? exclusiveLockId, int timeout, bool release)
+    SessionResult ConvertToExclusive(Session session, FssHttpSite site, string clientId, string schemaLockId, string? exclusiveLockId, int timeout, bool release)
     {
         if (session.ExclusiveLockId != null ||
             session.SchemaLockId != schemaLockId ||
@@ -613,14 +685,20 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
         {
             ExclusiveLockId = exclusiveLockId,
             ExclusiveExpires = sessions.Now.AddSeconds(timeout),
-            Editors = session.Editors
+            Editors = session.Editors,
+            ExclusiveOwner = site.Access.UserName ?? site.Access.UserId,
+            ExclusiveUserId = site.Access.UserId
         });
     }
 
-    static string Availability(Session session, string? schemaLockId, string? exclusiveLockId)
+    /// <summary>
+    /// Whether the lock is available: not held by another session lock, nor by a WOPI client.
+    /// </summary>
+    async Task<string> Availability(FssHttpSite site, Session session, string? schemaLockId, string? exclusiveLockId, Cancel cancel)
     {
         if ((session.ExclusiveLockId != null && session.ExclusiveLockId != exclusiveLockId) ||
-            (session.SchemaLockId != null && session.SchemaLockId != schemaLockId))
+            (session.SchemaLockId != null && session.SchemaLockId != schemaLockId) ||
+            await sessions.ForeignLock(site.FileId, cancel) != null)
         {
             return "FileAlreadyLockedOnServer";
         }
@@ -687,11 +765,11 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
             case "ConvertToExclusive":
                 return (await Change(
                     site,
-                    _ => ConvertToExclusive(_, clientId, schemaLockId, Attribute(requestData, "ExclusiveLockID"), timeout, Bool(requestData, "ReleaseLockOnConversionToExclusiveFailure")),
+                    _ => ConvertToExclusive(_, site, clientId, schemaLockId, Attribute(requestData, "ExclusiveLockID"), timeout, Bool(requestData, "ReleaseLockOnConversionToExclusiveFailure")),
                     clientId,
                     cancel)).ErrorCode;
             case "CheckLockAvailability":
-                return Availability(await sessions.Get(site.FileId, cancel), schemaLockId, null);
+                return await Availability(site, await sessions.Get(site.FileId, cancel), schemaLockId, null, cancel);
             case "MarkTransitionComplete":
                 return (await Change(
                     site,
@@ -790,11 +868,11 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
             case "ConvertToExclusive":
                 return (await Change(
                     site,
-                    _ => ConvertToExclusive(_, clientId, schemaLockId, Attribute(requestData, "ExclusiveLockID"), timeout, Bool(requestData, "ReleaseLockOnConversionToExclusiveFailure")),
+                    _ => ConvertToExclusive(_, site, clientId, schemaLockId, Attribute(requestData, "ExclusiveLockID"), timeout, Bool(requestData, "ReleaseLockOnConversionToExclusiveFailure")),
                     clientId,
                     cancel)).ErrorCode;
             case "CheckLockAvailability":
-                return Availability(await sessions.Get(site.FileId, cancel), schemaLockId, null);
+                return await Availability(site, await sessions.Get(site.FileId, cancel), schemaLockId, null, cancel);
             default:
                 return "InvalidArgument";
         }
@@ -822,12 +900,18 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
             case "RefreshLock":
                 return await TakeExclusiveLock(site, exclusiveLockId, timeout, cancel);
             case "ReleaseLock":
+                if (!site.Access.CanWrite)
+                {
+                    return "FileUnauthorizedAccess";
+                }
+
                 return (await Change(
                     site,
                     _ =>
                     {
                         if (_.Clients.Count > 0 ||
-                            (_.ExclusiveLockId != null && _.ExclusiveLockId != exclusiveLockId))
+                            (_.ExclusiveLockId != null && _.ExclusiveLockId != exclusiveLockId) ||
+                            _.ExclusiveOfAnother(site.Access.UserId))
                         {
                             return new("FileAlreadyLockedOnServer", _);
                         }
@@ -863,7 +947,8 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
                         }
 
                         if (_.ExclusiveLockId != exclusiveLockId ||
-                            _.Clients.Count > 0)
+                            _.Clients.Count > 0 ||
+                            _.ExclusiveOfAnother(site.Access.UserId))
                         {
                             return new("FileAlreadyLockedOnServer", _);
                         }
@@ -888,7 +973,7 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
                     return "FileAlreadyLockedOnServer";
                 }
 
-                return Availability(session, null, exclusiveLockId);
+                return await Availability(site, session, null, exclusiveLockId, cancel);
             }
             default:
                 return "InvalidArgument";
@@ -912,7 +997,8 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
                 }
 
                 if (_.Clients.Count > 0 ||
-                    (_.ExclusiveLockId != null && _.ExclusiveLockId != exclusiveLockId))
+                    (_.ExclusiveLockId != null && _.ExclusiveLockId != exclusiveLockId) ||
+                    _.ExclusiveOfAnother(site.Access.UserId))
                 {
                     return new("FileAlreadyLockedOnServer", _);
                 }
@@ -921,7 +1007,8 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
                 {
                     ExclusiveLockId = exclusiveLockId,
                     ExclusiveExpires = sessions.Now.AddSeconds(timeout),
-                    ExclusiveOwner = site.Access.UserName ?? site.Access.UserId
+                    ExclusiveOwner = site.Access.UserName ?? site.Access.UserId,
+                    ExclusiveUserId = site.Access.UserId
                 });
             },
             null,
@@ -954,6 +1041,12 @@ class CellStorageService(IOfficeStorage storage, FssHttpCells cells, CoauthSessi
                 {
                     case "JoinEditingSession":
                     case "RefreshEditingSession":
+                        if (editor == null &&
+                            _.Editors.Count >= maxEditors)
+                        {
+                            return new("NumberOfCoauthorsReachedMax", _);
+                        }
+
                         var asEditor = Bool(requestData, "AsEditor") && site.Access.CanWrite;
                         var entry = new SessionEditor(clientId, site.Access.UserId, site.Access.UserName, asEditor, sessions.Now.AddSeconds(timeout), editor?.Metadata ?? []);
                         return new(success, _ with

@@ -10,8 +10,8 @@ record SessionEditor(string ClientId, string UserId, string? UserName, bool AsEd
 
 /// <summary>
 /// The file coauthoring tracker of a file ([MS-FSSHTTP] 3.1.1): the shared lock (its schema lock id and the clients that
-/// share it), or the exclusive lock (and the name of its user), whether a coauthoring transition is pending (3.1.4.3.1),
-/// and the editors table.
+/// share it), or the exclusive lock (and the name and id of its user, the only one who can use it), whether a
+/// coauthoring transition is pending (3.1.4.3.1), and the editors table.
 /// </summary>
 record Session(
     string? SchemaLockId,
@@ -20,8 +20,18 @@ record Session(
     DateTimeOffset ExclusiveExpires,
     bool TransitionPending,
     IReadOnlyList<SessionEditor> Editors,
-    string? ExclusiveOwner = null)
+    string? ExclusiveOwner = null,
+    string? ExclusiveUserId = null)
 {
+    /// <summary>
+    /// Whether the exclusive lock, if any, is not the user's: the id of the lock is not a secret (GetDocMetaInfo gives
+    /// it), so the user is checked too.
+    /// </summary>
+    public bool ExclusiveOfAnother(string userId) =>
+        ExclusiveLockId != null &&
+        ExclusiveUserId != null &&
+        ExclusiveUserId != userId;
+
     public static Session None { get; } = new(null, [], null, default, false, []);
 
     /// <summary>
@@ -49,7 +59,7 @@ record Session(
             pending = false;
         }
 
-        return new(schema, clients, exclusive, ExclusiveExpires, pending, Editors.Where(_ => _.Expires > now).ToList(), ExclusiveOwner);
+        return new(schema, clients, exclusive, ExclusiveExpires, pending, Editors.Where(_ => _.Expires > now).ToList(), ExclusiveOwner, ExclusiveUserId);
     }
 
     public SessionClient? Client(string clientId) => Clients.FirstOrDefault(_ => _.ClientId == clientId);
@@ -100,21 +110,23 @@ class CoauthSessions(IFssHttpStore store, IOfficeLockStore locks, TimeProvider t
 
     static JsonSerializerOptions json = new(JsonSerializerDefaults.Web);
 
+    static ReadOnlyMemory<byte> none = JsonSerializer.SerializeToUtf8Bytes(Session.None, json);
+
     public DateTimeOffset Now => time.GetUtcNow();
 
     public async Task<Session> Get(string fileId, Cancel cancel = default) =>
         (await Read(fileId, cancel)).Session.Purge(Now);
 
-    async Task<(string? Version, Session Session)> Read(string fileId, Cancel cancel)
+    async Task<(string? Version, ReadOnlyMemory<byte> Data, Session Session)> Read(string fileId, Cancel cancel)
     {
         var stored = await store.Get(fileId, SessionPartition, cancel);
         if (stored == null)
         {
-            return (null, Session.None);
+            return (null, default, Session.None);
         }
 
         var session = JsonSerializer.Deserialize<Session>(stored.Data.Span, json) ?? Session.None;
-        return (stored.Version, session);
+        return (stored.Version, stored.Data, session);
     }
 
     /// <summary>
@@ -127,7 +139,7 @@ class CoauthSessions(IFssHttpStore store, IOfficeLockStore locks, TimeProvider t
     {
         for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
-            var (version, stored) = await Read(fileId, cancel);
+            var (version, storedData, stored) = await Read(fileId, cancel);
             var current = stored.Purge(Now);
             var result = change(current);
             if (result.ErrorCode != "Success")
@@ -146,20 +158,38 @@ class CoauthSessions(IFssHttpStore store, IOfficeLockStore locks, TimeProvider t
                     return new("FileAlreadyLockedOnServer", current);
                 }
             }
-            else if (existing?.Id != wanted?.Id ||
-                     existing?.Expires != wanted?.Expires)
+
+            var lockChanged = false;
+            if (!foreign &&
+                (existing?.Id != wanted?.Id ||
+                 existing?.Expires != wanted?.Expires))
             {
                 var previous = await locks.CompareExchange(fileId, existing?.Id, wanted, cancel);
                 if (previous?.Id != existing?.Id)
                 {
                     continue;
                 }
+
+                lockChanged = true;
             }
 
             var data = JsonSerializer.SerializeToUtf8Bytes(result.Session, json);
+            // a poll that changes nothing writes nothing
+            if (!lockChanged &&
+                data.AsSpan().SequenceEqual(version == null ? none.Span : storedData.Span))
+            {
+                return result;
+            }
+
             if (await store.CompareExchange(fileId, SessionPartition, version, new(Guid.NewGuid().ToString("N"), data), cancel))
             {
                 return result;
+            }
+
+            // the lock is put back, so that it does not stand for a session that was not stored, unless it changed again
+            if (lockChanged)
+            {
+                await locks.CompareExchange(fileId, wanted?.Id, existing, Cancel.None);
             }
         }
 
@@ -192,9 +222,10 @@ class CoauthSessions(IFssHttpStore store, IOfficeLockStore locks, TimeProvider t
     public static int Timeout(int? seconds) => Math.Clamp(seconds ?? 3600, 3600, 120_000);
 
     /// <summary>
-    /// Whether a lock id given with a Put Changes (BypassLockID) is the one the file holds, or the file holds none.
+    /// Whether a lock id given with a Put Changes (BypassLockID) is the one the file holds, or the file holds none. An
+    /// exclusive lock is the user's only.
     /// </summary>
-    public async Task<bool> CanWrite(string fileId, string? lockId, Cancel cancel = default)
+    public async Task<bool> CanWrite(string fileId, string? lockId, string userId, Cancel cancel = default)
     {
         var existing = await locks.Get(fileId, cancel);
         if (existing == null)
@@ -202,8 +233,17 @@ class CoauthSessions(IFssHttpStore store, IOfficeLockStore locks, TimeProvider t
             return true;
         }
 
-        return lockId != null &&
-               (existing.Id == SchemaPrefix + lockId ||
-                existing.Id == ExclusivePrefix + lockId);
+        if (lockId == null)
+        {
+            return false;
+        }
+
+        if (existing.Id == SchemaPrefix + lockId)
+        {
+            return true;
+        }
+
+        return existing.Id == ExclusivePrefix + lockId &&
+               !(await Get(fileId, cancel)).ExclusiveOfAnother(userId);
     }
 }

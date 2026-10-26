@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Using Include="System.Data" />
+    <Using Include="System.Runtime.InteropServices" />
     <Using Include="System.Security.Cryptography" />
     <Using Include="System.Buffers.Text" />
     <Using Include="Microsoft.Data.SqlClient" />

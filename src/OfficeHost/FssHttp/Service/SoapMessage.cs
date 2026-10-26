@@ -13,6 +13,37 @@ class SoapMessage(XDocument envelope, Dictionary<string, ReadOnlyMemory<byte>> p
 
     public XDocument Document => envelope;
 
+    // the FSSHTTPB of the parts, read once however many sub-requests include a part
+    Dictionary<string, FssHttpBRequest> requests = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The FSSHTTPB request of the binary data of an element (<see cref="Binary"/>), or null when it has none.
+    /// </summary>
+    /// <exception cref="InvalidDataException">The part is missing, or the text is not base64.</exception>
+    /// <exception cref="FssHttpBException">The data is not an FSSHTTPB request.</exception>
+    public FssHttpBRequest? FssHttpB(XElement element)
+    {
+        var href = (string?) element.Element(Xop + "Include")?.Attribute("href");
+        if (href != null &&
+            requests.TryGetValue(Normalize(href), out var cached))
+        {
+            return cached;
+        }
+
+        if (Binary(element) is not { } binary)
+        {
+            return null;
+        }
+
+        var request = FssHttpBRequest.Read(binary);
+        if (href != null)
+        {
+            requests[Normalize(href)] = request;
+        }
+
+        return request;
+    }
+
     /// <summary>
     /// Reads a plain SOAP body, or an MTOM one: the first part is the envelope, the others binary parts.
     /// </summary>
@@ -43,12 +74,13 @@ class SoapMessage(XDocument envelope, Dictionary<string, ReadOnlyMemory<byte>> p
                     continue;
                 }
 
-                using var buffer = new MemoryStream();
+                var buffer = new MemoryStream();
                 await section.Body.CopyToAsync(buffer, cancel);
                 if (section.Headers != null &&
                     section.Headers.TryGetValue("Content-ID", out var id))
                 {
-                    parts[Normalize(id.ToString())] = buffer.ToArray();
+                    // the buffer as it is, without a copy
+                    parts[Normalize(id.ToString())] = buffer.GetBuffer().AsMemory(0, (int) buffer.Length);
                 }
             }
 
@@ -58,7 +90,7 @@ class SoapMessage(XDocument envelope, Dictionary<string, ReadOnlyMemory<byte>> p
         {
             throw new InvalidDataException($"Not a SOAP message: {exception.Message}", exception);
         }
-        catch (IOException exception) when (exception is not EndOfStreamException)
+        catch (IOException exception) when (exception is not (EndOfStreamException or BadHttpRequestException))
         {
             throw new InvalidDataException($"Not an MTOM message: {exception.Message}", exception);
         }

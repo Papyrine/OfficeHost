@@ -42,8 +42,9 @@ app.MapOfficeHost();
 app.MapOfficePages(Access, OnError);
 // the sites desktop Office edits and coauthors files through: /fsshttp/{token}/{name}
 app.MapFssHttp();
-// the page that opens a file in desktop Office, through an ms-word: (or ms-excel:, ms-powerpoint:) link; the user comes
-// from ?user= so that two people can coauthor the demo
+// the page that opens a file in desktop Office, through an ms-word: (or ms-excel:, ms-powerpoint:) link. The user comes
+// from ?user= so that two people can coauthor the demo, and may edit any file: an application takes the user from its
+// sign-in, and decides the access from its permissions, as Access below does for the WOPI client
 app.MapGet(
     "/desktop/{fileId}",
     async (string fileId, string? user, HttpRequest request, OfficeLauncher launcher) =>

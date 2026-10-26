@@ -15,6 +15,14 @@ public interface IFssHttpStore
     Task<FssHttpState?> Get(string fileId, Guid partition, Cancel cancel = default);
 
     /// <summary>
+    /// The version of the state of the partition of the file, or null when it has none. OfficeHost keeps the states it
+    /// read last, and reads one again only when its version changed: a store that reads the version alone, without the
+    /// state, saves reading the state of the content, the size of the file, at every poll of desktop Office.
+    /// </summary>
+    async Task<string?> GetVersion(string fileId, Guid partition, Cancel cancel = default) =>
+        (await Get(fileId, partition, cancel))?.Version;
+
+    /// <summary>
     /// Atomically replaces the state of the partition of the file with <paramref name="value"/> when the version of its
     /// current state is <paramref name="comparand"/> (null when it has none), and returns whether it did.
     /// </summary>

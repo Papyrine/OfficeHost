@@ -24,6 +24,7 @@ public static class OfficeHostExtensions
         services.TryAddSingleton<ProofKeys>();
         // transient, so that they take the lifetime of the storage and the stores rather than capture them
         services.TryAddTransient<WopiHandler>();
+        services.TryAddSingleton<FssHttpCellCache>();
         services.TryAddTransient<FssHttpCells>();
         services.TryAddTransient<CoauthSessions>();
         services.TryAddTransient<SaveAsFiles>();
@@ -84,10 +85,10 @@ public static class OfficeHostExtensions
                 }
             });
 
-        group.MapGet("/files/{fileId}", (HttpContext context, string fileId, WopiHandler handler) => handler.CheckFileInfo(context, fileId));
-        group.MapGet("/files/{fileId}/contents", (HttpContext context, string fileId, WopiHandler handler) => handler.GetFile(context, fileId));
-        group.MapPost("/files/{fileId}", (HttpContext context, string fileId, WopiHandler handler) => handler.FilesPost(context, fileId));
-        group.MapPost("/files/{fileId}/contents", (HttpContext context, string fileId, WopiHandler handler) => handler.PutFile(context, fileId));
+        group.MapGet("/files/{fileId}", (HttpContext context, string fileId, WopiHandler handler) => handler.CheckFileInfo(context, WopiHandler.RouteFileId(fileId)));
+        group.MapGet("/files/{fileId}/contents", (HttpContext context, string fileId, WopiHandler handler) => handler.GetFile(context, WopiHandler.RouteFileId(fileId)));
+        group.MapPost("/files/{fileId}", (HttpContext context, string fileId, WopiHandler handler) => handler.FilesPost(context, WopiHandler.RouteFileId(fileId)));
+        group.MapPost("/files/{fileId}/contents", (HttpContext context, string fileId, WopiHandler handler) => handler.PutFile(context, WopiHandler.RouteFileId(fileId)));
         // the folder operations of [MS-WOPI] 3.3.5.4 and up, and the ecosystem ones, are not supported
         group.Map("/{**path}", () => WopiResult.NotImplemented("Unsupported WOPI endpoint"));
         return group;

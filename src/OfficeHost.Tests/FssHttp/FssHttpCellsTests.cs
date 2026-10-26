@@ -64,7 +64,7 @@ public class FssHttpCellsTests : IDisposable
     public async Task GetContent_Unchanged()
     {
         var id = Create(Zip("a"));
-        var cells = new FssHttpCells(store, storage);
+        var cells = new FssHttpCells(store, storage, new());
         var first = (await cells.GetContent(id))!;
         await Assert.That(first.Version).IsNotNull();
         await Assert.That(first.State.FileVersion).IsEqualTo((await storage.GetFile(id))!.Version);
@@ -82,7 +82,7 @@ public class FssHttpCellsTests : IDisposable
     public async Task GetContent_FileChanged()
     {
         var id = Create(Zip("a"));
-        var cells = new FssHttpCells(store, storage);
+        var cells = new FssHttpCells(store, storage, new());
         var first = (await cells.GetContent(id))!;
         await storage.Write(id, new MemoryStream(Zip("b")));
         var second = (await cells.GetContent(id))!;
@@ -98,7 +98,7 @@ public class FssHttpCellsTests : IDisposable
     [Test]
     public async Task GetContent_NoFile()
     {
-        var cells = new FssHttpCells(store, storage);
+        var cells = new FssHttpCells(store, storage, new());
         await Assert.That(await cells.GetContent("missing")).IsNull();
     }
 
@@ -112,7 +112,7 @@ public class FssHttpCellsTests : IDisposable
         var ids = new IdAllocator(Guid.NewGuid());
         var broken = CellStorage.Create([], ids.NewId());
         var state = new CellState(broken, ids.Guid, ids.Next, "old");
-        var cells = new FssHttpCells(store, storage);
+        var cells = new FssHttpCells(store, storage, new());
         await cells.TryUpdate(id, FssHttpCells.ContentPartition, null, state);
         var content = (await cells.GetContent(id))!;
         await Assert.That(FileCell.Read(content.State.Storage!).Root.ToArray().AsSpan().SequenceEqual(Zip("a"))).IsTrue();
@@ -126,12 +126,12 @@ public class FssHttpCellsTests : IDisposable
     {
         var id = Create(Zip("a"));
         var racing = new RacingStore(store, 1);
-        var cells = new FssHttpCells(racing, storage);
+        var cells = new FssHttpCells(racing, storage, new());
         var content = (await cells.GetContent(id))!;
         await Assert.That(racing.Lost).IsEqualTo(1);
         await Assert.That(FileCell.Read(content.State.Storage!).Root.ToArray().AsSpan().SequenceEqual(Zip("a"))).IsTrue();
 
-        var always = new FssHttpCells(new RacingStore(new MemoryFssHttpStore(), int.MaxValue), storage);
+        var always = new FssHttpCells(new RacingStore(new MemoryFssHttpStore(), int.MaxValue), storage, new());
         await Assert.That(() => always.GetContent(id)).Throws<InvalidOperationException>();
     }
 
@@ -168,7 +168,7 @@ public class FssHttpCellsTests : IDisposable
     [Test]
     public async Task Get_Partitions()
     {
-        var cells = new FssHttpCells(store, storage);
+        var cells = new FssHttpCells(store, storage, new());
         var metadata = await cells.Get("file", FssHttpCells.MetadataPartition);
         await Assert.That(metadata.Version).IsNull();
         await Assert.That(metadata.State.Storage).IsNull();

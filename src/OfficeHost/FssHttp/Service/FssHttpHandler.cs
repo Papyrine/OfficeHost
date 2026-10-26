@@ -97,6 +97,14 @@ class FssHttpHandler(
 
     async Task CellStorage(HttpContext context, FssHttpSite site, Cancel cancel)
     {
+        // the changes of a file are as large as the file, which a writer can send up to MaxFileSize, as through WOPI
+        var limit = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
+        if (site.Access.CanWrite &&
+            limit is { IsReadOnly: false })
+        {
+            limit.MaxRequestBodySize = options.Value.MaxFileSize;
+        }
+
         SoapMessage message;
         try
         {
@@ -105,6 +113,11 @@ class FssHttpHandler(
         catch (InvalidDataException)
         {
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
+        }
+        catch (BadHttpRequestException exception)
+        {
+            context.Response.StatusCode = exception.StatusCode;
             return;
         }
 
@@ -147,14 +160,24 @@ class FssHttpHandler(
             site = await targets.Find(site, resourceId, cancel) ?? site;
         }
 
-        var result = await sessions.Change(
-            site.FileId,
-            _ => new("Success", _ with
-            {
-                Clients = _.Clients.Select(client => client with { Expires = sessions.Now.AddSeconds(client.TimeoutSeconds) }).ToList()
-            }),
-            cancel);
-        var session = result.Session;
+        // only a writer, who can be in the session, keeps it alive: a reader would keep the lock of a writer gone
+        Session session;
+        if (site.Access.CanWrite)
+        {
+            var result = await sessions.Change(
+                site.FileId,
+                _ => new("Success", _ with
+                {
+                    Clients = _.Clients.Select(client => client with { Expires = sessions.Now.AddSeconds(client.TimeoutSeconds) }).ToList()
+                }),
+                cancel);
+            session = result.Session;
+        }
+        else
+        {
+            session = await sessions.Get(site.FileId, cancel);
+        }
+
         var alone = session.Clients.Count <= 1 && !session.TransitionPending;
         var soap = SoapMessage.Soap;
         var envelope = new XElement(

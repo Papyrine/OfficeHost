@@ -84,10 +84,10 @@ sealed class WopiDiscovery(IHttpClientFactory httpFactory, TimeProvider time, IL
             return attemptedRecently;
         }
 
-        // never fetched: a WOPI client that was down may have started since
+        // never fetched: a WOPI client that was down may have started since, but is tried again once a minute only
         if (cached.Document == null)
         {
-            return false;
+            return attemptedRecently;
         }
 
         document = cached.Document;
@@ -108,7 +108,7 @@ sealed class WopiDiscovery(IHttpClientFactory httpFactory, TimeProvider time, IL
             log.LogInformation("Fetched the WOPI discovery {Url}: {Actions} actions, proof keys {Current} {Old}", url, document.Actions.Count, document.Keys.Current != null, document.Keys.Old != null);
             return document;
         }
-        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or FormatException or CryptographicException or XmlException &&
+        catch (Exception exception) when (exception is HttpRequestException or IOException or TaskCanceledException or FormatException or CryptographicException or XmlException &&
                                           !cancel.IsCancellationRequested)
         {
             log.LogError(exception, "Failed to fetch the WOPI discovery {Url}", url);

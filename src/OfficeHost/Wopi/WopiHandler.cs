@@ -23,6 +23,16 @@ sealed class WopiHandler(
     /// </summary>
     const int maxUserInfoLength = 1024;
 
+    /// <summary>
+    /// The highest number of `name (2).ext`, `name (3).ext` and so on that a free name is looked for up to.
+    /// </summary>
+    const int maxNumber = 999;
+
+    /// <summary>
+    /// The URL types of GetShareUrl.
+    /// </summary>
+    static string[] shareUrlTypes = ["ReadOnly", "ReadWrite"];
+
     IOfficeUserInfoStore? userInfoStore = services.GetService<IOfficeUserInfoStore>();
 
     OfficeHostOptions Options => options.Value;
@@ -32,6 +42,19 @@ sealed class WopiHandler(
     /// </summary>
     public static string FileUrl(string baseUrl, string fileId) =>
         $"{baseUrl}/wopi/files/{Uri.EscapeDataString(fileId)}";
+
+    /// <summary>
+    /// The file id of a route value: the server leaves the escaped slash of an id in it.
+    /// </summary>
+    public static string RouteFileId(string value) =>
+        value.Replace("%2F", "/", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The path of the request escaped as <see cref="FileUrl"/> escapes it, which is how the WOPI client signs it: the
+    /// server unescapes the characters a path allows unescaped, as parentheses or @.
+    /// </summary>
+    static string ProofPath(HttpRequest request) =>
+        string.Join('/', (request.Path.Value ?? "").Split('/').Select(_ => Uri.EscapeDataString(Uri.UnescapeDataString(_))));
 
     /// <summary>
     /// The access token of the request: the access_token parameter of [MS-WOPI] 3.3.5, or else the bearer token of the
@@ -86,7 +109,7 @@ sealed class WopiHandler(
             return (null, WopiResult.ServerError("Invalid or expired X-WOPI-TimeStamp"));
         }
 
-        var url = $"{request.BaseUrl(Options)}{request.Path}{request.QueryString}";
+        var url = $"{request.BaseUrl(Options)}{ProofPath(request)}{request.QueryString}";
         var proofError = await proofKeys.Validate(request, value!, url, context.RequestAborted);
         if (proofError != null)
         {
@@ -125,7 +148,7 @@ sealed class WopiHandler(
             ["Size"] = file.Size,
             ["UserId"] = access.UserId,
             ["Version"] = file.Version,
-            ["LastModifiedTime"] = file.LastModified.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
+            ["LastModifiedTime"] = LastModifiedTime(file),
             ["IsAnonymousUser"] = access.IsAnonymous,
             ["SupportsExtendedLockLength"] = true,
             ["SupportsGetLock"] = true,
@@ -165,6 +188,11 @@ sealed class WopiHandler(
             {
                 properties["UserInfo"] = userInfo;
             }
+        }
+
+        if (Options.ShareUrl != null)
+        {
+            properties["SupportedShareUrlTypes"] = new JsonArray([.. shareUrlTypes.Select(_ => JsonValue.Create(_))]);
         }
 
         AddHostUrls(properties, file, access);
@@ -274,9 +302,24 @@ sealed class WopiHandler(
                 return WopiResult.Conflict(null, "The file is not locked");
             }
         }
-        else if (current.Id != requestedLock)
+        else if (current.Id != requestedLock ||
+                 CoauthSessions.IsSessionLock(current.Id))
         {
             return WopiResult.Conflict(current.Id, "The file is locked with another lock");
+        }
+
+        // Collabora Online sends the LastModifiedTime of its CheckFileInfo: a file changed since is not overwritten, unless
+        // the user chooses to, when it sends none
+        var timestamp = context.Request.Header("X-COOL-WOPI-Timestamp");
+        if (!string.IsNullOrEmpty(timestamp) &&
+            timestamp != LastModifiedTime(file))
+        {
+            return WopiResult.Json(
+                new JsonObject
+                {
+                    ["COOLStatusCode"] = 1010
+                },
+                StatusCodes.Status409Conflict);
         }
 
         try
@@ -284,7 +327,13 @@ sealed class WopiHandler(
             AllowFileSize(context);
             var saved = await storage.Write(fileId, context.Request.Body, cancel);
             log.LogInformation("Saved {FileId}, version {Version}", fileId, saved.Version);
-            var result = WopiResult.Ok();
+            await Saved(context, saved, token.Access);
+            // Collabora Online keeps it for the timestamp of its next save
+            var result = WopiResult.Json(
+                new JsonObject
+                {
+                    ["LastModifiedTime"] = LastModifiedTime(saved)
+                });
             result.Headers["X-WOPI-ItemVersion"] = saved.Version;
             return result;
         }
@@ -296,6 +345,57 @@ sealed class WopiHandler(
         {
             log.LogError(exception, "PutFile of {FileId} failed", fileId);
             return WopiResult.ServerError("Failed to write the file");
+        }
+    }
+
+    static string LastModifiedTime(OfficeFile file) =>
+        file.LastModified.UtcDateTime.ToString("O", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Tells <see cref="OfficeHostOptions.OnFileSaved"/> of a save by a WOPI client.
+    /// </summary>
+    async Task Saved(HttpContext context, OfficeFile file, OfficeAccess access)
+    {
+        if (Options.OnFileSaved == null)
+        {
+            return;
+        }
+
+        var request = context.Request;
+        // a comma separated list of the user ids of the editors
+        var editors = (request.Header("X-WOPI-Editors") ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (editors.Length == 0)
+        {
+            editors = [access.UserId];
+        }
+
+        var saved = new FileSavedContext(
+            file,
+            access,
+            editors,
+            string.Equals(request.Header("X-COOL-WOPI-IsAutosave"), "true", StringComparison.OrdinalIgnoreCase),
+            string.Equals(request.Header("X-COOL-WOPI-IsExitSave"), "true", StringComparison.OrdinalIgnoreCase));
+        await NotifySaved(Options, log, saved);
+    }
+
+    /// <summary>
+    /// Calls <see cref="OfficeHostOptions.OnFileSaved"/>, whose failure does not fail the save.
+    /// </summary>
+    public static async Task NotifySaved(OfficeHostOptions options, ILogger log, FileSavedContext saved)
+    {
+        if (options.OnFileSaved == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await options.OnFileSaved(saved);
+        }
+        catch (Exception exception)
+        {
+            log.LogError(exception, "OnFileSaved of {FileId} failed", saved.File.Id);
         }
     }
 
@@ -339,6 +439,8 @@ sealed class WopiHandler(
                 return await PutUserInfo(context, access);
             case "RENAME_FILE":
                 return await RenameFile(context, access);
+            case "GET_SHARE_URL":
+                return await GetShareUrl(context, access);
         }
 
         if (operation is "LOCK" or "REFRESH_LOCK" or "UNLOCK" or "DELETE" &&
@@ -363,6 +465,39 @@ sealed class WopiHandler(
     }
 
     /// <summary>
+    /// [MS-WOPI] 3.3.5.1.8 GetShareUrl, through <see cref="OfficeHostOptions.ShareUrl"/>.
+    /// </summary>
+    async Task<IResult> GetShareUrl(HttpContext context, OfficeAccess access)
+    {
+        var urlType = context.Request.Header("X-WOPI-UrlType");
+        if (Options.ShareUrl == null ||
+            urlType == null ||
+            !shareUrlTypes.Contains(urlType))
+        {
+            return WopiResult.NotImplemented("The URL type is not supported");
+        }
+
+        var cancel = context.RequestAborted;
+        var file = await storage.GetFile(access.FileId, cancel);
+        if (file == null)
+        {
+            return WopiResult.NotFound();
+        }
+
+        var url = await Options.ShareUrl(file, access, urlType);
+        if (url == null)
+        {
+            return WopiResult.NotImplemented("The file cannot be shared so");
+        }
+
+        return WopiResult.Json(
+            new JsonObject
+            {
+                ["ShareUrl"] = url
+            });
+    }
+
+    /// <summary>
     /// The X-WOPI-Lock of a request, or a 400 when it is missing or too long.
     /// </summary>
     static (string? Lock, WopiResult? Error) RequestedLock(HttpContext context)
@@ -377,6 +512,10 @@ sealed class WopiHandler(
         {
             reason = $"X-WOPI-Lock is longer than {maxLockLength} characters";
         }
+        else if (CoauthSessions.IsSessionLock(requested))
+        {
+            reason = "X-WOPI-Lock is the lock of desktop Office";
+        }
         else
         {
             return (requested, null);
@@ -389,6 +528,12 @@ sealed class WopiHandler(
 
     OfficeLock NewLock(string id) =>
         new(id, time.GetUtcNow() + Options.LockDuration);
+
+    /// <summary>
+    /// A lock an operation on an unlocked file takes while it runs, so that no client locks the file meanwhile.
+    /// </summary>
+    OfficeLock OperationLock() =>
+        new($"wopi-operation:{Guid.NewGuid():N}", time.GetUtcNow().AddMinutes(5));
 
     static WopiResult Locked(OfficeFile file)
     {
@@ -418,6 +563,13 @@ sealed class WopiHandler(
         var oldLock = context.Request.Header("X-WOPI-OldLock");
         if (!string.IsNullOrEmpty(oldLock))
         {
+            // the lock of desktop Office is released by desktop Office only, and a longer one is no lock
+            if (CoauthSessions.IsSessionLock(oldLock) ||
+                oldLock.Length > maxLockLength)
+            {
+                return WopiResult.Conflict((await locks.Get(fileId, cancel))?.Id, "The file is not locked with X-WOPI-OldLock");
+            }
+
             var previous = await locks.CompareExchange(fileId, oldLock, NewLock(requested!), cancel);
             if (previous?.Id != oldLock)
             {
@@ -525,7 +677,9 @@ sealed class WopiHandler(
     async Task<IResult> DeleteFile(HttpContext context, string fileId)
     {
         var cancel = context.RequestAborted;
-        var current = await locks.Get(fileId, cancel);
+        // the file is locked while it is deleted, so that no client locks it meanwhile
+        var guard = OperationLock();
+        var current = await locks.CompareExchange(fileId, null, guard, cancel);
         if (current != null)
         {
             return WopiResult.Conflict(current.Id, "A locked file cannot be deleted");
@@ -544,6 +698,10 @@ sealed class WopiHandler(
         {
             log.LogError(exception, "DeleteFile of {FileId} failed", fileId);
             return WopiResult.ServerError("Failed to delete the file");
+        }
+        finally
+        {
+            await locks.CompareExchange(fileId, guard.Id, null, Cancel.None);
         }
 
         // the file is gone: a state left behind is only unused, so its failure does not fail the delete
@@ -585,8 +743,16 @@ sealed class WopiHandler(
         var cancel = context.RequestAborted;
         var current = await locks.Get(fileId, cancel);
         var requestedLock = context.Request.Header("X-WOPI-Lock");
+        OfficeLock? guard = null;
+        if (current == null)
+        {
+            // an unlocked file is locked while it is renamed, so that no client locks it meanwhile
+            guard = OperationLock();
+            current = await locks.CompareExchange(fileId, null, guard, cancel);
+        }
+
         if (current != null &&
-            current.Id != requestedLock)
+            (current.Id != requestedLock || CoauthSessions.IsSessionLock(current.Id)))
         {
             return WopiResult.Conflict(current.Id, "The file is locked with another lock");
         }
@@ -622,10 +788,22 @@ sealed class WopiHandler(
         {
             return WopiResult.NotFound();
         }
+        catch (UnauthorizedAccessException)
+        {
+            // a name the storage refuses, as a reserved device name of Windows
+            return InvalidFileName("The storage does not allow the requested name");
+        }
         catch (IOException exception)
         {
             log.LogError(exception, "RenameFile of {FileId} failed", fileId);
             return WopiResult.ServerError("Failed to rename the file");
+        }
+        finally
+        {
+            if (guard != null)
+            {
+                await locks.CompareExchange(fileId, guard.Id, null, Cancel.None);
+            }
         }
     }
 
@@ -693,6 +871,7 @@ sealed class WopiHandler(
             }
 
             log.LogInformation("Created {FileId} {Name} from {Source}", created.Id, created.Name, fileId);
+            await Saved(context, created, access with { FileId = created.Id });
             var newToken = await tokens.Issue(access with { FileId = created.Id }, cancel);
             var properties = new JsonObject
             {
@@ -733,20 +912,21 @@ sealed class WopiHandler(
             name = FileNames.Legal(suggested);
         }
 
-        for (var attempt = 0; attempt < 100; attempt++)
+        // a name taken meanwhile, or that the storage cannot create (as a folder of that name), moves on to the next
+        var candidate = name;
+        for (var number = 2; number <= maxNumber; number++)
         {
-            var free = await FreeName(file.Id, name, cancel);
-            if (free == null)
+            if (await storage.GetSibling(file.Id, candidate, cancel) == null)
             {
-                return null;
+                request.Body.Position = 0;
+                var created = await storage.CreateSibling(file.Id, candidate, request.Body, false, cancel);
+                if (created != null)
+                {
+                    return created;
+                }
             }
 
-            request.Body.Position = 0;
-            var created = await storage.CreateSibling(file.Id, free, request.Body, false, cancel);
-            if (created != null)
-            {
-                return created;
-            }
+            candidate = FileNames.Numbered(name, number);
         }
 
         return null;
@@ -771,25 +951,48 @@ sealed class WopiHandler(
         if (existing != null)
         {
             var existingLock = await locks.Get(existing.Id, cancel);
+            // the file itself is changed by PutFile, which needs CanWrite and its lock, not replaced as a relative target
             if (!overwrite ||
-                existingLock != null)
+                existingLock != null ||
+                existing.Id == fileId)
             {
-                var conflict = WopiResult.Json(
-                    new JsonObject
-                    {
-                        ["Name"] = existing.Name,
-                        ["Url"] = FileUrl(request.BaseUrl(Options), existing.Id)
-                    },
-                    StatusCodes.Status409Conflict);
-                conflict.Headers["X-WOPI-Lock"] = existingLock?.Id ?? "";
-                conflict.Headers["X-WOPI-LockFailureReason"] = "The relative target exists";
-                await AddValidTarget(conflict, fileId, name, cancel);
-                return (conflict, null);
+                return (await RelativeConflict(request, fileId, name, existing, existingLock, cancel), null);
             }
         }
 
-        var created = await storage.CreateSibling(fileId, name, request.Body, true, cancel);
+        // a file created meanwhile under that name is only replaced when overwriting was asked for
+        var created = await storage.CreateSibling(fileId, name, request.Body, overwrite, cancel);
+        if (created == null)
+        {
+            existing = await storage.GetSibling(fileId, name, cancel);
+            if (existing == null)
+            {
+                return (WopiResult.ServerError("The relative target was taken and released meanwhile"), null);
+            }
+
+            return (await RelativeConflict(request, fileId, name, existing, await locks.Get(existing.Id, cancel), cancel), null);
+        }
+
         return (null, created);
+    }
+
+    /// <summary>
+    /// The 409 of a relative target that exists and is not to be replaced, with the X-WOPI-ValidRelativeTarget to use
+    /// instead.
+    /// </summary>
+    async Task<WopiResult> RelativeConflict(HttpRequest request, string fileId, string name, OfficeFile existing, OfficeLock? existingLock, Cancel cancel)
+    {
+        var conflict = WopiResult.Json(
+            new JsonObject
+            {
+                ["Name"] = existing.Name,
+                ["Url"] = FileUrl(request.BaseUrl(Options), existing.Id)
+            },
+            StatusCodes.Status409Conflict);
+        conflict.Headers["X-WOPI-Lock"] = existingLock?.Id ?? "";
+        conflict.Headers["X-WOPI-LockFailureReason"] = "The relative target exists";
+        await AddValidTarget(conflict, fileId, name, cancel);
+        return conflict;
     }
 
     /// <summary>
@@ -810,7 +1013,7 @@ sealed class WopiHandler(
     async Task<string?> FreeName(string fileId, string name, Cancel cancel)
     {
         var candidate = name;
-        for (var number = 2; number < 1000; number++)
+        for (var number = 2; number <= maxNumber; number++)
         {
             if (await storage.GetSibling(fileId, candidate, cancel) == null)
             {

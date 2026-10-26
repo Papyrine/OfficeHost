@@ -3,10 +3,10 @@ namespace OfficeHost;
 /// <summary>
 /// The files in an Azure Blob Storage container, shared by all the instances of the application. A file is the blob
 /// <c>files/{id}</c>, with its folder, name and owner in its metadata, so a rename keeps the id and copies nothing. A
-/// file is in a folder, a path the application chooses, and file names are unique in a folder, ignoring case: the
-/// blob <c>names/{hash of the folder and name}</c> holds the id of the file of that name, created only when missing,
-/// so two files never take the same name. A name left by a crash, naming a file that is gone or renamed, is taken
-/// over. The version of a file changes only with its content.
+/// file is in a folder, a path the application chooses, and file names are unique in a folder, ignoring case, as are
+/// folders, as in a database of the default collation: the blob <c>names/{hash of the folder and name}</c> holds the id
+/// of the file of that name, created only when missing, so two files never take the same name. A name left by a crash,
+/// naming a file that is gone or renamed, is taken over. The version of a file changes only with its content.
 /// </summary>
 public sealed class BlobStorage(BlobContainerClient container) :
     IOfficeStorage
@@ -22,14 +22,44 @@ public sealed class BlobStorage(BlobContainerClient container) :
     /// <param name="folder">The folder of the file, of which siblings are the files of the same folder.</param>
     public async Task<OfficeFile?> Add(string folder, string name, string ownerId, Stream content, Cancel cancel = default)
     {
-        var file = await Upload(NewId(), folder, name, ownerId, content, cancel);
-        if (await Claim(folder, name, file.Id, cancel) == null)
+        // a name taken is known before the content is uploaded
+        var (holder, _) = await ReadName(NameBlob(folder, name), folder, name, cancel);
+        if (holder != null)
         {
-            return file;
+            return null;
         }
 
-        await FileBlob(file.Id).DeleteIfExistsAsync(cancellationToken: cancel);
+        var file = await Upload(NewId(), folder, name, ownerId, content, cancel);
+        try
+        {
+            if (await Claim(folder, name, file.Id, cancel) == null)
+            {
+                return file;
+            }
+        }
+        catch
+        {
+            await DeleteQuietly(file.Id);
+            throw;
+        }
+
+        await DeleteQuietly(file.Id);
         return null;
+    }
+
+    /// <summary>
+    /// Deletes the blob of a file that was uploaded but not named, whatever the request becomes.
+    /// </summary>
+    async Task DeleteQuietly(string fileId)
+    {
+        try
+        {
+            await FileBlob(fileId).DeleteIfExistsAsync(cancellationToken: Cancel.None);
+        }
+        catch (RequestFailedException)
+        {
+            // an unnamed blob is only unused
+        }
     }
 
     static string NewId() =>
@@ -44,6 +74,7 @@ public sealed class BlobStorage(BlobContainerClient container) :
         return container.GetBlobClient($"names/{Base64Url.EncodeToString(SHA256.HashData(Encoding.UTF8.GetBytes(key)))}");
     }
 
+    // names and folders are compared as the name blob hashes them, upper-cased
     static bool SameName(string a, string b) =>
         string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
@@ -107,7 +138,7 @@ public sealed class BlobStorage(BlobContainerClient container) :
 
         var file = await GetProperties(download.Content.ToString(), cancel);
         if (file != null &&
-            file.Folder == folder &&
+            SameName(file.Folder, folder) &&
             SameName(file.File.Name, name))
         {
             return (file, download.Details.ETag);
@@ -230,90 +261,168 @@ public sealed class BlobStorage(BlobContainerClient container) :
         }
     }
 
+    /// <summary>
+    /// Uploads the content with the metadata as last read, unless a rename changed it meanwhile: then it is uploaded
+    /// again with the new one. A content that cannot be read twice, as a request body, is first kept in a temporary
+    /// file.
+    /// </summary>
     public async Task<OfficeFile> Write(string fileId, Stream content, Cancel cancel = default)
     {
         var source = await ExistingProperties(fileId, cancel);
-        var metadata = new Dictionary<string, string>(source.Metadata)
+        await using var temporary = await Buffer(content, cancel);
+        var buffered = temporary ?? content;
+        var start = buffered.Position;
+        var size = buffered.Length - start;
+        var version = NewId();
+        while (true)
         {
-            [versionKey] = NewId()
-        };
-        try
-        {
-            // the metadata read, unless a rename changed it meanwhile
-            await FileBlob(fileId).UploadAsync(
-                content,
-                new BlobUploadOptions
-                {
-                    Metadata = metadata,
-                    Conditions = new()
+            var metadata = new Dictionary<string, string>(source.Metadata)
+            {
+                [versionKey] = version
+            };
+            try
+            {
+                BlobContentInfo info = await FileBlob(fileId).UploadAsync(
+                    buffered,
+                    new BlobUploadOptions
                     {
-                        IfMatch = source.ETag
-                    }
-                },
-                cancel);
+                        Metadata = metadata,
+                        Conditions = new()
+                        {
+                            IfMatch = source.ETag
+                        }
+                    },
+                    cancel);
+                // the file as written, not as another write may have left it since
+                return source.File with
+                {
+                    Size = size,
+                    Version = version,
+                    LastModified = info.LastModified
+                };
+            }
+            catch (RequestFailedException exception) when (exception.Status == 412)
+            {
+                // renamed or written meanwhile
+                buffered.Position = start;
+                source = await ExistingProperties(fileId, cancel);
+            }
+            catch (RequestFailedException exception) when (exception.Status == 404)
+            {
+                throw new FileNotFoundException($"No file {fileId}", exception);
+            }
         }
-        catch (RequestFailedException exception) when (exception.Status == 412 && content.CanSeek)
+    }
+
+    /// <summary>
+    /// A copy of a content that cannot be read again, in a temporary file deleted when disposed; null for one that can.
+    /// </summary>
+    static async Task<FileStream?> Buffer(Stream content, Cancel cancel)
+    {
+        if (content.CanSeek)
         {
-            content.Position = 0;
-            return await Write(fileId, content, cancel);
-        }
-        catch (RequestFailedException exception) when (exception.Status == 404)
-        {
-            throw new FileNotFoundException($"No file {fileId}", exception);
+            return null;
         }
 
-        return (await ExistingProperties(fileId, cancel)).File;
+        var file = new FileStream(Path.GetTempFileName(), FileMode.Create, FileAccess.ReadWrite, FileShare.None, 81920, FileOptions.Asynchronous | FileOptions.DeleteOnClose);
+        try
+        {
+            await content.CopyToAsync(file, cancel);
+            file.Position = 0;
+            return file;
+        }
+        catch
+        {
+            await file.DisposeAsync();
+            throw;
+        }
     }
 
     public async Task<OfficeFile?> CreateSibling(string fileId, string name, Stream content, bool overwrite, Cancel cancel = default)
     {
         var source = await ExistingProperties(fileId, cancel);
         var (holder, _) = await ReadName(NameBlob(source.Folder, name), source.Folder, name, cancel);
-        if (holder == null)
+        if (holder != null)
         {
-            var file = await Upload(NewId(), source.Folder, name, source.File.OwnerId, content, cancel);
+            if (!overwrite)
+            {
+                return null;
+            }
+
+            return await Write(holder.File.Id, content, cancel);
+        }
+
+        var file = await Upload(NewId(), source.Folder, name, source.File.OwnerId, content, cancel);
+        var named = false;
+        try
+        {
             holder = await Claim(source.Folder, name, file.Id, cancel);
             if (holder == null)
             {
+                named = true;
                 return file;
             }
 
-            // created meanwhile
-            await FileBlob(file.Id).DeleteIfExistsAsync(cancellationToken: cancel);
-            if (content.CanSeek)
+            // created meanwhile: the content was read, so the one uploaded is what replaces it
+            if (overwrite)
             {
-                content.Position = 0;
+                await using var uploaded = await FileBlob(file.Id).OpenReadAsync(cancellationToken: cancel);
+                return await Write(holder.File.Id, uploaded, cancel);
             }
-        }
 
-        if (!overwrite)
-        {
             return null;
         }
-
-        return await Write(holder.File.Id, content, cancel);
+        finally
+        {
+            if (!named)
+            {
+                await DeleteQuietly(file.Id);
+            }
+        }
     }
 
     public async Task<OfficeFile?> Rename(string fileId, string name, Cancel cancel = default)
     {
         var source = await ExistingProperties(fileId, cancel);
         var oldName = source.File.Name;
-        await SetName(fileId, name, cancel);
         // a change of case only is the same name
         if (SameName(oldName, name))
         {
+            await SetName(fileId, name, cancel);
             return (await ExistingProperties(fileId, cancel)).File;
         }
 
         // the file has the name before the name is claimed, so that a claim always names a file that has it
-        if (await Claim(source.Folder, name, fileId, cancel) != null)
+        await SetName(fileId, name, cancel);
+        Properties? holder;
+        try
         {
-            await SetName(fileId, oldName, cancel);
+            holder = await Claim(source.Folder, name, fileId, cancel);
+        }
+        catch
+        {
+            await Restore(source.Folder, fileId, oldName);
+            throw;
+        }
+
+        if (holder != null)
+        {
+            await Restore(source.Folder, fileId, oldName);
             return null;
         }
 
         await Release(source.Folder, oldName, fileId, cancel);
         return (await ExistingProperties(fileId, cancel)).File;
+    }
+
+    /// <summary>
+    /// Gives a file its old name back after a rename failed, whatever the request becomes, and claims the name again, as
+    /// while the file had the new one another file could take it.
+    /// </summary>
+    async Task Restore(string folder, string fileId, string oldName)
+    {
+        await SetName(fileId, oldName, Cancel.None);
+        await Claim(folder, oldName, fileId, Cancel.None);
     }
 
     async Task SetName(string fileId, string name, Cancel cancel)

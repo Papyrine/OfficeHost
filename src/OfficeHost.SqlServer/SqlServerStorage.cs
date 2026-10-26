@@ -3,7 +3,9 @@ namespace OfficeHost;
 /// <summary>
 /// The files in a SQL Server table, shared by all the instances of the application. A file is in a folder, a path the
 /// application chooses, and file names are unique in a folder as the collation of the database compares them. The ids
-/// of the files are chosen by <see cref="Add"/>, and the version of a file changes only with its content.
+/// of the files are chosen by <see cref="Add"/>, and the version of a file changes only with its content. Content is
+/// read in chunks, each by a statement of its own, so that a slow download holds no connection nor lock; and sent
+/// before a statement runs, so that a slow upload holds no lock either.
 /// </summary>
 public sealed class SqlServerStorage(string connectionString, string schema = "dbo") :
     IOfficeStorage
@@ -12,14 +14,52 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
 
     const string columns = "Id, Name, Size, OwnerId, Version, LastModified";
 
+    const string inserted = "inserted.Id, inserted.Name, inserted.Size, inserted.OwnerId, inserted.Version, inserted.LastModified";
+
+    /// <summary>
+    /// The longest folder, name and owner id, as the table holds them: longer ones are refused rather than cut.
+    /// </summary>
+    const int maxFolderLength = 400;
+
+    const int maxNameLength = 255;
+
+    const int maxIdLength = 450;
+
+    /// <summary>
+    /// The error a statement throws when the file it names is missing.
+    /// </summary>
+    const int noFile = 50001;
+
     /// <summary>
     /// Adds a file, returning it with its id. Returns null when the folder has a file of that name.
     /// </summary>
     /// <param name="folder">The folder of the file, of which siblings are the files of the same folder.</param>
+    /// <exception cref="ArgumentException">The folder, the name or the owner id is longer than the table holds.</exception>
     public async Task<OfficeFile?> Add(string folder, string name, string ownerId, Stream content, Cancel cancel = default)
     {
         await using var connection = await Open(cancel);
-        return await Insert(connection, null, folder, name, ownerId, content, cancel);
+        var id = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(12));
+        await using var command = Command(
+            $"""
+             insert into {table} (Id, Folder, Name, OwnerId, Content, Version, LastModified)
+             output {inserted}
+             values (@id, @folder, @name, @ownerId, @content, newid(), sysdatetimeoffset());
+             """,
+            connection,
+            id);
+        AddText(command, "@folder", folder, maxFolderLength);
+        AddText(command, "@name", name, maxNameLength);
+        AddText(command, "@ownerId", ownerId, maxIdLength);
+        AddContent(command, content);
+        try
+        {
+            return await ReadFile(command, cancel);
+        }
+        catch (SqlException exception) when (exception.IsDuplicateKey())
+        {
+            // a file of that name in the folder
+            return null;
+        }
     }
 
     async Task<SqlConnection> Open(Cancel cancel)
@@ -29,20 +69,34 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
         return connection;
     }
 
-    static SqlCommand Command(string sql, SqlConnection connection, SqlTransaction? transaction, string? fileId = null)
+    static SqlCommand Command(string sql, SqlConnection connection, string? fileId = null)
     {
-        var command = new SqlCommand(sql, connection, transaction);
+        var command = new SqlCommand(sql, connection);
         if (fileId != null)
         {
-            command.Parameters.Add("@id", SqlDbType.NVarChar, 450).Value = fileId;
+            AddText(command, "@id", fileId, maxIdLength);
         }
 
         return command;
     }
 
-    static void AddContent(SqlCommand command, Stream content) =>
-        // a stream value is sent as it is read
+    static void AddText(SqlCommand command, string name, string value, int maxLength)
+    {
+        // a longer value would be cut silently by the size of the parameter
+        if (value.Length > maxLength)
+        {
+            throw new ArgumentException($"{name[1..]} is longer than {maxLength} characters", name[1..]);
+        }
+
+        command.Parameters.Add(name, SqlDbType.NVarChar, maxLength).Value = value;
+    }
+
+    static void AddContent(SqlCommand command, Stream content)
+    {
+        // a stream value is sent as it is read, before the statement runs, which a slow client can make take long
         command.Parameters.Add("@content", SqlDbType.VarBinary, -1).Value = content;
+        command.CommandTimeout = 0;
+    }
 
     static async Task<OfficeFile?> ReadFile(SqlCommand command, Cancel cancel)
     {
@@ -52,170 +106,131 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
             return null;
         }
 
-        return new(
+        return ReadFile(reader);
+    }
+
+    static OfficeFile ReadFile(SqlDataReader reader) =>
+        new(
             reader.GetString(0),
             reader.GetString(1),
             reader.GetInt64(2),
             reader.GetString(3),
             reader.GetGuid(4).ToString("N"),
             reader.GetDateTimeOffset(5));
-    }
-
-    async Task<OfficeFile?> Select(SqlConnection connection, SqlTransaction? transaction, string fileId, Cancel cancel)
-    {
-        await using var command = Command($"select {columns} from {table} where Id = @id", connection, transaction, fileId);
-        return await ReadFile(command, cancel);
-    }
-
-    async Task<string> FolderOf(SqlConnection connection, SqlTransaction? transaction, string fileId, Cancel cancel)
-    {
-        await using var command = Command($"select Folder from {table} where Id = @id", connection, transaction, fileId);
-        return (string?) await command.ExecuteScalarAsync(cancel) ??
-               throw new FileNotFoundException($"No file {fileId}");
-    }
-
-    async Task<OfficeFile?> Insert(SqlConnection connection, SqlTransaction? transaction, string folder, string name, string ownerId, Stream content, Cancel cancel)
-    {
-        var id = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(12));
-        await using var command = Command(
-            $"""
-             insert into {table} (Id, Folder, Name, OwnerId, Content, Version, LastModified)
-             values (@id, @folder, @name, @ownerId, @content, newid(), sysdatetimeoffset());
-             """,
-            connection,
-            transaction,
-            id);
-        command.Parameters.Add("@folder", SqlDbType.NVarChar, 400).Value = folder;
-        command.Parameters.Add("@name", SqlDbType.NVarChar, 255).Value = name;
-        command.Parameters.Add("@ownerId", SqlDbType.NVarChar, 450).Value = ownerId;
-        AddContent(command, content);
-        try
-        {
-            await command.ExecuteNonQueryAsync(cancel);
-        }
-        catch (SqlException exception) when (exception.IsDuplicateKey())
-        {
-            // a file of that name in the folder
-            return null;
-        }
-
-        return await Select(connection, transaction, id, cancel);
-    }
 
     public async Task<OfficeFile?> GetFile(string fileId, Cancel cancel = default)
     {
         await using var connection = await Open(cancel);
-        return await Select(connection, null, fileId, cancel);
+        await using var command = Command($"select {columns} from {table} where Id = @id", connection, fileId);
+        return await ReadFile(command, cancel);
     }
 
     public async Task<OfficeFile?> GetSibling(string fileId, string name, Cancel cancel = default)
     {
         await using var connection = await Open(cancel);
-        var folder = await FolderOf(connection, null, fileId, cancel);
-        await using var command = Command($"select {columns} from {table} where Folder = @folder and Name = @name", connection, null);
-        command.Parameters.Add("@folder", SqlDbType.NVarChar, 400).Value = folder;
-        command.Parameters.Add("@name", SqlDbType.NVarChar, 255).Value = name;
-        return await ReadFile(command, cancel);
+        // the source with its sibling, if any: no row is no source
+        await using var command = Command(
+            $"""
+             select f.Id, f.Name, f.Size, f.OwnerId, f.Version, f.LastModified
+             from {table} s
+             left join {table} f on f.Folder = s.Folder and f.Name = @name
+             where s.Id = @id
+             """,
+            connection,
+            fileId);
+        AddText(command, "@name", name, maxNameLength);
+        await using var reader = await command.ExecuteReaderAsync(cancel);
+        if (!await reader.ReadAsync(cancel))
+        {
+            throw new FileNotFoundException($"No file {fileId}");
+        }
+
+        if (await reader.IsDBNullAsync(0, cancel))
+        {
+            return null;
+        }
+
+        return ReadFile(reader);
     }
 
     public async Task<Stream> OpenRead(string fileId, Cancel cancel = default)
     {
-        var connection = await Open(cancel);
-        try
+        await using var connection = await Open(cancel);
+        await using var command = Command($"select Version, datalength(Content) from {table} where Id = @id", connection, fileId);
+        await using var reader = await command.ExecuteReaderAsync(cancel);
+        if (!await reader.ReadAsync(cancel))
         {
-            await using var command = Command($"select Content from {table} where Id = @id", connection, null, fileId);
-            var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess | CommandBehavior.SingleRow, cancel);
-            if (!await reader.ReadAsync(cancel))
-            {
-                await reader.DisposeAsync();
-                throw new FileNotFoundException($"No file {fileId}");
-            }
+            throw new FileNotFoundException($"No file {fileId}");
+        }
 
-            return new SqlServerReadStream(connection, reader, reader.GetStream(0));
-        }
-        catch
-        {
-            await connection.DisposeAsync();
-            throw;
-        }
+        return new SqlServerReadStream(connectionString, table, fileId, reader.GetGuid(0), reader.GetInt64(1));
     }
 
     public async Task<OfficeFile> Write(string fileId, Stream content, Cancel cancel = default)
     {
         await using var connection = await Open(cancel);
+        // the file as written, not as another write may have left it since
         await using var command = Command(
-            $"""
-             update {table} set Content = @content, Version = newid(), LastModified = sysdatetimeoffset() where Id = @id;
-             select {columns} from {table} where Id = @id;
-             """,
+            $"update {table} set Content = @content, Version = newid(), LastModified = sysdatetimeoffset() output {inserted} where Id = @id",
             connection,
-            null,
             fileId);
         AddContent(command, content);
         return await ReadFile(command, cancel) ??
                throw new FileNotFoundException($"No file {fileId}");
     }
 
+    /// <summary>
+    /// One batch, whose content is sent before it runs: the lock on the name is held while the content is copied into
+    /// the table only.
+    /// </summary>
     public async Task<OfficeFile?> CreateSibling(string fileId, string name, Stream content, bool overwrite, Cancel cancel = default)
     {
         await using var connection = await Open(cancel);
-        await using var transaction = (SqlTransaction) await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancel);
-        string folder;
-        string ownerId;
-        await using (var source = Command($"select Folder, OwnerId from {table} where Id = @id", connection, transaction, fileId))
-        await using (var reader = await source.ExecuteReaderAsync(cancel))
+        await using var command = Command(
+            $"""
+             set xact_abort on;
+             begin transaction;
+             declare @folder nvarchar({maxFolderLength}), @ownerId nvarchar({maxIdLength}), @existing nvarchar({maxIdLength});
+             select @folder = Folder, @ownerId = OwnerId from {table} where Id = @id;
+             if @folder is null
+                 throw {noFile}, N'No file', 1;
+             select @existing = Id from {table} with (updlock, holdlock) where Folder = @folder and Name = @name;
+             if @existing is null
+                 insert into {table} (Id, Folder, Name, OwnerId, Content, Version, LastModified)
+                 output {inserted}
+                 values (@newId, @folder, @name, @ownerId, @content, newid(), sysdatetimeoffset());
+             else if @overwrite = 1
+                 update {table} set Content = @content, Version = newid(), LastModified = sysdatetimeoffset()
+                 output {inserted}
+                 where Id = @existing;
+             commit;
+             """,
+            connection,
+            fileId);
+        AddText(command, "@name", name, maxNameLength);
+        command.Parameters.Add("@newId", SqlDbType.NVarChar, maxIdLength).Value = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(12));
+        command.Parameters.Add("@overwrite", SqlDbType.Bit).Value = overwrite;
+        AddContent(command, content);
+        try
         {
-            if (!await reader.ReadAsync(cancel))
-            {
-                throw new FileNotFoundException($"No file {fileId}");
-            }
-
-            folder = reader.GetString(0);
-            ownerId = reader.GetString(1);
+            return await ReadFile(command, cancel);
         }
-
-        string? existing;
-        await using (var find = Command($"select Id from {table} with (updlock) where Folder = @folder and Name = @name", connection, transaction))
+        catch (SqlException exception) when (exception.Number == noFile)
         {
-            find.Parameters.Add("@folder", SqlDbType.NVarChar, 400).Value = folder;
-            find.Parameters.Add("@name", SqlDbType.NVarChar, 255).Value = name;
-            existing = (string?) await find.ExecuteScalarAsync(cancel);
+            throw new FileNotFoundException($"No file {fileId}", exception);
         }
-
-        OfficeFile? file;
-        if (existing == null)
+        catch (SqlException exception) when (exception.IsDuplicateKey())
         {
-            file = await Insert(connection, transaction, folder, name, ownerId, content, cancel);
+            // a file of that name in the folder
+            return null;
         }
-        else
-        {
-            if (!overwrite)
-            {
-                return null;
-            }
-
-            await using var update = Command($"update {table} set Content = @content, Version = newid(), LastModified = sysdatetimeoffset() where Id = @id", connection, transaction, existing);
-            AddContent(update, content);
-            await update.ExecuteNonQueryAsync(cancel);
-            file = await Select(connection, transaction, existing, cancel);
-        }
-
-        await transaction.CommitAsync(cancel);
-        return file;
     }
 
     public async Task<OfficeFile?> Rename(string fileId, string name, Cancel cancel = default)
     {
         await using var connection = await Open(cancel);
-        await using var command = Command(
-            $"""
-             update {table} set Name = @name where Id = @id;
-             select {columns} from {table} where Id = @id;
-             """,
-            connection,
-            null,
-            fileId);
-        command.Parameters.Add("@name", SqlDbType.NVarChar, 255).Value = name;
+        await using var command = Command($"update {table} set Name = @name output {inserted} where Id = @id", connection, fileId);
+        AddText(command, "@name", name, maxNameLength);
         try
         {
             return await ReadFile(command, cancel) ??
@@ -231,7 +246,7 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
     public async Task Delete(string fileId, Cancel cancel = default)
     {
         await using var connection = await Open(cancel);
-        await using var command = Command($"delete from {table} where Id = @id", connection, null, fileId);
+        await using var command = Command($"delete from {table} where Id = @id", connection, fileId);
         if (await command.ExecuteNonQueryAsync(cancel) == 0)
         {
             throw new FileNotFoundException($"No file {fileId}");

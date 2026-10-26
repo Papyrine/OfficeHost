@@ -83,6 +83,96 @@ public class SqlServerTests(SqlDatabase database) :
         await Assert.That((await locks.Get(fileId))!.Id).IsEqualTo("d");
     }
 
+    /// <summary>
+    /// Lock ids are compared as they are, whatever the collation of the database, and a comparand longer than a lock id
+    /// is not cut into one.
+    /// </summary>
+    [Test]
+    public async Task Locks_ComparedAsTheyAre()
+    {
+        var locks = new SqlServerLockStore(connectionString, TimeProvider.System);
+        var expires = DateTimeOffset.UtcNow.AddMinutes(30);
+        await locks.CompareExchange(folder, null, new("ABC", expires));
+        await Assert.That((await locks.CompareExchange(folder, "abc", null))!.Id).IsEqualTo("ABC");
+        await Assert.That((await locks.Get(folder))!.Id).IsEqualTo("ABC");
+
+        var id = new string('a', 1024);
+        await locks.CompareExchange(folder, "ABC", new(id, expires));
+        await Assert.That((await locks.CompareExchange(folder, id + "b", null))!.Id).IsEqualTo(id);
+        await Assert.That((await locks.Get(folder))!.Id).IsEqualTo(id);
+    }
+
+    /// <summary>
+    /// Tables of version 1, from before the version table, are brought up to date, keeping their rows: their ids are
+    /// then compared as they are.
+    /// </summary>
+    [Test]
+    public async Task Install_FromVersion1()
+    {
+        var schema = $"v1{Guid.NewGuid():N}";
+        await using (var connection = new SqlConnection(connectionString))
+        {
+            await connection.OpenAsync();
+            await using var create = new SqlCommand(
+                $"""
+                 exec('create schema [{schema}]');
+                 create table [{schema}].[OfficeHostFiles] (Id nvarchar(450) not null primary key, Folder nvarchar(400) not null, Name nvarchar(255) not null, OwnerId nvarchar(450) not null, Content varbinary(max) not null, Size as datalength(Content), Version uniqueidentifier not null, LastModified datetimeoffset not null);
+                 create unique index IX_OfficeHostFiles_Folder_Name on [{schema}].[OfficeHostFiles] (Folder, Name);
+                 create table [{schema}].[OfficeHostLocks] (FileId nvarchar(450) not null primary key, LockId nvarchar(1024) not null, Expires datetimeoffset not null);
+                 create table [{schema}].[OfficeHostFssHttpStates] (FileId nvarchar(450) not null, Partition uniqueidentifier not null, Version nvarchar(max) not null, Data varbinary(max) not null, primary key (FileId, Partition));
+                 create table [{schema}].[OfficeHostUserInfo] (UserId nvarchar(450) not null primary key, Info nvarchar(max) not null);
+                 """,
+                connection);
+            await create.ExecuteNonQueryAsync();
+        }
+
+        var storage = new SqlServerStorage(connectionString, schema);
+        var file = (await storage.Add("folder", "kept.docx", "owner", Content("kept")))!;
+        await OfficeHostSqlServerInstaller.Install(connectionString, schema);
+        await OfficeHostSqlServerInstaller.Install(connectionString, schema);
+        await Assert.That(await Read(await storage.OpenRead(file.Id))).IsEqualTo("kept");
+
+        var locks = new SqlServerLockStore(connectionString, TimeProvider.System, schema);
+        var expires = DateTimeOffset.UtcNow.AddMinutes(30);
+        await locks.CompareExchange("Doc", null, new("upper", expires));
+        await Assert.That(await locks.CompareExchange("doc", null, new("lower", expires))).IsNull();
+        await Assert.That((await locks.Get("Doc"))!.Id).IsEqualTo("upper");
+    }
+
+    /// <summary>
+    /// The content is read in chunks: a file of several, and a write while it is read, which fails the read rather than
+    /// mixing two versions.
+    /// </summary>
+    [Test]
+    public async Task OpenRead_Chunks()
+    {
+        var storage = new SqlServerStorage(connectionString);
+        var bytes = RandomNumberGenerator.GetBytes(9 * 1024 * 1024 + 7);
+        var file = (await storage.Add(folder, "large.bin", "owner", new MemoryStream(bytes)))!;
+        await using (var read = await storage.OpenRead(file.Id))
+        {
+            using var copy = new MemoryStream();
+            await read.CopyToAsync(copy);
+            await Assert.That(copy.ToArray().AsSpan().SequenceEqual(bytes)).IsTrue();
+        }
+
+        await using var interrupted = await storage.OpenRead(file.Id);
+        var buffer = new byte[1024];
+        await interrupted.ReadExactlyAsync(buffer);
+        await storage.Write(file.Id, new MemoryStream(bytes));
+        await Assert.That(async () => await interrupted.CopyToAsync(Stream.Null)).Throws<IOException>();
+    }
+
+    /// <summary>
+    /// A name longer than the table holds is refused, not cut.
+    /// </summary>
+    [Test]
+    public async Task Add_NameTooLong()
+    {
+        var storage = new SqlServerStorage(connectionString);
+        await Assert.That(async () => await storage.Add(folder, new string('n', 256), "owner", Content("x"))).Throws<ArgumentException>();
+    }
+
     [Test]
     public async Task Locks_Race()
     {

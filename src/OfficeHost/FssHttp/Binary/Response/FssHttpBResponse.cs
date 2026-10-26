@@ -86,10 +86,18 @@ record FssHttpBResponse(
         writer.WriteEnd(StreamObjectType.Response);
     }
 
-    public byte[] ToArray()
+    public byte[] ToArray() => ToMemory().ToArray();
+
+    /// <summary>
+    /// The response as written, without the copy of <see cref="ToArray"/>: a response holds up to the MaxDataElements
+    /// Office asks for, megabytes.
+    /// </summary>
+    public ReadOnlyMemory<byte> ToMemory()
     {
-        var output = new ArrayBufferWriter<byte>();
+        var counter = new ByteCounter();
+        Write(counter);
+        var output = new ArrayBufferWriter<byte>((int) counter.Count);
         Write(output);
-        return output.WrittenSpan.ToArray();
+        return output.WrittenMemory;
     }
 }

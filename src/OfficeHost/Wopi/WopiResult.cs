@@ -63,6 +63,8 @@ class WopiResult(int status) :
 
     public async Task ExecuteAsync(HttpContext httpContext)
     {
+        // disposed even when a header is refused
+        await using var bodyStream = BodyStream;
         var response = httpContext.Response;
         response.StatusCode = Status;
         foreach (var (name, value) in Headers)
@@ -77,19 +79,15 @@ class WopiResult(int status) :
         }
 
         response.ContentType = ContentType;
-        if (BodyStream != null)
+        if (bodyStream != null)
         {
-            await using (BodyStream)
+            // a length rather than a chunked response, when the stream knows it
+            if (bodyStream.CanSeek)
             {
-                // a length rather than a chunked response, when the stream knows it
-                if (BodyStream.CanSeek)
-                {
-                    response.ContentLength = BodyStream.Length - BodyStream.Position;
-                }
-
-                await BodyStream.CopyToAsync(response.Body, httpContext.RequestAborted);
+                response.ContentLength = bodyStream.Length - bodyStream.Position;
             }
 
+            await bodyStream.CopyToAsync(response.Body, httpContext.RequestAborted);
             return;
         }
 

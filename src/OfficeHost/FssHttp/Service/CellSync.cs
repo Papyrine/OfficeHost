@@ -166,9 +166,10 @@ static class CellSync
         var limit = query.MaxDataElements ?? ulong.MaxValue;
         var sent = new List<DataElement>();
         ulong size = 0;
+        var counter = new ByteCounter();
         foreach (var element in missing)
         {
-            var elementSize = (ulong) Size(element);
+            var elementSize = Size(element, counter);
             if (sent.Count > 0 &&
                 elementSize > limit - Math.Min(limit, size))
             {
@@ -212,7 +213,16 @@ static class CellSync
             _ => 5
         };
 
-    static int Size(DataElement element) => FssHttpB(element, element.SerialNumber).Length;
+    /// <summary>
+    /// The size of the element as sent, counted rather than written.
+    /// </summary>
+    static ulong Size(DataElement element, ByteCounter counter)
+    {
+        counter.Reset();
+        var writer = new FssHttpBWriter(counter);
+        element.Write(ref writer);
+        return (ulong) counter.Count;
+    }
 
     static byte[] FssHttpB(DataElement element, SerialNumber serialNumber)
     {

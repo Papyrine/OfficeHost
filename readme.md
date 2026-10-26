@@ -74,8 +74,9 @@ app.MapOfficeHost();
 app.MapOfficePages(Access, OnError);
 // the sites desktop Office edits and coauthors files through: /fsshttp/{token}/{name}
 app.MapFssHttp();
-// the page that opens a file in desktop Office, through an ms-word: (or ms-excel:, ms-powerpoint:) link; the user comes
-// from ?user= so that two people can coauthor the demo
+// the page that opens a file in desktop Office, through an ms-word: (or ms-excel:, ms-powerpoint:) link. The user comes
+// from ?user= so that two people can coauthor the demo, and may edit any file: an application takes the user from its
+// sign-in, and decides the access from its permissions, as Access below does for the WOPI client
 app.MapGet(
     "/desktop/{fileId}",
     async (string fileId, string? user, HttpRequest request, OfficeLauncher launcher) =>
@@ -98,7 +99,7 @@ app.MapGet(
         return Results.Content(SamplePages.Desktop(link), "text/html");
     });
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L11-L68' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L11-L69' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 `MapOfficePages` maps the pages that open a file in a WOPI client, `/edit/{fileId}` and `/view/{fileId}`, and `/editnew/{fileId}` for a new document. The application gives it the access of the user to the file, which only it can decide from its own users and permissions, or null to refuse it with a 403, and optionally its own results for the errors:
@@ -135,7 +136,7 @@ static IResult? OnError(HttpContext context, Exception exception)
     return null;
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L99-L128' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L100-L129' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The page is `OfficeLaunch.HostPage()`: a form posts the access token to the editor, in a full-page iframe. An application that puts the editor in a page of its own calls `OfficeLauncher.Launch` itself, and takes the form, the iframe and the script from `HostPageHtml()`. A missing file is a 404, a WOPI client that cannot be reached a 503, and an action no WOPI client offers for the file a 400.
@@ -165,7 +166,7 @@ app.MapPost(
         return Results.Redirect(page);
     });
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L70-L88' title='Snippet source file'>snippet source</a> | <a href='#snippet-NewDocument' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L71-L89' title='Snippet source file'>snippet source</a> | <a href='#snippet-NewDocument' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 Desktop Office can also Save As: with `CanWriteRelative`, as for the Save As of the WOPI clients, the file is created next to the one being edited, and edited on through the same link.
@@ -193,15 +194,19 @@ It starts with a `Welcome.docx` in `src/OfficeHost.Sample/files`; add files ther
 | Option | Default | |
 |---|---|---|
 | `SigningKey` | | Signs the access tokens, at least 32 characters. Not needed with another `IOfficeTokens`. |
+| `PreviousSigningKeys` | | Keys that signed tokens before `SigningKey`, still accepted, to rotate the key. |
 | `TokenLifetime` | 10 hours | How long an access token is valid. |
 | `LockDuration` | 30 minutes | How long a lock lasts unless refreshed, as [MS-WOPI] sets it. |
 | `BaseUrl` | the request's | The URL the WOPI clients reach the application at: WOPISrc is `{BaseUrl}/wopi/files/{fileId}`. |
 | `DiscoveryUrls` | | The trusted WOPI clients: their actions are launched, and their proof keys checked. |
 | `RequireProof` | false | Refuses requests without `X-WOPI-Proof`. Collabora Online does not sign its requests. |
-| `MaxFileSize` | no limit | The largest file PutFile and PutRelativeFile accept, replacing the server's request size limit. |
+| `MaxFileSize` | 512 MB | The largest file PutFile, PutRelativeFile and desktop Office's saves accept, replacing the server's request size limit; null for none. |
 | `ServerVersion` | the library's | The `X-WOPI-ServerVersion` of the responses. |
 | `HostEditUrl`, `HostViewUrl` | | The pages of the application that open a file, returned by CheckFileInfo and PutRelativeFile. |
 | `OnCheckFileInfo` | | Adds or changes CheckFileInfo properties: `CloseUrl`, breadcrumbs, branding, CSPP+ properties. |
+| `OnFileSaved` | | Called after a save, by a WOPI client or desktop Office, with the editors: to keep versions or audit. |
+| `UrlPlaceholder` | | The values of the placeholders of the action URLs, as `UI_LLCC` or `BUSINESS_USER`; all are dropped without it. |
+| `ShareUrl` | | The URL to share a file by, for GetShareUrl; WOPI clients offer no sharing without it. |
 | `DesktopPath` | `/fsshttp` | The path of the sites of desktop Office, `MapFssHttp`. |
 | `DesktopBaseUrl` | the request's | The URL desktop Office reaches the application at, which runs where the browser does. |
 
@@ -212,12 +217,13 @@ It starts with a `Welcome.docx` in `src/OfficeHost.Sample/files`; add files ther
 editor.
 
 * `CanWrite`: lock, save and delete the file. Without it the file opens read only.
-* `CanWriteRelative`: Save As, creating files next to this one.
+* `CanWriteRelative`: Save As, creating files next to this one, or replacing an unlocked one other than this one.
 * `CanRename`: rename the file.
-* `ViewOnly`: no download, print or copy.
+* `ViewOnly`: no download, print or copy, as the WOPI client enforces it: without `RequireProof`, the token alone can
+  still download the file.
 * `IsAnonymous`, `UserName`: how the editor shows the user.
 
-The built-in tokens carry the access, signed with `SigningKey`, so they need no storage, but cannot be revoked before they expire. They are short (about 70 characters, longer with long ids or user names), as desktop Office holds the token in the URL of the file and refuses a Save As to a URL of more than 255 characters; a custom `IOfficeTokens` should keep its tokens short too. To keep tokens in a database, or tie them to the application's sessions, register an `IOfficeTokens`.
+The built-in tokens carry the access, signed with `SigningKey`, so they need no storage, but cannot be revoked before they expire; `PreviousSigningKeys` rotates the key without ending the sessions. They are short (about 70 characters, longer with long ids or user names), as desktop Office holds the token in the URL of the file and refuses a Save As to a URL of more than 255 characters; a custom `IOfficeTokens` should keep its tokens short too. To keep tokens in a database, or tie them to the application's sessions, register an `IOfficeTokens`.
 
 
 ## Storage
@@ -258,7 +264,7 @@ await OfficeHostSqlServerInstaller.Install(connectionString);
 // in the application, before or after AddOfficeHost
 builder.Services.AddOfficeHostSqlServer(connectionString);
 ```
-<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerTests.cs#L151-L157' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServer' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerTests.cs#L241-L247' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServer' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 
@@ -288,6 +294,9 @@ erDiagram
     nvarchar(1024) LockId
     datetimeoffset Expires
   }
+  OfficeHostSchemaVersion["**OfficeHostSchemaVersion**"] {
+    int Version
+  }
   OfficeHostUserInfo["**OfficeHostUserInfo**"] {
     nvarchar(450) UserId pk
     nvarchar(max) Info
@@ -295,11 +304,13 @@ erDiagram
 ```
 <!-- endInclude -->
 
+The installer keeps the version of the tables in `OfficeHostSchemaVersion`, and brings older tables up to date: ids, lock ids and versions are in a binary collation, so compared as they are whatever the collation of the database, while folders and names follow it (unique ignoring case with the default one). Content is read in chunks of a statement each, so that a slow download holds no connection nor lock.
+
 The tests of the package run on LocalDB, so on Windows only.
 
 ### Azure Blob Storage
 
-The [OfficeHost.AzureBlob](https://www.nuget.org/packages/OfficeHost.AzureBlob/) package keeps the files in a blob container, with no other service: `BlobStorage`, registered by `AddOfficeHostBlobStorage(container)`, over a container that exists. Files are added with `Add(folder, name, ownerId, content)`, which gives the id. A file is the blob `files/{id}`, its folder, name and owner in its metadata, so a rename copies nothing; a small blob per name, created only when missing, keeps names unique in a folder, ignoring case. The locks and the state of desktop coauthoring need stores of their own, such as those of OfficeHost.SqlServer on Azure SQL.
+The [OfficeHost.AzureBlob](https://www.nuget.org/packages/OfficeHost.AzureBlob/) package keeps the files in a blob container, with no other service: `BlobStorage`, registered by `AddOfficeHostBlobStorage(container)`, over a container that exists. Files are added with `Add(folder, name, ownerId, content)`, which gives the id. A file is the blob `files/{id}`, its folder, name and owner in its metadata, so a rename copies nothing; a small blob per name, created only when missing, keeps names unique in a folder, ignoring case, as folders are compared too. A content that cannot be read twice, as a request body, is kept in a temporary file while it is written. The locks and the state of desktop coauthoring need stores of their own, such as those of OfficeHost.SqlServer on Azure SQL.
 
 The tests of the package run on [Azurite](https://github.com/Azure/Azurite) in Docker, through Testcontainers, or on a storage account when `OFFICEHOST_BLOB_CONNECTION_STRING` is set. The storage tests are shared with OfficeHost.SqlServer (`src/StorageContract`), so both storages behave the same.
 

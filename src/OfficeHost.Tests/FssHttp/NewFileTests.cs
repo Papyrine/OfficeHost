@@ -166,6 +166,36 @@ public class NewFileTests
     }
 
     /// <summary>
+    /// A Save As that takes over another file writes it, but does not read it: a query of its content in the same
+    /// request fails, and when the Put Changes fails, the site does not reach the file after.
+    /// </summary>
+    [Test]
+    public async Task SaveAs_OtherFile_NotRead()
+    {
+        var (host, token, _) = await Start();
+        await using var _ = host;
+        var original = await File.ReadAllBytesAsync(host.PathOf("other.docx"));
+        var client = new WordClient(host, token)
+        {
+            DocumentUrl = Url(token, "other.docx")
+        };
+        var ids = new IdAllocator(Guid.NewGuid());
+        var query = new QueryChangesRequest(1, 0, 2, new(3, CellId.Null), 3670016, Knowledge: Knowledge.Empty);
+        // a Storage Index the package does not have
+        var put = new PutChangesRequest(2, ids.NewId(), ExtendedGuid.Null, 0x48, new byte[3], new byte[] { 4, 0, 0 });
+        var request = new FssHttpBRequest(new(Guid.NewGuid(), "msword", "win", 1), [query, put], new([])).ToArray();
+        var result = (await client.Send(WordClient.Cell("1", request, new XAttribute("Coalesce", "true")))).Single();
+        await Assert.That(result.ErrorCode).IsEqualTo("CellRequestFail");
+        var queried = (FailedSubResponse) result.FssHttpB.SubResponses[0];
+        await Assert.That(queried.Error).IsEqualTo(ResponseError.Cell(CellErrorCode.StorageWriteOnly));
+        await Assert.That(result.FssHttpB.DataElements!.Elements).IsEmpty();
+        await Assert.That((await File.ReadAllBytesAsync(host.PathOf("other.docx"))).SameAs(original)).IsTrue();
+
+        using var get = await host.Client.GetAsync($"/fsshttp/{token}/other.docx");
+        await Assert.That(get.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+    }
+
+    /// <summary>
     /// After a rename the file answers to its new name only, as on SharePoint Server SE.
     /// </summary>
     [Test]

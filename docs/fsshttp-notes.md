@@ -398,7 +398,11 @@ with the lock taken by a script as user bob, as Excel takes it.
   every `FileAlreadyLockedOnServer` whose lock it knows the user of, and `LockStatus` as SharePoint does.
 - **The notification** polls every 30 seconds: ExclusiveLock `CheckLockAvailability`
   (`Scenario: GetLock_CheckForLockAvailibility`) with a lock id of its own, `FileAlreadyLockedOnServer` while the lock
-  is held. On the first `Success`, Excel shows "File Now Available" with a Read-Write button.
+  is held, by desktop Office or a WOPI client. On the first `Success`, Excel shows "File Now Available" with a
+  Read-Write button.
+- **The exclusive lock is its user's.** Its id is no secret (`GetDocMetaInfo` and `LockStatus` give it, as on
+  SharePoint), so OfficeHost also checks the user: another user who sends it cannot refresh, release or convert the
+  lock, nor save under it (`HardeningTests.ExclusiveLock_OfItsUser`), and a reader cannot release one.
 - **Read-Write leaves the workbook read-only, on SharePoint too.** Against SharePoint it opens the workbook again
   (`WhoAmI` and `GetDocMetaInfo`, then `OpenFile_Open`) and stays read-only, without a `GetLock` when the user types;
   a save is a Save As. Against the sample it sends nothing, and the bar says "This workbook is locked for editing by
@@ -553,8 +557,10 @@ Word 16.0.20326 against the lab and the sample, driven through COM (`SaveAs2`), 
   path of a GET or HEAD) picks the file: the file of the token under its current name, or a file the site made by
   Save As. With `CanWriteRelative` (and `CanWrite`), as the Save As of WOPI, a Request with a Put Changes to a free
   name creates the file next to the file of the token (`IOfficeStorage.CreateSibling`), or takes over an unlocked file
-  of that name; the Cell takes the exclusive lock its `ExclusiveLockID` and `Timeout` name. A created file whose Put
-  fails is deleted again. The files a site made are kept with the state of the file of its token (`SaveAsFiles`, a
+  of that name, which it writes but does not read: its cell is written again with new ids, a query of its content in
+  the Request fails with `StorageWriteOnly`, and the site reaches it only once the Put succeeded
+  (`NewFileTests.SaveAs_OtherFile_NotRead`); the Cell takes the exclusive lock its `ExclusiveLockID` and `Timeout`
+  name. A created file whose Put fails is deleted again. The files a site made are kept with the state of the file of its token (`SaveAsFiles`, a
   partition of the `IFssHttpStore`), by a hash of the token until it expires, so the site reaches those and no other
   file of the folder; IsOnlyClient finds them by ResourceID. Only the Open XML formats are created; another name
   answers `FileNotExistsOrCannotBeCreated`, as does any name without `CanWriteRelative`. A HEAD of a file the site

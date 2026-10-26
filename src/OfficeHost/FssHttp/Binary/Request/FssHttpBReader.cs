@@ -1,27 +1,61 @@
 /// <summary>
 /// Reads FSSHTTPB ([MS-FSSHTTPB] 2.2.1) from memory without copying: binary data comes back as slices of the input.
 /// Every read checks its bounds, so malformed or truncated input throws <see cref="FssHttpBException"/> and never reads
-/// past the end, loops without consuming input, or allocates for a count the remaining bytes cannot hold.
+/// past the end, loops without consuming input, or allocates for a count the remaining bytes cannot hold. What the
+/// objects read take in memory is counted against a budget of a few times the size of the input, as a null Extended
+/// GUID of a byte is a struct of 20: input made of the smallest structures fails rather than taking 20 times its size.
 /// </summary>
 ref struct FssHttpBReader
 {
     const int maxDepth = 32;
 
+    /// <summary>
+    /// What a stream object is counted for, about the size of the record it is read into.
+    /// </summary>
+    const int objectCost = 64;
+
+    /// <summary>
+    /// The size of an <see cref="ExtendedGuid"/> in memory: a GUID and a uint.
+    /// </summary>
+    const int extendedGuidSize = 20;
+
     ReadOnlyMemory<byte> memory;
     ReadOnlySpan<byte> span;
     int position;
     int offset;
+    Budget budget;
 
     public FssHttpBReader(ReadOnlyMemory<byte> memory) :
-        this(memory, 0)
+        this(memory, 0, new(8L * memory.Length + 1024 * 1024))
     {
     }
 
-    FssHttpBReader(ReadOnlyMemory<byte> memory, int offset)
+    FssHttpBReader(ReadOnlyMemory<byte> memory, int offset, Budget budget)
     {
         this.memory = memory;
         span = memory.Span;
         this.offset = offset;
+        this.budget = budget;
+    }
+
+    /// <summary>
+    /// The memory the objects of a reader and the readers it makes can still take, in bytes.
+    /// </summary>
+    sealed class Budget(long left)
+    {
+        public long Left = left;
+    }
+
+    /// <summary>
+    /// Counts what an object read takes in memory against the budget.
+    /// </summary>
+    void Spend(long bytes, int at)
+    {
+        budget.Left -= bytes;
+        if (budget.Left < 0)
+        {
+            throw new FssHttpBException("The data takes too much memory for its size", at);
+        }
     }
 
     public int Remaining => span.Length - position;
@@ -191,7 +225,7 @@ ref struct FssHttpBReader
     /// <summary>
     /// A count, checked against the bytes left for items of at least <paramref name="minimumSize"/> bytes.
     /// </summary>
-    int ReadCount(int minimumSize)
+    int ReadCount(int minimumSize, int itemSize = 0)
     {
         var at = Offset;
         var count = ReadCompactUInt64();
@@ -200,6 +234,7 @@ ref struct FssHttpBReader
             throw new FssHttpBException($"A count of {count} does not fit in the {Remaining} bytes left", at);
         }
 
+        Spend((long) count * itemSize, at);
         return (int) count;
     }
 
@@ -208,7 +243,7 @@ ref struct FssHttpBReader
     /// </summary>
     public ExtendedGuid[] ReadExtendedGuidArray()
     {
-        var result = new ExtendedGuid[ReadCount(1)];
+        var result = new ExtendedGuid[ReadCount(1, extendedGuidSize)];
         for (var index = 0; index < result.Length; index++)
         {
             result[index] = ReadExtendedGuid();
@@ -222,7 +257,7 @@ ref struct FssHttpBReader
     /// </summary>
     public CellId[] ReadCellIdArray()
     {
-        var result = new CellId[ReadCount(2)];
+        var result = new CellId[ReadCount(2, 2 * extendedGuidSize)];
         for (var index = 0; index < result.Length; index++)
         {
             result[index] = ReadCellId();
@@ -246,7 +281,7 @@ ref struct FssHttpBReader
     /// </summary>
     public string[] ReadStringItemArray()
     {
-        var result = new string[ReadCount(1)];
+        var result = new string[ReadCount(1, objectCost)];
         for (var index = 0; index < result.Length; index++)
         {
             result[index] = ReadStringItem();
@@ -355,7 +390,8 @@ ref struct FssHttpBReader
         var length = (int) header.Length;
         var start = position;
         position += length;
-        return new(memory.Slice(start, length), offset + start);
+        Spend(objectCost, at);
+        return new(memory.Slice(start, length), offset + start, budget);
     }
 
     /// <summary>

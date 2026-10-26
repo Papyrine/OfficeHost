@@ -18,6 +18,17 @@ public sealed class FileSystemStorage :
         WriteIndented = true
     };
 
+    // the steps a modification time is moved forward by, so that a write is a new version on any file system clock
+    static TimeSpan[] timeSteps =
+    [
+        TimeSpan.FromTicks(1),
+        TimeSpan.FromMicroseconds(1),
+        TimeSpan.FromMilliseconds(1),
+        TimeSpan.FromMilliseconds(10),
+        TimeSpan.FromSeconds(1),
+        TimeSpan.FromSeconds(2)
+    ];
+
     string ownerId;
     string metaPath;
     string indexPath;
@@ -246,8 +257,9 @@ public sealed class FileSystemStorage :
     public async Task<OfficeFile?> CreateSibling(string fileId, string name, Stream content, bool overwrite, Cancel cancel = default)
     {
         var full = SiblingPath(fileId, name);
-        if (!overwrite &&
-            File.Exists(full))
+        // a folder of that name is never replaced
+        if (Directory.Exists(full) ||
+            (!overwrite && File.Exists(full)))
         {
             return null;
         }
@@ -263,11 +275,16 @@ public sealed class FileSystemStorage :
             {
                 File.Move(temp, full, false);
             }
-            catch (IOException) when (File.Exists(full))
+            catch (IOException) when (File.Exists(full) || Directory.Exists(full))
             {
                 // created meanwhile
                 File.Delete(temp);
                 return null;
+            }
+            catch
+            {
+                File.Delete(temp);
+                throw;
             }
         }
 
@@ -315,10 +332,20 @@ public sealed class FileSystemStorage :
             throw;
         }
 
-        if (previous != null &&
-            File.GetLastWriteTimeUtc(full) <= previous)
+        if (previous == null)
         {
-            File.SetLastWriteTimeUtc(full, previous.Value.AddTicks(1));
+            return;
+        }
+
+        // a file system with a coarser clock (FAT, exFAT, some network shares) rounds a tick away: the next step is tried
+        foreach (var step in timeSteps)
+        {
+            if (File.GetLastWriteTimeUtc(full) > previous)
+            {
+                return;
+            }
+
+            File.SetLastWriteTimeUtc(full, previous.Value + step);
         }
     }
 
@@ -360,7 +387,7 @@ public sealed class FileSystemStorage :
         // a change of case only, on a case insensitive file system, is the same file
         var sameFile = string.Equals(full, target, pathComparison);
         if (!sameFile &&
-            File.Exists(target))
+            (File.Exists(target) || Directory.Exists(target)))
         {
             return Task.FromResult<OfficeFile?>(null);
         }
@@ -369,7 +396,7 @@ public sealed class FileSystemStorage :
         {
             File.Move(full, target, false);
         }
-        catch (IOException) when (!sameFile && File.Exists(target))
+        catch (IOException) when (!sameFile && (File.Exists(target) || Directory.Exists(target)))
         {
             // created meanwhile
             return Task.FromResult<OfficeFile?>(null);

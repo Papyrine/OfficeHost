@@ -252,7 +252,7 @@ public class FssHttpServiceTests
         }
 
         await Assert.That((await word.Send(word.Join())).Single().ErrorCode).IsEqualTo("FileAlreadyLockedOnServer");
-        await Assert.That((await word.Coauth("CheckLockAvailability")).ErrorCode).IsEqualTo("Success");
+        await Assert.That((await word.Coauth("CheckLockAvailability")).ErrorCode).IsEqualTo("FileAlreadyLockedOnServer");
         var blocked = await word.Save(Zip("blocked"));
         await Assert.That(((FailedSubResponse) blocked).Error.SupplementalInfo).IsEqualTo("FileAlreadyLockedOnServer");
     }
@@ -653,11 +653,29 @@ public class FssHttpServiceTests
         var content = (await cells.GetContent(fileId))!;
         var ids = content.State.Ids();
         var update = FileCell.Write(Zip("pending"), content.State.Storage, ids, ChunkingOptions.Default);
-        await cells.TryUpdate(fileId, FssHttpCells.ContentPartition, content.Version, new(update.Storage, ids.Guid, ids.Next, null));
+        await cells.TryUpdate(fileId, FssHttpCells.ContentPartition, content.Version, new(update.Storage, ids.Guid, ids.Next, null, content.State.FileVersion));
         var word = new WordClient(host, token);
         await word.Sync();
         await Assert.That(word.File.SameAs(Zip("pending"))).IsTrue();
         await Assert.That((await FileOf(host)).SameAs(Zip("pending"))).IsTrue();
+    }
+
+    [Test]
+    public async Task PendingFile_FileChangedSince()
+    {
+        var (host, fileId, token) = await Start();
+        await using var _ = host;
+        var cells = host.Service<FssHttpCells>();
+        var content = (await cells.GetContent(fileId))!;
+        var ids = content.State.Ids();
+        var update = FileCell.Write(Zip("pending"), content.State.Storage, ids, ChunkingOptions.Default);
+        await cells.TryUpdate(fileId, FssHttpCells.ContentPartition, content.Version, new(update.Storage, ids.Guid, ids.Next, null, content.State.FileVersion));
+        // the write of the Put failed, and the file was saved through WOPI since: the pending cell is out of date
+        await host.Storage.Write(fileId, new MemoryStream(Zip("newer")));
+        var word = new WordClient(host, token);
+        await word.Sync();
+        await Assert.That(word.File.SameAs(Zip("newer"))).IsTrue();
+        await Assert.That((await FileOf(host)).SameAs(Zip("newer"))).IsTrue();
     }
 
     [Test]
