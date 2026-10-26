@@ -13,14 +13,23 @@ public sealed class SqlDatabase :
 
     public string ConnectionString => $"{server};Database={name}";
 
+    bool created;
+
     public async Task InitializeAsync()
     {
         await Execute($"create database [{name}]");
+        created = true;
         await OfficeHostSqlServerInstaller.Install(ConnectionString);
     }
 
     public async ValueTask DisposeAsync()
     {
+        // TUnit disposes the data source of skipped tests too, as on other than Windows, where it was never initialized
+        if (!created)
+        {
+            return;
+        }
+
         SqlConnection.ClearAllPools();
         await Execute($"alter database [{name}] set single_user with rollback immediate; drop database [{name}]");
     }
