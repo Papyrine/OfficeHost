@@ -8,7 +8,10 @@ public sealed class SqlServerUserInfoStore(string connectionString, string schem
 {
     string table = SqlServerTables.Name(schema, SqlServerTables.UserInfo);
 
-    public async Task<string?> Get(string userId, Cancel cancel = default)
+    public Task<string?> Get(string userId, Cancel cancel = default) =>
+        DeadlockRetry.Once(() => GetAttempt(userId, cancel));
+
+    async Task<string?> GetAttempt(string userId, Cancel cancel)
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancel);
@@ -17,7 +20,10 @@ public sealed class SqlServerUserInfoStore(string connectionString, string schem
         return (string?) await command.ExecuteScalarAsync(cancel);
     }
 
-    public async Task Set(string userId, string userInfo, Cancel cancel = default)
+    public Task Set(string userId, string userInfo, Cancel cancel = default) =>
+        DeadlockRetry.Once(() => SetAttempt(userId, userInfo, cancel));
+
+    async Task SetAttempt(string userId, string userInfo, Cancel cancel)
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancel);

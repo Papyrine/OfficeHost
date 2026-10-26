@@ -35,7 +35,10 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
     /// </summary>
     /// <param name="folder">The folder of the file, of which siblings are the files of the same folder.</param>
     /// <exception cref="ArgumentException">The folder, the name or the owner id is longer than the table holds.</exception>
-    public async Task<OfficeFile?> Add(string folder, string name, string ownerId, Stream content, Cancel cancel = default)
+    public Task<OfficeFile?> Add(string folder, string name, string ownerId, Stream content, Cancel cancel = default) =>
+        DeadlockRetry.Once(content, () => AddAttempt(folder, name, ownerId, content, cancel));
+
+    async Task<OfficeFile?> AddAttempt(string folder, string name, string ownerId, Stream content, Cancel cancel)
     {
         await using var connection = await Open(cancel);
         var id = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(12));
@@ -118,14 +121,20 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
             reader.GetGuid(4).ToString("N"),
             reader.GetDateTimeOffset(5));
 
-    public async Task<OfficeFile?> GetFile(string fileId, Cancel cancel = default)
+    public Task<OfficeFile?> GetFile(string fileId, Cancel cancel = default) =>
+        DeadlockRetry.Once(() => GetFileAttempt(fileId, cancel));
+
+    async Task<OfficeFile?> GetFileAttempt(string fileId, Cancel cancel)
     {
         await using var connection = await Open(cancel);
         await using var command = Command($"select {columns} from {table} where Id = @id", connection, fileId);
         return await ReadFile(command, cancel);
     }
 
-    public async Task<OfficeFile?> GetSibling(string fileId, string name, Cancel cancel = default)
+    public Task<OfficeFile?> GetSibling(string fileId, string name, Cancel cancel = default) =>
+        DeadlockRetry.Once(() => GetSiblingAttempt(fileId, name, cancel));
+
+    async Task<OfficeFile?> GetSiblingAttempt(string fileId, string name, Cancel cancel)
     {
         await using var connection = await Open(cancel);
         // the source with its sibling, if any: no row is no source
@@ -153,7 +162,10 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
         return ReadFile(reader);
     }
 
-    public async Task<Stream> OpenRead(string fileId, Cancel cancel = default)
+    public Task<Stream> OpenRead(string fileId, Cancel cancel = default) =>
+        DeadlockRetry.Once(() => OpenReadAttempt(fileId, cancel));
+
+    async Task<Stream> OpenReadAttempt(string fileId, Cancel cancel)
     {
         await using var connection = await Open(cancel);
         await using var command = Command($"select Version, datalength(Content) from {table} where Id = @id", connection, fileId);
@@ -166,7 +178,10 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
         return new SqlServerReadStream(connectionString, table, fileId, reader.GetGuid(0), reader.GetInt64(1));
     }
 
-    public async Task<OfficeFile> Write(string fileId, Stream content, Cancel cancel = default)
+    public Task<OfficeFile> Write(string fileId, Stream content, Cancel cancel = default) =>
+        DeadlockRetry.Once(content, () => WriteAttempt(fileId, content, cancel));
+
+    async Task<OfficeFile> WriteAttempt(string fileId, Stream content, Cancel cancel)
     {
         await using var connection = await Open(cancel);
         // the file as written, not as another write may have left it since
@@ -183,7 +198,10 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
     /// One batch, whose content is sent before it runs: the lock on the name is held while the content is copied into
     /// the table only.
     /// </summary>
-    public async Task<OfficeFile?> CreateSibling(string fileId, string name, Stream content, bool overwrite, Cancel cancel = default)
+    public Task<OfficeFile?> CreateSibling(string fileId, string name, Stream content, bool overwrite, Cancel cancel = default) =>
+        DeadlockRetry.Once(content, () => CreateSiblingAttempt(fileId, name, content, overwrite, cancel));
+
+    async Task<OfficeFile?> CreateSiblingAttempt(string fileId, string name, Stream content, bool overwrite, Cancel cancel)
     {
         await using var connection = await Open(cancel);
         await using var command = Command(
@@ -226,7 +244,10 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
         }
     }
 
-    public async Task<OfficeFile?> Rename(string fileId, string name, Cancel cancel = default)
+    public Task<OfficeFile?> Rename(string fileId, string name, Cancel cancel = default) =>
+        DeadlockRetry.Once(() => RenameAttempt(fileId, name, cancel));
+
+    async Task<OfficeFile?> RenameAttempt(string fileId, string name, Cancel cancel)
     {
         await using var connection = await Open(cancel);
         await using var command = Command($"update {table} set Name = @name output {inserted} where Id = @id", connection, fileId);
@@ -243,7 +264,10 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
         }
     }
 
-    public async Task Delete(string fileId, Cancel cancel = default)
+    public Task Delete(string fileId, Cancel cancel = default) =>
+        DeadlockRetry.Once(() => DeleteAttempt(fileId, cancel));
+
+    async Task DeleteAttempt(string fileId, Cancel cancel)
     {
         await using var connection = await Open(cancel);
         await using var command = Command($"delete from {table} where Id = @id", connection, fileId);

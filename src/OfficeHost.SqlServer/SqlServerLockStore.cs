@@ -10,7 +10,10 @@ public sealed class SqlServerLockStore(string connectionString, TimeProvider tim
 {
     string table = SqlServerTables.Name(schema, SqlServerTables.Locks);
 
-    public async Task<OfficeLock?> Get(string fileId, Cancel cancel = default)
+    public Task<OfficeLock?> Get(string fileId, Cancel cancel = default) =>
+        DeadlockRetry.Once(() => GetAttempt(fileId, cancel));
+
+    async Task<OfficeLock?> GetAttempt(string fileId, Cancel cancel)
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancel);
@@ -25,7 +28,10 @@ public sealed class SqlServerLockStore(string connectionString, TimeProvider tim
     /// </summary>
     const int maxLockLength = 1024;
 
-    public async Task<OfficeLock?> CompareExchange(string fileId, string? comparand, OfficeLock? value, Cancel cancel = default)
+    public Task<OfficeLock?> CompareExchange(string fileId, string? comparand, OfficeLock? value, Cancel cancel = default) =>
+        DeadlockRetry.Once(() => CompareExchangeAttempt(fileId, comparand, value, cancel));
+
+    async Task<OfficeLock?> CompareExchangeAttempt(string fileId, string? comparand, OfficeLock? value, Cancel cancel)
     {
         if (value?.Id.Length > maxLockLength)
         {

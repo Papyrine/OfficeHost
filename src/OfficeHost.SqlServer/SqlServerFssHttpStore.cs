@@ -8,7 +8,10 @@ public sealed class SqlServerFssHttpStore(string connectionString, string schema
 {
     string table = SqlServerTables.Name(schema, SqlServerTables.FssHttpStates);
 
-    public async Task<FssHttpState?> Get(string fileId, Guid partition, Cancel cancel = default)
+    public Task<FssHttpState?> Get(string fileId, Guid partition, Cancel cancel = default) =>
+        DeadlockRetry.Once(() => GetAttempt(fileId, partition, cancel));
+
+    async Task<FssHttpState?> GetAttempt(string fileId, Guid partition, Cancel cancel)
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancel);
@@ -24,7 +27,10 @@ public sealed class SqlServerFssHttpStore(string connectionString, string schema
         return new(reader.GetString(0), (byte[]) reader[1]);
     }
 
-    public async Task<string?> GetVersion(string fileId, Guid partition, Cancel cancel = default)
+    public Task<string?> GetVersion(string fileId, Guid partition, Cancel cancel = default) =>
+        DeadlockRetry.Once(() => GetVersionAttempt(fileId, partition, cancel));
+
+    async Task<string?> GetVersionAttempt(string fileId, Guid partition, Cancel cancel)
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancel);
@@ -34,7 +40,10 @@ public sealed class SqlServerFssHttpStore(string connectionString, string schema
         return (string?) await command.ExecuteScalarAsync(cancel);
     }
 
-    public async Task<bool> CompareExchange(string fileId, Guid partition, string? comparand, FssHttpState value, Cancel cancel = default)
+    public Task<bool> CompareExchange(string fileId, Guid partition, string? comparand, FssHttpState value, Cancel cancel = default) =>
+        DeadlockRetry.Once(() => CompareExchangeAttempt(fileId, partition, comparand, value, cancel));
+
+    async Task<bool> CompareExchangeAttempt(string fileId, Guid partition, string? comparand, FssHttpState value, Cancel cancel)
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancel);
@@ -83,7 +92,10 @@ public sealed class SqlServerFssHttpStore(string connectionString, string schema
         return data.ToArray();
     }
 
-    public async Task Delete(string fileId, Cancel cancel = default)
+    public Task Delete(string fileId, Cancel cancel = default) =>
+        DeadlockRetry.Once(() => DeleteAttempt(fileId, cancel));
+
+    async Task DeleteAttempt(string fileId, Cancel cancel)
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancel);

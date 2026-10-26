@@ -1,7 +1,8 @@
 ﻿set xact_abort on;
 begin transaction;
--- instances that install at once take turns
-exec sp_getapplock @Resource = N'OfficeHost.Install office', @LockMode = 'Exclusive', @LockOwner = 'Transaction';
+-- installs in the database take turns, whatever their schema: the DDL of two at once deadlocks on the
+-- system catalog
+exec sp_getapplock @Resource = N'OfficeHost.Install', @LockMode = 'Exclusive', @LockOwner = 'Transaction';
 
 if schema_id(N'office') is null
     exec(N'create schema [office]');
@@ -14,12 +15,13 @@ declare @version int = (select max(Version) from [office].[OfficeHostSchemaVersi
 if @version is null and object_id(N'[office].[OfficeHostFiles]') is not null
     set @version = 1;
 
-if isnull(@version, 0) < 1
+-- new tables are made as they are now; older ones are brought up to date
+if @version is null
 begin
 if object_id(N'[office].[OfficeHostFiles]') is null
 begin
     create table [office].[OfficeHostFiles] (
-        Id nvarchar(450) not null primary key,
+        Id nvarchar(450) collate Latin1_General_100_BIN2 not null constraint [PK_OfficeHostFiles] primary key,
         Folder nvarchar(400) not null,
         Name nvarchar(255) not null,
         OwnerId nvarchar(450) not null,
@@ -32,25 +34,25 @@ end;
 
 if object_id(N'[office].[OfficeHostLocks]') is null
     create table [office].[OfficeHostLocks] (
-        FileId nvarchar(450) not null primary key,
-        LockId nvarchar(1024) not null,
+        FileId nvarchar(450) collate Latin1_General_100_BIN2 not null constraint [PK_OfficeHostLocks] primary key,
+        LockId nvarchar(1024) collate Latin1_General_100_BIN2 not null,
         Expires datetimeoffset not null);
 
 if object_id(N'[office].[OfficeHostFssHttpStates]') is null
     create table [office].[OfficeHostFssHttpStates] (
-        FileId nvarchar(450) not null,
+        FileId nvarchar(450) collate Latin1_General_100_BIN2 not null,
         Partition uniqueidentifier not null,
-        Version nvarchar(max) not null,
+        Version nvarchar(max) collate Latin1_General_100_BIN2 not null,
         Data varbinary(max) not null,
-        primary key (FileId, Partition));
+        constraint [PK_OfficeHostFssHttpStates] primary key (FileId, Partition));
 
 if object_id(N'[office].[OfficeHostUserInfo]') is null
     create table [office].[OfficeHostUserInfo] (
-        UserId nvarchar(450) not null primary key,
+        UserId nvarchar(450) collate Latin1_General_100_BIN2 not null constraint [PK_OfficeHostUserInfo] primary key,
         Info nvarchar(max) not null);
 end;
 
-if isnull(@version, 0) < 2
+if @version = 1
 begin
 declare @OfficeHostFilesDrop nvarchar(max) = N'alter table [office].[OfficeHostFiles] drop constraint ' + quotename((select name from sys.key_constraints where parent_object_id = object_id(N'[office].[OfficeHostFiles]') and type = 'PK'));
 exec(@OfficeHostFilesDrop);
