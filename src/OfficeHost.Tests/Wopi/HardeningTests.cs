@@ -266,12 +266,12 @@ public class HardeningTests
         await using var after = await TestServerHost.Start(
             _ =>
             {
-                _.SigningKey = new string('n', 32);
+                _.SigningKey = new('n', 32);
                 _.PreviousSigningKeys.Add(oldKey);
             });
         var tokens = after.Service<IOfficeTokens>();
         await Assert.That((await tokens.Validate(oldToken))!.Access).IsEqualTo(access);
-        await using var other = await TestServerHost.Start(_ => _.SigningKey = new string('x', 32));
+        await using var other = await TestServerHost.Start(_ => _.SigningKey = new('x', 32));
         await Assert.That(await other.Service<IOfficeTokens>().Validate(oldToken)).IsNull();
     }
 

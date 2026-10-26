@@ -63,16 +63,16 @@ public class SqlServerTests(SqlDatabase database) :
         var expires = time.GetUtcNow().AddMinutes(30);
         await Assert.That(await locks.Get(fileId)).IsNull();
         await Assert.That(await locks.CompareExchange(fileId, null, new("a", expires))).IsNull();
-        await Assert.That(await locks.Get(fileId)).IsEqualTo(new OfficeLock("a", expires));
+        await Assert.That(await locks.Get(fileId)).IsEqualTo(new("a", expires));
 
         // a mismatch changes nothing
-        await Assert.That(await locks.CompareExchange(fileId, null, new("b", expires))).IsEqualTo(new OfficeLock("a", expires));
-        await Assert.That(await locks.CompareExchange(fileId, "b", null)).IsEqualTo(new OfficeLock("a", expires));
+        await Assert.That(await locks.CompareExchange(fileId, null, new("b", expires))).IsEqualTo(new("a", expires));
+        await Assert.That(await locks.CompareExchange(fileId, "b", null)).IsEqualTo(new("a", expires));
         await Assert.That((await locks.Get(fileId))!.Id).IsEqualTo("a");
 
-        await Assert.That(await locks.CompareExchange(fileId, "a", new("b", expires))).IsEqualTo(new OfficeLock("a", expires));
+        await Assert.That(await locks.CompareExchange(fileId, "a", new("b", expires))).IsEqualTo(new("a", expires));
         await Assert.That((await locks.Get(fileId))!.Id).IsEqualTo("b");
-        await Assert.That(await locks.CompareExchange(fileId, "b", null)).IsEqualTo(new OfficeLock("b", expires));
+        await Assert.That(await locks.CompareExchange(fileId, "b", null)).IsEqualTo(new("b", expires));
         await Assert.That(await locks.Get(fileId)).IsNull();
 
         // an expired lock is no lock
@@ -160,7 +160,7 @@ public class SqlServerTests(SqlDatabase database) :
         var buffer = new byte[1024];
         await interrupted.ReadExactlyAsync(buffer);
         await storage.Write(file.Id, new MemoryStream(bytes));
-        await Assert.That(async () => await interrupted.CopyToAsync(Stream.Null)).Throws<IOException>();
+        await Assert.That(() => interrupted.CopyToAsync(Stream.Null)).Throws<IOException>();
     }
 
     /// <summary>
@@ -170,7 +170,7 @@ public class SqlServerTests(SqlDatabase database) :
     public async Task Add_NameTooLong()
     {
         var storage = new SqlServerStorage(connectionString);
-        await Assert.That(async () => await storage.Add(folder, new string('n', 256), "owner", Content("x"))).Throws<ArgumentException>();
+        await Assert.That(() => storage.Add(folder, new('n', 256), "owner", Content("x"))).Throws<ArgumentException>();
     }
 
     [Test]

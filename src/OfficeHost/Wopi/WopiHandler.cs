@@ -354,11 +354,11 @@ sealed class WopiHandler(
     /// <summary>
     /// Tells <see cref="OfficeHostOptions.OnFileSaved"/> of a save by a WOPI client.
     /// </summary>
-    async Task Saved(HttpContext context, OfficeFile file, OfficeAccess access)
+    Task Saved(HttpContext context, OfficeFile file, OfficeAccess access)
     {
         if (Options.OnFileSaved == null)
         {
-            return;
+            return Task.CompletedTask;
         }
 
         var request = context.Request;
@@ -376,7 +376,7 @@ sealed class WopiHandler(
             editors,
             string.Equals(request.Header("X-COOL-WOPI-IsAutosave"), "true", StringComparison.OrdinalIgnoreCase),
             string.Equals(request.Header("X-COOL-WOPI-IsExitSave"), "true", StringComparison.OrdinalIgnoreCase));
-        await NotifySaved(Options, log, saved);
+        return NotifySaved(Options, log, saved);
     }
 
     /// <summary>

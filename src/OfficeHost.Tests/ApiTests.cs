@@ -222,7 +222,7 @@ public class ApiTests
 
         await Assert.That(await tokens.Validate($"{token.Value}x")).IsNull();
         await Assert.That(await tokens.Validate("not a token")).IsNull();
-        var otherKey = Encoding.UTF8.GetBytes("another key that is long enough, too");
+        var otherKey = "another key that is long enough, too"u8.ToArray();
         await Assert.That(await tokens.Validate(SignedToken.Encode(TestServerHost.Access("file"), DateTimeOffset.UtcNow.AddHours(1), otherKey))).IsNull();
         time.Advance(TimeSpan.FromHours(1));
         await Assert.That(await tokens.Validate(token.Value)).IsNull();
@@ -235,7 +235,7 @@ public class ApiTests
     [Test]
     public async Task SignedToken_RoundTrip()
     {
-        var key = Encoding.UTF8.GetBytes("a key for the signed tokens, long enough");
+        var key = "a key for the signed tokens, long enough"u8.ToArray();
         var expires = DateTimeOffset.FromUnixTimeSeconds(2000);
         var now = DateTimeOffset.FromUnixTimeSeconds(1999);
         OfficeAccess[] accesses =
@@ -293,7 +293,7 @@ public class ApiTests
             CanWriteRelative = true,
             CanRename = true
         };
-        var token = SignedToken.Encode(access, DateTimeOffset.UtcNow.AddHours(10), Encoding.UTF8.GetBytes("a key for the signed tokens, long enough"));
+        var token = SignedToken.Encode(access, DateTimeOffset.UtcNow.AddHours(10), "a key for the signed tokens, long enough"u8.ToArray());
         await Assert.That(token.Length).IsLessThan(80);
     }
 
