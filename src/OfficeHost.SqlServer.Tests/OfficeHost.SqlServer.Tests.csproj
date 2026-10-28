@@ -28,6 +28,7 @@
     <PackageReference Include="ProjectDefaults" PrivateAssets="all" />
     <Compile Include="..\StorageContract\StorageContractTests.cs" Link="StorageContractTests.cs" />
     <ProjectReference Include="..\OfficeHost.SqlServer\OfficeHost.SqlServer.csproj" />
+    <ProjectReference Include="..\OfficeHost.Shadow\OfficeHost.Shadow.csproj" />
     <ProjectReference Include="..\OfficeHost.SqlServer.Install\OfficeHost.SqlServer.Install.csproj" />
   </ItemGroup>
 </Project>

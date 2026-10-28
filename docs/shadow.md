@@ -141,37 +141,72 @@ SharePoint must never fail, and must not slow down noticeably, because of the mo
 A separate deployment of the application, with **storage of its own** (SharePoint's documents are written to it),
 reachable over HTTPS from the SharePoint servers, as **a single instance** (the shadow keeps its state in memory).
 
+As the sample does, when `OfficeHostShadow:ApiKey` is set:
+
+<!-- snippet: Shadow -->
+<a id='snippet-Shadow'></a>
 ```cs
-// the documents of SharePoint in the application's storage: IOfficeStorage has no way to create a file at a path
-services.AddSingleton<IShadowDocuments>(new FileSystemShadowDocuments(storage));
-// the documents Office opened from its cache, from SharePoint, as an account that can read them
-services.AddHttpClient<IShadowContent, SharePointShadowContent>()
-    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseDefaultCredentials = true });
-services.AddOfficeHostShadow();
-...
-app.MapOfficeHostShadow();
+// a shadow of SharePoint (docs/shadow.md), when the OfficeHostShadow section has an ApiKey:
+// the module in SharePoint posts desktop Office's traffic here, and the shadow replays it
+// to this application's OfficeHost and logs how the answers compare. A deployment of its own,
+// with storage of its own: SharePoint's documents are written to it
+var shadow = !string.IsNullOrEmpty(builder.Configuration["OfficeHostShadow:ApiKey"]);
+if (shadow)
+{
+    // the documents of SharePoint as files of the folder, under their host and path
+    services.AddSingleton<IShadowDocuments>(new FileSystemShadowDocuments(storage));
+    // the documents Office opened from its cache, from SharePoint, as the application's account
+    services.AddHttpClient<IShadowContent, SharePointShadowContent>()
+        .ConfigurePrimaryHttpMessageHandler(
+            () => new HttpClientHandler
+            {
+                UseDefaultCredentials = true
+            });
+    services.AddOfficeHostShadow();
+}
 ```
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L38-L57' title='Snippet source file'>snippet source</a> | <a href='#snippet-Shadow' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+<!-- snippet: MapShadow -->
+<a id='snippet-MapShadow'></a>
+```cs
+if (shadow)
+{
+    // where the module posts: /officehost-shadow/exchanges
+    app.MapOfficeHostShadow();
+}
+```
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L60-L66' title='Snippet source file'>snippet source</a> | <a href='#snippet-MapShadow' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
 
 `AddOfficeHost` is needed too, configured as the application's production deployment would be: the point is to test
-it. The sample turns into a shadow when `OfficeHostShadow:ApiKey` is set (the `Shadow` snippet of the readme).
+it. `IShadowDocuments` exists because `IOfficeStorage` has no way to create a file at a path.
 
 `IShadowDocuments` finds or adds the file of a document. For `FileSystemStorage`, `FileSystemShadowDocuments` keeps each
 document at its host and path under the root. For SQL Server or Azure Blob Storage, their `Add(folder, name, ownerId,
 content)` and a map of document keys to file ids, kept in the application's own database:
 
+<!-- snippet: SqlServerShadowDocuments -->
+<a id='snippet-SqlServerShadowDocuments'></a>
 ```cs
-class SqlServerShadowDocuments(SqlServerStorage storage, IShadowDocumentMap map) : IShadowDocuments
+class SqlServerShadowDocuments(SqlServerStorage storage, IShadowDocumentMap map) :
+    IShadowDocuments
 {
-    public Task<string?> Find(ShadowDocument document, Cancel cancel) => map.Get(document.Key, cancel);
+    public Task<string?> Find(ShadowDocument document, Cancel cancel) =>
+        map.Get(document.Key, cancel);
 
     public async Task<string> Add(ShadowDocument document, Stream content, Cancel cancel)
     {
-        var file = await storage.Add($"{document.Url.Host}/{document.Folder}", document.Name, "shadow", content, cancel);
+        var folder = $"{document.Url.Host}/{document.Folder}";
+        var file = await storage.Add(folder, document.Name, "shadow", content, cancel);
         await map.Set(document.Key, file!.Id, cancel);
         return file.Id;
     }
 }
 ```
+<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerShadowDocuments.cs#L12-L27' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServerShadowDocuments' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
 
 A document made by a Save As in SharePoint is made by OfficeHost too, next to the file it was saved from, so `Find`
 must find a file by the folder and name of its document (`FileSystemShadowDocuments` does).

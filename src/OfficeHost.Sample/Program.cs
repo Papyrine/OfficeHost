@@ -57,11 +57,13 @@ if (shadow)
 // end-snippet
 
 var app = builder.Build();
+// begin-snippet: MapShadow
 if (shadow)
 {
     // where the module posts: /officehost-shadow/exchanges
     app.MapOfficeHostShadow();
 }
+// end-snippet
 
 // the WOPI endpoints the WOPI client calls: /wopi/files/{fileId}
 app.MapOfficeHost();

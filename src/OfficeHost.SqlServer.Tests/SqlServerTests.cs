@@ -18,6 +18,39 @@ public class SqlServerTests(SqlDatabase database) :
     public Task Script() =>
         Verify(OfficeHostSqlServerInstaller.GetScript("office"));
 
+    sealed class MemoryMap : IShadowDocumentMap
+    {
+        Dictionary<string, string> ids = [];
+
+        public Task<string?> Get(string key, Cancel cancel) =>
+            Task.FromResult(ids.GetValueOrDefault(key));
+
+        public Task Set(string key, string fileId, Cancel cancel)
+        {
+            ids[key] = fileId;
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// The documents of a shadow of SharePoint in SQL Server, as docs/shadow.md shows them: added under their host and
+    /// folder, then found by their key.
+    /// </summary>
+    [Test]
+    public async Task ShadowDocuments()
+    {
+        var storage = new SqlServerStorage(connectionString);
+        var documents = new SqlServerShadowDocuments(storage, new MemoryMap());
+        var document = ShadowDocument.From($"https://sharepoint/{folder}/Shared%20Documents/Budget.xlsx")!;
+        await Assert.That(await documents.Find(document, default)).IsNull();
+
+        var fileId = await documents.Add(document, new MemoryStream([1, 2, 3]), default);
+        await Assert.That(await documents.Find(document, default)).IsEqualTo(fileId);
+        var file = (await storage.GetFile(fileId))!;
+        await Assert.That(file.Name).IsEqualTo("Budget.xlsx");
+        await Assert.That(file.Size).IsEqualTo(3);
+    }
+
     [Test]
     public async Task Locks()
     {

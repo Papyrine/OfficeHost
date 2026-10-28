@@ -5,6 +5,7 @@ namespace OfficeHost;
 /// WOPI clients keep using them. Operations on a missing file throw a <see cref="FileNotFoundException"/>; other
 /// failures are reported to the WOPI client as a server error.
 /// </summary>
+// begin-snippet: IOfficeStorage
 public interface IOfficeStorage
 {
     /// <summary>
@@ -31,7 +32,12 @@ public interface IOfficeStorage
     /// Creates a file of the given name in the folder of the given file. Returns null when a file of that name exists
     /// and <paramref name="overwrite"/> is false; replaces its content otherwise. The name is a legal file name.
     /// </summary>
-    Task<OfficeFile?> CreateSibling(string fileId, string name, Stream content, bool overwrite, Cancel cancel = default);
+    Task<OfficeFile?> CreateSibling(
+        string fileId,
+        string name,
+        Stream content,
+        bool overwrite,
+        Cancel cancel = default);
 
     /// <summary>
     /// Renames the file, keeping its id. Returns null when a file of that name exists. The name is a legal file name.
@@ -40,6 +46,7 @@ public interface IOfficeStorage
 
     Task Delete(string fileId, Cancel cancel = default);
 }
+// end-snippet
 
 /// <summary>
 /// A file of the <see cref="IOfficeStorage"/>.

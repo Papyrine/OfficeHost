@@ -78,7 +78,11 @@ if (shadow)
     services.AddSingleton<IShadowDocuments>(new FileSystemShadowDocuments(storage));
     // the documents Office opened from its cache, from SharePoint, as the application's account
     services.AddHttpClient<IShadowContent, SharePointShadowContent>()
-        .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseDefaultCredentials = true });
+        .ConfigurePrimaryHttpMessageHandler(
+            () => new HttpClientHandler
+            {
+                UseDefaultCredentials = true
+            });
     services.AddOfficeHostShadow();
 }
 
@@ -120,7 +124,7 @@ app.MapGet(
         return Results.Content(SamplePages.Desktop(link), "text/html");
     });
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L11-L92' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L11-L98' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 `MapOfficePages` maps the pages that open a file in a WOPI client, `/edit/{fileId}` and `/view/{fileId}`, and `/editnew/{fileId}` for a new document. The application gives it the access of the user to the file, which only it can decide from its own users and permissions, or null to refuse it with a 403, and optionally its own results for the errors:
@@ -157,7 +161,7 @@ static IResult? OnError(HttpContext context, Exception exception)
     return null;
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L123-L152' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L129-L158' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The page is `OfficeLaunch.HostPage()`: a form posts the access token to the editor, in a full-page iframe. An application that puts the editor in a page of its own calls `OfficeLauncher.Launch` itself, and takes the form, the iframe and the script from `HostPageHtml()`. A missing file is a 404, a WOPI client that cannot be reached a 503, and an action no WOPI client offers for the file a 400.
@@ -187,7 +191,7 @@ app.MapPost(
         return Results.Redirect(page);
     });
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L94-L112' title='Snippet source file'>snippet source</a> | <a href='#snippet-NewDocument' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L100-L118' title='Snippet source file'>snippet source</a> | <a href='#snippet-NewDocument' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 Desktop Office can also Save As: with `CanWriteRelative`, as for the Save As of the WOPI clients, the file is created next to the one being edited, and edited on through the same link.
@@ -251,18 +255,52 @@ The built-in tokens carry the access, signed with `SigningKey`, so they need no 
 
 The storage is the application's: implement `IOfficeStorage` over a database, blob storage or a document management system. File ids are chosen by the storage, and must not change when a file is saved or renamed, as WOPI clients keep using them. A missing file throws `FileNotFoundException`. The storage, the stores below and `IOfficeTokens` can be registered with any lifetime, as scoped for a storage over a database context.
 
-```csharp
+<!-- snippet: IOfficeStorage -->
+<a id='snippet-IOfficeStorage'></a>
+```cs
 public interface IOfficeStorage
 {
+    /// <summary>
+    /// The file, or null when there is none with this id.
+    /// </summary>
     Task<OfficeFile?> GetFile(string fileId, Cancel cancel = default);
+
+    /// <summary>
+    /// The file of the given name in the folder of the given file, or null when there is none.
+    /// </summary>
     Task<OfficeFile?> GetSibling(string fileId, string name, Cancel cancel = default);
+
+    /// <summary>
+    /// Opens the content of the file. The caller disposes the stream.
+    /// </summary>
     Task<Stream> OpenRead(string fileId, Cancel cancel = default);
+
+    /// <summary>
+    /// Replaces the content of the file, returning its new version.
+    /// </summary>
     Task<OfficeFile> Write(string fileId, Stream content, Cancel cancel = default);
-    Task<OfficeFile?> CreateSibling(string fileId, string name, Stream content, bool overwrite, Cancel cancel = default);
+
+    /// <summary>
+    /// Creates a file of the given name in the folder of the given file. Returns null when a file of that name exists
+    /// and <paramref name="overwrite"/> is false; replaces its content otherwise. The name is a legal file name.
+    /// </summary>
+    Task<OfficeFile?> CreateSibling(
+        string fileId,
+        string name,
+        Stream content,
+        bool overwrite,
+        Cancel cancel = default);
+
+    /// <summary>
+    /// Renames the file, keeping its id. Returns null when a file of that name exists. The name is a legal file name.
+    /// </summary>
     Task<OfficeFile?> Rename(string fileId, string name, Cancel cancel = default);
+
     Task Delete(string fileId, Cancel cancel = default);
 }
 ```
+<sup><a href='/src/OfficeHost/Storage/IOfficeStorage.cs#L8-L49' title='Snippet source file'>snippet source</a> | <a href='#snippet-IOfficeStorage' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
 
 `FileSystemStorage` keeps the files in a folder, for development, tests and single machines. It gives each file an id on first use (`GetFileId("reports/q3.docx")`), kept in a hidden `.wopi` folder so that ids survive renames, and writes through a temporary file so that a save never leaves a partial file.
 
@@ -285,7 +323,7 @@ await OfficeHostSqlServerInstaller.Install(connectionString);
 // in the application, before or after AddOfficeHost
 builder.Services.AddOfficeHostSqlServer(connectionString);
 ```
-<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerTests.cs#L168-L174' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServer' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerTests.cs#L201-L207' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServer' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 
@@ -371,11 +409,15 @@ if (shadow)
     services.AddSingleton<IShadowDocuments>(new FileSystemShadowDocuments(storage));
     // the documents Office opened from its cache, from SharePoint, as the application's account
     services.AddHttpClient<IShadowContent, SharePointShadowContent>()
-        .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseDefaultCredentials = true });
+        .ConfigurePrimaryHttpMessageHandler(
+            () => new HttpClientHandler
+            {
+                UseDefaultCredentials = true
+            });
     services.AddOfficeHostShadow();
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L38-L53' title='Snippet source file'>snippet source</a> | <a href='#snippet-Shadow' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L38-L57' title='Snippet source file'>snippet source</a> | <a href='#snippet-Shadow' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 How it works, its guarantees to SharePoint, its configuration and limits are in [docs/shadow.md](docs/shadow.md). The same engine replays recordings offline: [docs/replay.md](docs/replay.md).
