@@ -14,14 +14,61 @@ It is made of two packages:
 
 ## How it works
 
+```mermaid
+flowchart LR
+    office([Desktop Office]) <-->|cell storage, IsOnlyClient| sp
+
+    subgraph farm [SharePoint farm: each server]
+        sp[SharePoint] -.->|copy, after SharePoint's handler| module[ShadowModule]
+        module --> queue[(bounded queue)]
+        queue --> sender[sender thread]
+    end
+
+    sender -->|"POST /officehost-shadow/exchanges<br/>batches, heartbeats, watermarks"| ingest
+    sender -.->|or a folder: a recording| folder[(recording)]
+
+    subgraph shadow [The shadow: the application's own deployment]
+        ingest[ShadowIngest] --> inbox[ShadowInbox<br/>ordered by watermarks]
+        inbox --> processor[ShadowProcessor]
+        processor -->|seed| storage[(the application's storage)]
+        processor -->|"translated request, at the exchange's time"| officehost[OfficeHost<br/>FssHttpHandler, in process]
+        officehost --> storage
+        processor -->|outcome per sub-response| log[[ILogger]]
+    end
+
+    processor -.->|content Office had cached| sp
 ```
-Office ─► SharePoint ─► answers Office, unchanged
-            │ module: sampled exchanges copied after SharePoint's handler read the request
-            ▼ bounded queue ─► a thread of its own ─► the shadow (HTTPS), or a folder (a recording)
-      shadow: POST /officehost-shadow/exchanges ─► 202, or 503 + Retry-After
-            ▼ in the order SharePoint started them, across its servers (watermarks)
-      each document: started from its content ─► the application's storage
-      each exchange: SharePoint's ids translated ─► OfficeHost in process, at the exchange's time ─► compared ─► log
+
+What happens to one exchange, from Office to the log:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant O as Office
+    participant S as SharePoint
+    participant M as ShadowModule
+    participant T as sender thread
+    participant I as shadow ingest
+    participant P as ShadowProcessor
+    participant H as OfficeHost
+
+    O->>S: request
+    S->>M: PostAuthenticateRequest
+    Note over M: headers (an allowlist), user, time<br/>IsOnlyClient: its body now
+    S->>S: handler reads the request
+    S->>M: response's first write
+    Note over M: sampled? cell storage: its body now
+    S->>O: response, unchanged
+    M-->>M: copy of what the response wrote
+    S->>M: request completed
+    M->>T: exchange (or tombstone) queued
+    T->>I: batch with watermark
+    I-->>T: 202 (or 503 + Retry-After)
+    I->>P: once every server's watermark has passed
+    P->>H: SharePoint's ids translated, OfficeHost's clock at the exchange's time
+    H-->>P: OfficeHost's answer
+    P->>P: compare with SharePoint's answer
+    Note over P: Same, KnownDifference, NotCompared,<br/>Different, OfficeHostFailed … at its log level
 ```
 
 The shadow replays to OfficeHost in process (the handler of `MapFssHttp`), not over HTTP: no network between them,
@@ -49,6 +96,21 @@ SharePoint must never fail, and must not slow down noticeably, because of the mo
   shadow is full it waits as the shadow asks (503 and Retry-After), copying nothing meanwhile; after three failures it
   stops copying, turns what waits into tombstones, and tries again at each heartbeat, with backoff, until the shadow
   answers.
+
+  ```mermaid
+  stateDiagram-v2
+      [*] --> Sending
+      Sending --> Sending: batch sent (202)
+      Sending --> Failing: send failed
+      Failing --> Sending: sent
+      Failing --> Open: third failure in a row:<br/>what waits becomes tombstones
+      Sending --> Waiting: 503 + Retry-After
+      Waiting --> Sending: after Retry-After
+      Open --> Open: heartbeat failed (backoff, up to 60 s)
+      Open --> Sending: the shadow answers
+      note right of Open: copies nothing new
+      note right of Waiting: copies nothing new
+  ```
 - **Recycles go as before.** When an app domain stops, the module sends what waits within 5 seconds, from a thread of
   its own, and lets the recycle go on.
 - **Nothing else changes in the process.** No package dependencies (the one DLL in the GAC), and nothing of
@@ -57,6 +119,15 @@ SharePoint must never fail, and must not slow down noticeably, because of the mo
   deployed everywhere, and only then names the module in web.config: a web.config naming it before the DLL is in a
   server's GAC would fail every request of that server. `-Remove` goes in the reverse order. Deploying to the GAC
   recycles the application pools: install in a maintenance window.
+
+  ```mermaid
+  flowchart LR
+      wsp[build the WSP] --> add[Add-SPSolution] --> deploy[Install-SPSolution -GACDeployment]
+      deploy --> wait{deployed on<br/>every server?}
+      wait -->|not yet| wait
+      wait -->|yes| config[web.config: module and appSettings<br/>SPWebConfigModification]
+      config --> check[check web.config and IIS]
+  ```
 - **It can be paused without a recycle.** A change of web.config recycles every application pool of the web
   application: the shadow can pause the module instead (503), or change its sampling (`SamplePercent` of the shadow's
   options, sent to the module with every answer).
@@ -211,6 +282,21 @@ a save (`HaveOnlyDemotionChanges`). What is compared of a sub-response is in [re
   - for all its state after a tombstone of it, an exchange that came after a later one, a server that stopped sending
     or dropped exchanges, or when first seen within a session (its locks are not known).
   A server error or exception of OfficeHost is OfficeHostFailed all the same.
+
+  ```mermaid
+  stateDiagram-v2
+      [*] --> Seeded: first exchange of the document
+      Seeded --> Trusted: content from a full content query,<br/>or from SharePoint at the Etag's version
+      Seeded --> Untrusted: first seen within a session
+      Trusted --> ContentUntrusted: save from Office's cache,<br/>or SharePoint's version not the traffic's
+      Trusted --> Untrusted: tombstone, late exchange,<br/>server lost or dropped
+      ContentUntrusted --> Untrusted: tombstone, late exchange,<br/>server lost or dropped
+      Trusted --> [*]: forgotten (idle, or too many)
+      ContentUntrusted --> [*]: forgotten
+      Untrusted --> [*]: forgotten
+      note right of ContentUntrusted: its Cells are NotCompared
+      note right of Untrusted: all but OfficeHost's errors NotCompared
+  ```
 - **Forgotten** after `IdleTimeout` without exchanges, or beyond `MaximumDocuments`: its next session starts afresh,
   from its content.
 - **Office's cache.** A client that opened the document from Office's cache saves changes to chunks the shadow never
@@ -227,6 +313,20 @@ exchange once every active server's watermark has passed its start, so the excha
 the order SharePoint started them, whichever server took them. A server that lags holds the others back at most
 `MaximumDelay`; an exchange later than that makes its document untrusted. The module's clock never goes back within an
 app domain (a stopwatch anchored to UTC); the servers' clocks should be in step (NTP), as for Kerberos.
+
+```mermaid
+sequenceDiagram
+    participant A as server A
+    participant B as server B
+    participant I as shadow inbox
+    A->>I: exchange a1 (started 10:00:01), watermark 10:00:02
+    B->>I: exchange b1 (started 10:00:03), watermark 10:00:00
+    Note over I: a1 waits: B may still send something started before 10:00:01
+    B->>I: heartbeat, watermark 10:00:04
+    Note over I: both watermarks past 10:00:01: a1 replayed
+    A->>I: heartbeat, watermark 10:00:05
+    Note over I: both past 10:00:03: b1 replayed
+```
 
 
 ## Protocol
