@@ -124,6 +124,22 @@ sealed class TestServerHost : IAsyncDisposable
         return ValueTask.FromResult<OfficeAccess?>(Access(fileId));
     }
 
+    /// <summary>
+    /// Records the exchanges of <see cref="Client"/> from now on to a folder, as one user (<see cref="RecordingHandler"/>).
+    /// </summary>
+    public void Record(string folder, string user = "alice")
+    {
+        var previous = Client;
+        Client = new(new RecordingHandler(folder, user)
+        {
+            InnerHandler = app.GetTestServer().CreateHandler()
+        })
+        {
+            BaseAddress = previous.BaseAddress
+        };
+        previous.Dispose();
+    }
+
     public T Service<T>()
         where T : notnull =>
         app.Services.GetRequiredService<T>();

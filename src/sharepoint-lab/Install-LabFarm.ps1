@@ -299,6 +299,13 @@ Invoke-Guest $domainAdmin {
         New-SPSite $url -OwnerAlias $admin -Name Lab -Template STS#3 | Out-Null
     }
 
+    # the site opens on its documents: its modern home page failed with NoComponentId, its Site Pages list made without
+    # the fields of modern pages (docs/sharepoint-lab.md)
+    $web = Get-SPWeb $url
+    $web.RootFolder.WelcomePage = 'Shared Documents/Forms/AllItems.aspx'
+    $web.RootFolder.Update()
+    $web.Dispose()
+
     foreach ($user in 'alice', 'bob') {
         New-SPUser -UserAlias "$netBiosName\$user" -Web $url -PermissionLevel Contribute -ErrorAction SilentlyContinue | Out-Null
     }

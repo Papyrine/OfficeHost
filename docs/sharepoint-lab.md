@@ -77,6 +77,9 @@ the SharePoint setup refuses it, the domain goes to a second, small VM.
   the lab and to the sample (running with its `desktop` profile, with `Lab.docx` in its files) and shows where they
   differ. It signs in to the lab with the Windows credential saved for its host
   (`cmdkey /add:spse.mshome.net /user:LAB\alice /pass`), or `-Credential`.
+- **Replay what Office sent:** `Install-ReplayRecorder.ps1` records the lab's cell storage traffic from inside
+  SharePoint, `Save-ReplayRecording.ps1` copies it to the host, and the replay compares OfficeHost with it, answer by
+  answer ([replay.md](replay.md)).
 - **Sign in once:** with that credential saved, Word and Excel stop asking too.
 - **A second user:** Office keeps one sign-in per host, so bob is a second Windows account on the host, another
   machine, or a script sending bob's requests with his credentials (`-Credential` of `Invoke-WebRequest`).
@@ -97,6 +100,12 @@ Built on 2026-10-21 on Windows 11 (32 GB, Docker running): SharePoint answers at
 - **SharePoint setup:** 30203 without `/IAcceptTheLicenseTerms` on the command line.
 - **The farm:** created before SQL Server took connections after the restart: it waits for SQL Server.
   `Install-SPService` timed out once: the configuration after the farm runs again on each run.
+- **The home page** failed with "Sorry, something went wrong", `NoComponentId`, which looked like a failed sign-in.
+  The site's Site Pages list had none of the fields of modern pages (`CanvasContent1`, `ClientSideApplicationId`),
+  though the farm had its client-side web parts. The site opens on its documents instead
+  (`Shared Documents/Forms/AllItems.aspx`): the lab uses nothing else. On a lab built before, the same in the VM:
+  `$web = Get-SPWeb http://spse.mshome.net; $web.RootFolder.WelcomePage = 'Shared Documents/Forms/AllItems.aspx';
+  $web.RootFolder.Update()`.
 
 **First captures** (Word, Excel and PowerPoint 16.0.20326, signed in as `LAB\alice`, which Office asked for once each;
 PowerPoint is in docs/fsshttp-notes.md): the same as
