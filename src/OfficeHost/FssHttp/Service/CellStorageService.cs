@@ -416,8 +416,12 @@ class CellStorageService(
                 new XAttribute("Etag", Etag(site, file)),
                 new XAttribute("CreateTime", file.LastModified.ToFileTime()),
                 new XAttribute("LastModifiedTime", file.LastModified.ToFileTime()),
-                new XAttribute("ModifiedBy", site.Access.UserName ?? site.Access.UserId),
-                new XAttribute("HaveOnlyDemotionChanges", "False"));
+                new XAttribute("ModifiedBy", site.Access.UserName ?? site.Access.UserId));
+            // with the properties of a query, not of a put, as SharePoint Server SE answers (docs/replay.md)
+            if (!request.SubRequests.Any(_ => _ is PutChangesRequest))
+            {
+                data.Add(new XAttribute("HaveOnlyDemotionChanges", "False"));
+            }
         }
 
         data.Add(mtom.Include(fssHttpB));
@@ -610,7 +614,7 @@ class CellStorageService(
         var clients = session.Clients.Where(_ => _.ClientId != clientId).Append(new(clientId, expires, timeout)).ToList();
         var editor = session.Editors.FirstOrDefault(_ => _.ClientId == clientId);
         var editors = session.Editors.Where(_ => _.ClientId != clientId)
-            .Append(new(clientId, site.Access.UserId, site.Access.UserName, true, expires, editor?.Metadata ?? []))
+            .Append(new(clientId, site.Access.UserId, site.Access.UserName, true, expires, editor?.Metadata ?? JoinMetadata()))
             .ToList();
         var pending = session.TransitionPending || (!known && session.Clients.Count > 0);
         return new(success, session with
@@ -1016,8 +1020,25 @@ class CellStorageService(
     }
 
     /// <summary>
+    /// The metadata of the editor a join of the shared lock makes: the time of the join, as SharePoint Server SE adds it
+    /// (docs/fsshttp-notes.md), a FILETIME in base64.
+    /// </summary>
+    Dictionary<string, string> JoinMetadata()
+    {
+        var time = new byte[8];
+        BinaryPrimitives.WriteInt64LittleEndian(time, sessions.Now.ToFileTime());
+        return new()
+        {
+            [joinCoauthTime] = Convert.ToBase64String(time)
+        };
+    }
+
+    const string joinCoauthTime = "JoinCoauthTime";
+
+    /// <summary>
     /// The editors table sub-requests (3.1.4.8): an entry per client, which a join of the shared lock also makes.
-    /// Metadata is limited as in 2.3.1.23: keys of 64 bytes, values of 1,024, four pairs.
+    /// Metadata is limited as in 2.3.1.23: keys of 64 bytes, values of 1,024, four pairs, besides the JoinCoauthTime of
+    /// the server.
     /// </summary>
     async Task<string> EditorsTable(XElement? requestData, FssHttpSite site, Cancel cancel)
     {
@@ -1084,7 +1105,7 @@ class CellStorageService(
                             }
 
                             if (!metadata.ContainsKey(key) &&
-                                metadata.Count >= 4)
+                                metadata.Keys.Count(_ => _ != joinCoauthTime) >= 4)
                             {
                                 return new("EditorMetadataQuotaReached", _);
                             }

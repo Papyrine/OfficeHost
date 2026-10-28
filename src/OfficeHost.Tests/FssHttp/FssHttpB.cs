@@ -254,6 +254,13 @@ static class FssHttpBVectors
     ];
 
     /// <summary>
+    /// SharePoint Server SE's answer to Word's lone Query Access, recorded in the lab as LAB\alice (Contribute): read and
+    /// write allowed, then an access response the spec does not define, with E_ACCESSDENIED chained to E_ACCESSDENIED.
+    /// </summary>
+    public const string SharePointQueryAccessResponse =
+        "DQALAJ3PKfM5lAabFgMCAACsAgBVDgIGAAMDAB4CAABuAiAA8shUhAHkWkChmKELaZG1bpICCAAAAAAANwEPATYCAABuAiAA8shUhAHkWkChmKELaZG1bpICCAAAAAAANwEbASYFAABuAiAA8shUhAHkWkChmKELaZG1bpICCAAFAAeAbgIgAPLIVIQB5FpAoZihC2mRtW6SAggABQAHgDcBNwGTAgcBiwE=";
+
+    /// <summary>
     /// Every vector, with the parser of the whole of it.
     /// </summary>
     public static IEnumerable<(string Name, byte[] Bytes, Func<byte[], object> Parse)> All()
@@ -279,5 +286,6 @@ static class FssHttpBVectors
         }
 
         yield return ("FssHttpDPutChangesRequest", FssHttpDVectors.PutChangesRequestBytes, FssHttpB.ParseRequest);
+        yield return ("SharePointQueryAccessResponse", Convert.FromBase64String(SharePointQueryAccessResponse), FssHttpB.ParseResponse);
     }
 }

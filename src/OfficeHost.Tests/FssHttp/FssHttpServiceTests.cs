@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Xml.Linq;
 using System.IO.Compression;
 
@@ -99,6 +100,7 @@ public class FssHttpServiceTests
         await Assert.That(FileCell.Read(storage).Root.ToArray().SameAs(await FileOf(host))).IsTrue();
         await Assert.That(byToken["6"].Attribute("Etag")).StartsWith("\"{");
         await Assert.That(byToken["6"].Attribute("ModifiedBy")).IsEqualTo("Alice");
+        await Assert.That(byToken["6"].Attribute("HaveOnlyDemotionChanges")).IsEqualTo("False");
 
         // the metadata, with nothing in it: a Storage Index with a null Storage Manifest mapping
         var metadata = byToken["7"].FssHttpB;
@@ -110,6 +112,9 @@ public class FssHttpServiceTests
         var editor = editors.Element("Editor")!;
         await Assert.That((string?) editor.Element("CacheID")).IsEqualTo(word.ClientId);
         await Assert.That((string?) editor.Element("FriendlyName")).IsEqualTo("Alice");
+        // the time of the join, a FILETIME, which SharePoint Server SE adds before any metadata of the client
+        var joined = Convert.FromBase64String(editor.Element("Metadata")!.Element("JoinCoauthTime")!.Value);
+        await Assert.That(DateTimeOffset.UtcNow - DateTimeOffset.FromFileTime(BinaryPrimitives.ReadInt64LittleEndian(joined))).IsLessThan(TimeSpan.FromMinutes(1));
         // the metadata came after the query, as in Word's open: the next query has it
         var next = EditorsTable((await word.Send(WordClient.Cell("1", WordClient.Query(), new XAttribute("PartitionID", "7808F4DD-2385-49D6-B7CE-37ACA5E43602")))).Single().FssHttpB);
         await Assert.That(next.Element("Editor")!.Element("Metadata")!.Element("Platform")!.Value).IsEqualTo("MQ==");
@@ -484,6 +489,28 @@ public class FssHttpServiceTests
             "InvalidArgument"
         ]);
         await Assert.That(results[9].Attribute("AmIAlone")).IsEqualTo("True");
+    }
+
+    /// <summary>
+    /// The JoinCoauthTime of a join is the server's: the client still has four pairs of metadata of its own.
+    /// </summary>
+    [Test]
+    public async Task EditorsTable_JoinCoauthTimeNotInTheQuota()
+    {
+        var (host, _, token) = await Start();
+        await using var _ = host;
+        var word = new WordClient(host, token);
+        await word.Send(word.Join());
+
+        async Task<string> Update(string key) =>
+            (await word.Send(WordClient.SubRequest("EditorsTable", "1", WordClient.Data(new XAttribute("EditorsTableRequestType", "UpdateEditorMetadata"), new XAttribute("ClientID", word.ClientId), new XAttribute("Key", key), new XAttribute("Value", "AA=="))))).Single().ErrorCode;
+
+        foreach (var key in new[] { "a", "b", "c", "d" })
+        {
+            await Assert.That(await Update(key)).IsEqualTo("Success");
+        }
+
+        await Assert.That(await Update("e")).IsEqualTo("EditorMetadataQuotaReached");
     }
 
     /// <summary>

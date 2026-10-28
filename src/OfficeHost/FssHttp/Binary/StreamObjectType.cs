@@ -85,7 +85,13 @@ enum StreamObjectType : ushort
     UserAgentClientAndPlatform = 0x8B,
     VersionTokenKnowledge = 0x8C,
     CellRoundtripOptions = 0x8D,
-    FileHash = 0x8E
+    FileHash = 0x8E,
+
+    /// <summary>
+    /// A third access response of a Query Access sub-response, after the write access response, which the spec does not
+    /// define: SharePoint Server SE sends it, an error (E_ACCESSDENIED for a user with Contribute rights).
+    /// </summary>
+    ExtraAccessResponse = 0xA4
 }
 
 static class StreamObjectTypes
@@ -111,6 +117,7 @@ static class StreamObjectTypes
             StreamObjectType.ReadAccessResponse or
             StreamObjectType.SpecializedKnowledge or
             StreamObjectType.WriteAccessResponse or
+            StreamObjectType.ExtraAccessResponse or
             StreamObjectType.QueryChangesFilter or
             StreamObjectType.Error or
             StreamObjectType.UserAgent or

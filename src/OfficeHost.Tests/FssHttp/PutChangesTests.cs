@@ -109,7 +109,10 @@ public class PutChangesTests
         var additional = new[] { (byte) @case.Additional, (byte) (@case.Additional >> 8), (byte) 0 };
         var put = new PutChangesRequest(1, index.Id, expectedId, @case.Flags, new byte[3], additional, ClientKnowledge: word.Knowledge);
         var request = new FssHttpBRequest(new(Guid.NewGuid(), "msword", "win", 1), [put], new(package)).ToArray();
-        var result = (await word.Send(WordClient.Cell("1", request, new("Coalesce", "true"), new("BypassLockID", WordClient.SchemaLockId), new("SchemaLockID", WordClient.SchemaLockId)))).Single();
+        var result = (await word.Send(WordClient.Cell("1", request, new("Coalesce", "true"), new("GetFileProps", "true"), new("BypassLockID", WordClient.SchemaLockId), new("SchemaLockID", WordClient.SchemaLockId)))).Single();
+        // the properties of a put have no HaveOnlyDemotionChanges, as on SharePoint Server SE
+        await Assert.That(result.Attribute("Etag")).IsNotNull();
+        await Assert.That(result.Attribute("HaveOnlyDemotionChanges")).IsNull();
         var outcome = result.FssHttpB.SubResponses.Single() switch
         {
             FailedSubResponse failed => $"{failed.Error.Type} {failed.Error.Code}",

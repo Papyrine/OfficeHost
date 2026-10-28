@@ -531,6 +531,32 @@ now answers the same:
   that grew from save to save. Office saves to OfficeHost without them; the codec keeps them as `Extra`. SharePoint also
   returns the data elements added without B being set.
 
+### Word's session replayed (docs/replay.md)
+
+Word 16 (through COM) opened `Lab.docx` of the lab as `LAB\alice`, added a paragraph, saved and closed, with the
+replay recorder in SharePoint. The replay of that recording to OfficeHost found these, now as SharePoint answers but
+for the timeout:
+
+- **Query Access** has a third access response after the write access response, of stream object type 0xA4, which
+  the spec does not define (the type tables of [MS-FSSHTTPB] 2.2.1.5 have none): E_ACCESSDENIED chained to
+  E_ACCESSDENIED, for alice with Contribute rights. Read and write were allowed. The codec read nothing after the write
+  access response; it now keeps the third as `ExtraAccess` (`FssHttpBVectorTests.SharePoint_QueryAccessResponse`).
+  OfficeHost sends none, and Word opens and saves without it.
+- **The editors table has the time of the join:** SharePoint adds `JoinCoauthTime` to the metadata of the editor at
+  its join, a FILETIME in base64 (05:42:18.077 for a join at 05:42:18), before the client's own metadata (Word's open
+  sends `SupportsRename`, `Capabilities` and `Platform` after its query of the editors table). OfficeHost adds it too,
+  outside the client's quota of four pairs.
+- **`HaveOnlyDemotionChanges`** is in the file properties (`GetFileProps`) of a query, not of a put: OfficeHost now
+  sends it only with a query.
+- **The editors table's timeout** is the join plus the client's `Timeout` on SharePoint (2,580 seconds), where OfficeHost
+  keeps a client an hour at least and rounds the time up to ten minutes. Not changed: the spec lets the server pick
+  its own from 60 to 3,600 seconds.
+- **IsOnlyClient** came without a user: `sharedaccess.asmx` is served without sign-in on SharePoint.
+- **The same as SharePoint:** the join, the schema lock kept from running, the editor metadata, WhoAmI, ServerTime,
+  the IsOnlyClient polls, the exit and the release of the lock. Different as known: GetVersions (see Versions), the
+  `vti_` properties of GetDocMetaInfo (OfficeHost sends a subset), and the Cells whose ids the replay does not
+  translate.
+
 ### New files
 
 Word 16.0.20326 against the lab and the sample, driven through COM (`SaveAs2`), captured with `fsshttp-capture.ps1`.

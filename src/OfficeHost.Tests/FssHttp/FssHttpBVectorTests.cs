@@ -177,6 +177,21 @@ public class FssHttpBVectorTests
     }
 
     /// <summary>
+    /// SharePoint Server SE's Query Access answer: read and write allowed, and the access response of type 0xA4 that the
+    /// spec does not define, E_ACCESSDENIED chained to E_ACCESSDENIED.
+    /// </summary>
+    [Test]
+    public async Task SharePoint_QueryAccessResponse()
+    {
+        var response = FssHttpBResponse.Read(Convert.FromBase64String(FssHttpBVectors.SharePointQueryAccessResponse));
+        var access = (QueryAccessResponse)response.SubResponses.Single();
+        await Assert.That(access.ReadAccess).IsEqualTo(ResponseError.Success);
+        await Assert.That(access.WriteAccess).IsEqualTo(ResponseError.Success);
+        var denied = new ResponseError(ResponseErrorType.HResult, 0x80070005);
+        await Assert.That(access.ExtraAccess).IsEqualTo(denied with { Chained = denied });
+    }
+
+    /// <summary>
     /// [MS-FSSHTTP] 4.1.2: the responses of the three Cell sub-requests of a file open, each with a Data Element Package
     /// and a Query Changes sub-response.
     /// </summary>
