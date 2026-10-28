@@ -93,9 +93,10 @@ SharePoint must never fail, and must not slow down noticeably, because of the mo
   tombstone. The queue is bounded too, and so are the tombstones (beyond, only counted). A document that is not
   sampled is not copied at all: sampling is decided at the response's first write.
 - **It never waits for the shadow.** A thread of its own sends: never a request's. It sends with timeouts; when the
-  shadow is full it waits as the shadow asks (503 and Retry-After), copying nothing meanwhile; after three failures it
-  stops copying, turns what waits into tombstones, and tries again at each heartbeat, with backoff, until the shadow
-  answers.
+  shadow is full it waits as the shadow asks (503 and Retry-After); after three failures it turns what waits into
+  tombstones, and tries again at each heartbeat, with backoff, until the shadow answers. Meanwhile it copies nothing: a
+  cell storage request of a sampled document becomes a tombstone, so that the shadow knows its document misses an
+  exchange.
 
   ```mermaid
   stateDiagram-v2
@@ -108,8 +109,8 @@ SharePoint must never fail, and must not slow down noticeably, because of the mo
       Waiting --> Sending: after Retry-After
       Open --> Open: heartbeat failed (backoff, up to 60 s)
       Open --> Sending: the shadow answers
-      note right of Open: copies nothing new
-      note right of Waiting: copies nothing new
+      note right of Open: tombstones of what is new
+      note right of Waiting: tombstones of what is new
   ```
 - **Recycles go as before.** When an app domain stops, the module sends what waits within 5 seconds, from a thread of
   its own, and lets the recycle go on.
@@ -238,7 +239,7 @@ application, then retracts the solution. The lab installs it with `src/sharepoin
 | `OfficeHostShadow.SamplePercent` | 100 | Documents copied, by a hash of their URL, the same on every server: all of a document's exchanges or none. |
 | `OfficeHostShadow.MaxInFlightMegabytes` | 256 | Copies held at once, across requests. |
 | `OfficeHostShadow.MaxExchangeMegabytes` | 64 | The largest exchange copied. |
-| `OfficeHostShadow.Include` | (all) | Path prefixes copied, comma separated (`/sites/finance`). |
+| `OfficeHostShadow.Include` | (all) | Path prefixes copied, by whole segments, comma separated (`/sites/finance`, not `/sites/finance2`). |
 
 
 ## Outcomes and log levels
@@ -275,7 +276,9 @@ a save (`HaveOnlyDemotionChanges`). What is compared of a sub-response is in [re
 - **Started on first sight.** The first time the shadow sees a document, it writes its content to the storage (through
   `IShadowDocuments`) and clears what OfficeHost knew of it: from a content query of the exchange that SharePoint
   answered in full, the exact version; else from `IShadowContent`, its version checked against the exchange's Etag. A
-  document a Save As makes is left for OfficeHost to make.
+  document a Save As makes is left for OfficeHost to make. A document of another host than the one the request went to
+  (its `Host`) is neither fetched nor replayed: the Url is the client's to write. A document seen first in a tombstone
+  is started at its first exchange all the same, untrusted.
 - **Trusted, or not.** A document is untrusted:
   - for its content (its Cells are NotCompared) after a save of a client that knew it from Office's cache (OfficeHost
     has not the file SharePoint has), or when SharePoint's version is not the traffic's;
@@ -343,7 +346,7 @@ A batch is `POST {pattern}/exchanges`:
 - **Answer:** 202, or 503 with `Retry-After` (full or paused); `X-Shadow-Sample` when the shadow sets the sampling; 401
   for a wrong key; 400 for a batch it cannot read.
 
-The request headers copied are an allowlist (content type, SOAPAction, user agent, Office's scenario headers): never
+The request headers copied are an allowlist (host, content type, SOAPAction, user agent, Office's scenario headers): never
 credentials, cookies or the request digest. IsOnlyClient is always copied (it names no document, and is small).
 
 

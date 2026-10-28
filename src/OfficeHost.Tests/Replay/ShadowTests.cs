@@ -11,8 +11,13 @@ public class ShadowTests
     /// </summary>
     sealed class Content(byte[] file) : IShadowContent
     {
-        public Task<ShadowContent?> Get(ShadowDocument document, Cancel cancel = default) =>
-            Task.FromResult<ShadowContent?>(new(file, null));
+        public int Gets { get; private set; }
+
+        public Task<ShadowContent?> Get(ShadowDocument document, Cancel cancel = default)
+        {
+            Gets++;
+            return Task.FromResult<ShadowContent?>(new(file, null));
+        }
     }
 
     /// <summary>
@@ -47,19 +52,19 @@ public class ShadowTests
     internal static Task<TestServerHost> StartShadow(byte[] file, Action<OfficeHostShadowOptions>? configure = null, Func<IOfficeStorage, IOfficeStorage>? wrapStorage = null) =>
         TestServerHost.Start(
             wrapStorage: wrapStorage,
-            services: services =>
+            services: _ =>
             {
-                services.AddOfficeHostShadow(options =>
+                _.AddOfficeHostShadow(_ =>
                 {
-                    options.ApiKey = Key;
-                    options.MaximumDelay = TimeSpan.FromMinutes(1);
-                    options.Levels[ShadowOutcome.Same] = LogLevel.Information;
-                    configure?.Invoke(options);
+                    _.ApiKey = Key;
+                    _.MaximumDelay = TimeSpan.FromMinutes(1);
+                    _.Levels[ShadowOutcome.Same] = LogLevel.Information;
+                    configure?.Invoke(_);
                 });
-                services.AddSingleton<IShadowDocuments>(_ => new FileSystemShadowDocuments(_.GetRequiredService<FileSystemStorage>()));
-                services.AddSingleton<IShadowContent>(new Content(file));
+                _.AddSingleton<IShadowDocuments>(_ => new FileSystemShadowDocuments(_.GetRequiredService<FileSystemStorage>()));
+                _.AddSingleton<IShadowContent>(new Content(file));
             },
-            endpoints: app => app.MapOfficeHostShadow());
+            endpoints: _ => _.MapOfficeHostShadow());
 
     /// <summary>
     /// Posts exchanges and tombstones to the ingest as an instance of the module does (<see cref="ShadowProtocol"/>).
@@ -181,10 +186,10 @@ public class ShadowTests
                                                       _.Contains("@CoauthStatus: Alone / Coauthoring"));
         }
 
-        await using (var shadow = await StartShadow(file, options =>
+        await using (var shadow = await StartShadow(file, _ =>
                      {
-                         options.KnownDifferences.Add(new("^Coauth GetCoauthoringStatus$", "^@CoauthStatus$", "the test expects it"));
-                         options.Levels[ShadowOutcome.KnownDifference] = LogLevel.Information;
+                         _.KnownDifferences.Add(new("^Coauth GetCoauthoringStatus$", "^@CoauthStatus$", "the test expects it"));
+                         _.Levels[ShadowOutcome.KnownDifference] = LogLevel.Information;
                      }))
         {
             await Post(shadow, exchanges, Guid.NewGuid());
@@ -205,7 +210,15 @@ public class ShadowTests
         var (exchanges, file) = await Record(folder);
         FaultyStorage? storage = null;
         await using var shadow = await StartShadow(file, wrapStorage: _ => storage = new(_));
-        storage!.Fault = _ => _ == nameof(IOfficeStorage.Write) ? new IOException("the disk is full") : null;
+        storage!.Fault = _ =>
+        {
+            if (_ == nameof(IOfficeStorage.Write))
+            {
+                return new IOException("the disk is full");
+            }
+
+            return null;
+        };
 
         await Post(shadow, exchanges, Guid.NewGuid());
         var findings = await Findings(shadow, 10);
@@ -227,7 +240,7 @@ public class ShadowTests
         var status = Path.Combine(folder, "0006.response.http");
         await File.WriteAllTextAsync(status, (await File.ReadAllTextAsync(status)).Replace("CoauthStatus=\"Coauthoring\"", "CoauthStatus=\"Alone\""));
         var exchanges = Exchange.ReadFolder(folder);
-        await using var shadow = await StartShadow(file, options => options.Levels[ShadowOutcome.NotCompared] = LogLevel.Information);
+        await using var shadow = await StartShadow(file, _ => _.Levels[ShadowOutcome.NotCompared] = LogLevel.Information);
 
         var document = ShadowDocument.From("https://localhost/fsshttp/doc.docx")!;
         var started = exchanges[3].Time!.Value.AddTicks(1);
@@ -239,6 +252,55 @@ public class ShadowTests
         await Assert.That(findings).Contains(_ => _.StartsWith("Information ShadowProcessor: NotCompared: Coauth GetCoauthoringStatus", StringComparison.Ordinal) &&
                                                   _.Contains("an exchange missing: too large"));
         await Assert.That(findings).DoesNotContain(_ => _.Contains("Different:"));
+    }
+
+    /// <summary>
+    /// A tombstone of a document before any exchange of it: the document is seeded all the same at its first exchange,
+    /// and replayed, untrusted.
+    /// </summary>
+    [Test]
+    public async Task Tombstone_BeforeTheFirstExchange()
+    {
+        using var folder = new TempDirectory();
+        var (exchanges, file) = await Record(folder);
+        await using var shadow = await StartShadow(file);
+
+        var document = ShadowDocument.From("https://localhost/fsshttp/doc.docx")!;
+        var started = exchanges[0].Time!.Value.AddTicks(-1);
+        await Post(shadow, exchanges, Guid.NewGuid(), tombstones: [(document, 100, started)]);
+        var findings = await Findings(shadow, 11);
+
+        await Assert.That(shadow.Service<IShadowContent>() is Content { Gets: 1 }).IsTrue();
+        await Assert.That(findings).Contains(_ => _.Contains("Same: Coauth JoinCoauthoring of localhost/fsshttp/doc.docx"));
+        await Assert.That(findings).DoesNotContain(_ => _.Contains("not replayed"));
+    }
+
+    /// <summary>
+    /// The Url of a request is the client's to write: a document of another host than the one the request went to is
+    /// neither fetched nor replayed.
+    /// </summary>
+    [Test]
+    public async Task AnotherHost()
+    {
+        using var folder = new TempDirectory();
+        var (exchanges, file) = await Record(folder);
+        await using var shadow = await StartShadow(file, _ => _.Levels[ShadowOutcome.NotCompared] = LogLevel.Information);
+        var elsewhere = exchanges
+            .Select(_ => _ with
+            {
+                Request = _.Request with
+                {
+                    Headers = [("Host", "sharepoint.contoso.com"), .. _.Request.Headers.Where(_ => _.Name != "Host")]
+                }
+            })
+            .ToList();
+
+        await Post(shadow, elsewhere, Guid.NewGuid());
+        var findings = await Findings(shadow, exchanges.Count);
+
+        await Assert.That(shadow.Service<IShadowContent>() is Content { Gets: 0 }).IsTrue();
+        await Assert.That(findings).Contains(_ => _.Contains("a document of another host than the request's (sharepoint.contoso.com): not replayed"));
+        await Assert.That(findings).DoesNotContain(_ => _.Contains("Same:"));
     }
 
     /// <summary>
@@ -316,7 +378,7 @@ public class ShadowTests
     {
         using var folder = new TempDirectory();
         var (exchanges, file) = await Record(folder);
-        await using var shadow = await StartShadow(file, options => options.QueueCapacity = 2);
+        await using var shadow = await StartShadow(file, _ => _.QueueCapacity = 2);
 
         using var response = await Post(shadow, exchanges, Guid.NewGuid());
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.ServiceUnavailable);
@@ -329,7 +391,7 @@ public class ShadowTests
     [Test]
     public async Task Sample()
     {
-        await using var shadow = await StartShadow([], options => options.SamplePercent = 25);
+        await using var shadow = await StartShadow([], _ => _.SamplePercent = 25);
         using var response = await Post(shadow, [], Guid.NewGuid(), DateTimeOffset.UtcNow);
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Accepted);
         await Assert.That(string.Join(",", response.Headers.GetValues(ShadowProtocol.Sample))).IsEqualTo("25");

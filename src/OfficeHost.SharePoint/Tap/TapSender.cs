@@ -157,6 +157,8 @@ sealed class TapSender
 
             return;
         }
-        while (queue.Count > 0 && !stopping);
+        // the final pass sends all that waits, within the time of Stop
+        while (queue.Count > 0 &&
+               (final || !stopping));
     }
 }

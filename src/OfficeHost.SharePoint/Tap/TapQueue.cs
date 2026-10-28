@@ -74,6 +74,17 @@ sealed class TapQueue(int capacity = 1000, int tombstoneCapacity = 10_000)
     }
 
     /// <summary>
+    /// Counts an exchange lost without a tombstone, its document unknown.
+    /// </summary>
+    public void Drop()
+    {
+        lock (gate)
+        {
+            dropped++;
+        }
+    }
+
+    /// <summary>
     /// The items of the next batch, up to a count and a number of bytes (at least one), with the watermark: the earliest
     /// start of the items left and the requests in flight, else now. The dropped count is taken with them.
     /// </summary>

@@ -28,13 +28,21 @@ public sealed class ShadowModule : IHttpModule
             var path = context.Request.Path;
             if (TapCapture.KindOf(path) is not { } kind ||
                 TapRuntime.Get() is not { } runtime ||
-                !runtime.Copying ||
                 !runtime.Settings.Includes(path))
             {
                 return;
             }
 
-            var capture = new TapCapture(context, runtime, kind);
+            // while the shadow pauses the module or cannot be reached, a cell storage request becomes a tombstone of its
+            // document; IsOnlyClient changes no document
+            var copying = runtime.Copying;
+            if (!copying &&
+                kind == "sharedaccess")
+            {
+                return;
+            }
+
+            var capture = new TapCapture(context, runtime, kind, copying);
             context.Response.Filter = new TapFilter(context.Response.Filter, capture);
             context.AddOnRequestCompleted(_ => capture.Completed());
         }

@@ -14,9 +14,11 @@ class RecordingHandler(string folder, string user, TimeProvider time) : Delegati
             requestBody = await request.Content.ReadAsByteArrayAsync(cancellationToken);
         }
 
+        // Host, as the module copies it: HttpClient sends it from the URI
         var requestHeaders = request.Headers
             .Concat(request.Content?.Headers ?? Enumerable.Empty<KeyValuePair<string, IEnumerable<string>>>())
             .Select(_ => (_.Key, string.Join(", ", _.Value)))
+            .Prepend(("Host", request.Headers.Host ?? request.RequestUri!.Authority))
             .Append((Exchange.UserHeader, user))
             .Append((Exchange.TimeHeader, time.GetUtcNow().ToString("O")))
             .ToList();

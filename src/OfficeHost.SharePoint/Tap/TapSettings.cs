@@ -86,7 +86,22 @@ sealed class TapSettings
     /// </summary>
     public bool Includes(string path) =>
         Include.Length == 0 ||
-        Include.Any(_ => path.StartsWith(_, StringComparison.OrdinalIgnoreCase));
+        Include.Any(_ => Under(path, _));
+
+    /// <summary>
+    /// Whether a path is a prefix's or below it, by whole segments: <c>/sites/team</c> is not under <c>/sites/te</c>.
+    /// </summary>
+    static bool Under(string path, string prefix)
+    {
+        if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return path.Length == prefix.Length ||
+               prefix[prefix.Length - 1] == '/' ||
+               path[prefix.Length] == '/';
+    }
 
     static string? Trimmed(string? value)
     {

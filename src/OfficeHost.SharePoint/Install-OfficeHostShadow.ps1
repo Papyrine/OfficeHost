@@ -81,17 +81,41 @@ function Remove-Modifications([Microsoft.SharePoint.Administration.SPWebApplicat
     return $mine.Count
 }
 
+# the web.config timer job of ApplyWebConfigModifications, until it has run on every server and is gone
+function Wait-WebConfig {
+    $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
+    while (@(Get-SPTimerJob | Where-Object Name -like 'job-webconfig-modification*').Count -gt 0) {
+        if ((Get-Date) -ge $deadline) {
+            throw "The web.config timer job has not run on every server after $TimeoutMinutes minutes: see Central Administration, Timer Job Status"
+        }
+
+        Start-Sleep -Seconds 5
+    }
+}
+
+function Test-ModuleInWebConfig([Microsoft.SharePoint.Administration.SPWebApplication] $Application) {
+    $site = $Application.IisSettings['Default']
+    return Select-String -Path (Join-Path $site.Path.FullName 'web.config') -Pattern 'OfficeHost.ShadowModule' -Quiet
+}
+
 if ($Remove) {
-    $changed = 0
+    $changed = @()
     foreach ($application in Get-SPWebApplication) {
-        $changed += Remove-Modifications $application
+        if ((Remove-Modifications $application) -gt 0) {
+            $changed += $application
+        }
     }
 
-    if ($changed -gt 0) {
+    if ($changed.Count -gt 0) {
         [Microsoft.SharePoint.Administration.SPWebService]::ContentService.ApplyWebConfigModifications()
         Write-Host "Removed the module from the web.config of the web applications; waiting for every server"
-        # the web.config timer job runs on every server: the assembly stays until it has
-        Start-Sleep -Seconds 60
+        # the assembly stays in the GAC until no web.config names the module: one that did would fail every request
+        Wait-WebConfig
+        foreach ($application in $changed) {
+            if (Test-ModuleInWebConfig $application) {
+                throw "The web.config of $($application.Url) still has the module on this server: the solution is left deployed"
+            }
+        }
     }
 
     $solution = Get-SPSolution $solutionName -ErrorAction SilentlyContinue
@@ -232,6 +256,7 @@ foreach ($url in $WebApplication) {
 }
 
 [Microsoft.SharePoint.Administration.SPWebService]::ContentService.ApplyWebConfigModifications()
+Wait-WebConfig
 
 # 4. the event log source of the module, on this server
 if (-not [Diagnostics.EventLog]::SourceExists('OfficeHost.Shadow')) {
@@ -243,7 +268,7 @@ Import-Module WebAdministration
 foreach ($url in $WebApplication) {
     $application = Get-SPWebApplication $url
     $site = $application.IisSettings['Default']
-    if (-not (Select-String -Path (Join-Path $site.Path.FullName 'web.config') -Pattern 'OfficeHost.ShadowModule' -Quiet)) {
+    if (-not (Test-ModuleInWebConfig $application)) {
         throw "The web.config of $url does not have the module yet on this server: see the web.config timer job"
     }
 

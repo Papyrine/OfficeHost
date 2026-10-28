@@ -70,12 +70,14 @@ public class TapTests
         queue.AddTombstone(TapItem.Tombstone(6, start.AddSeconds(6), "doc", "too large"));
         queue.AddTombstone(TapItem.Tombstone(7, start.AddSeconds(7), "doc", "too large"));
         queue.Started(8, start.AddSeconds(1));
+        // an exchange whose document is unknown
+        queue.Drop();
 
         var batch = queue.Take(1, long.MaxValue, out var watermark, out var dropped);
         await Assert.That(batch.Single().Sequence).IsEqualTo(3);
         // the request in flight started first
         await Assert.That(watermark).IsEqualTo(start.AddSeconds(1));
-        await Assert.That(dropped).IsEqualTo(1);
+        await Assert.That(dropped).IsEqualTo(2);
 
         queue.Ended(8);
         batch = queue.Take(10, long.MaxValue, out watermark, out _);
@@ -90,13 +92,57 @@ public class TapTests
     {
         public int Calls { get; private set; }
         public List<List<TapItem>> Batches { get; } = [];
+        public bool Final { get; private set; }
 
         public TapSent Send(IReadOnlyList<TapItem> items, DateTime watermark, long dropped, bool final)
         {
             Calls++;
             Batches.Add(items.ToList());
+            Final |= final;
             return answer(Calls);
         }
+    }
+
+    /// <summary>
+    /// Stopping sends all that waits, in as many batches as it takes, the last one final.
+    /// </summary>
+    [Test]
+    public async Task Sender_StopSendsAll()
+    {
+        var queue = new TapQueue();
+        var start = DateTime.UtcNow;
+        var sink = new Sink(_ => new() { Sent = true });
+        var sender = new TapSender(queue, sink, 100, _ => { }, TimeSpan.FromMinutes(1));
+        sender.Start();
+        for (var sequence = 0; sequence < 120; sequence++)
+        {
+            queue.TryAdd(TapItem.Exchange(sequence, start, null, [1], null, [2], null));
+        }
+
+        sender.Stop(TimeSpan.FromSeconds(10));
+
+        await Assert.That(sink.Batches.Sum(_ => _.Count)).IsEqualTo(120);
+        await Assert.That(queue.Count).IsEqualTo(0);
+        await Assert.That(sink.Final).IsTrue();
+    }
+
+    /// <summary>
+    /// The paths copied are those under a prefix of Include by whole segments.
+    /// </summary>
+    [Test]
+    public async Task Settings_Include()
+    {
+        var settings = TapSettings.Read(_ => _ switch
+        {
+            "OfficeHostShadow.Include" => "/sites/team, /sites/finance/",
+            _ => null
+        });
+        await Assert.That(settings.Includes("/sites/team/_vti_bin/cellstorage.svc/CellStorageService")).IsTrue();
+        await Assert.That(settings.Includes("/SITES/TEAM")).IsTrue();
+        await Assert.That(settings.Includes("/sites/finance/_vti_bin/sharedaccess.asmx")).IsTrue();
+        await Assert.That(settings.Includes("/sites/teamB/_vti_bin/cellstorage.svc/CellStorageService")).IsFalse();
+        await Assert.That(settings.Includes("/sites/finance2/_vti_bin/sharedaccess.asmx")).IsFalse();
+        await Assert.That(TapSettings.Read(_ => null).Includes("/anything")).IsTrue();
     }
 
     /// <summary>

@@ -9,14 +9,17 @@ using System.Web;
 /// at the response's first write (SharePoint's handler has read the request by then), whether its document is sampled,
 /// and if so the request body, read again from its start; the response as it is written; its status and head once it is
 /// complete; and the exchange, or a tombstone, to the queue once the request has completed. The body of a shared access
-/// request is copied when the request is authenticated instead: after its ASMX handler, it reads empty.
+/// request is copied when the request is authenticated instead: after its ASMX handler, it reads empty. While the shadow
+/// pauses the module or cannot be reached, a request of a sampled document is not copied but becomes a tombstone, so that
+/// the shadow knows its document misses an exchange.
 /// </summary>
 sealed class TapCapture
 {
-    // the headers of the request a replay needs; never credentials, cookies or the request digest
+    // the headers of the request a replay needs; never credentials, cookies or the request digest. Host, as the shadow
+    // replays only the documents of the SharePoint the request went to
     static string[] requestHeaders =
     [
-        "Content-Type", "SOAPAction", "User-Agent", "Scenario", "ScenarioType", "X-RequestStats", "Application",
+        "Host", "Content-Type", "SOAPAction", "User-Agent", "Scenario", "ScenarioType", "X-RequestStats", "Application",
         "FileExtension", "X-Office-Major-Version"
     ];
 
@@ -24,6 +27,8 @@ sealed class TapCapture
     HttpContext context;
     TapRuntime runtime;
     string kind;
+    bool copying;
+    bool unread;
     long sequence;
     DateTime started;
     byte[] requestHead;
@@ -36,11 +41,13 @@ sealed class TapCapture
     bool closed;
     string? failure;
 
-    public TapCapture(HttpContext context, TapRuntime runtime, string kind)
+    /// <param name="copying">Whether to copy, else to send a tombstone of a sampled document.</param>
+    public TapCapture(HttpContext context, TapRuntime runtime, string kind, bool copying)
     {
         this.context = context;
         this.runtime = runtime;
         this.kind = kind;
+        this.copying = copying;
         sequence = runtime.NextSequence();
         started = TapClock.UtcNow;
         requestHead = RequestHead(context, started);
@@ -103,37 +110,54 @@ sealed class TapCapture
 
         if (decided == 1)
         {
-            response!.Write(buffer, offset, count);
+            response?.Write(buffer, offset, count);
         }
     }
 
     /// <summary>
     /// Whether the document is sampled: IsOnlyClient always (it names no document, and is small), a cell storage
-    /// request by its document's URL. Not sampled, it is not copied at all.
+    /// request by its document's URL. Not sampled, it is not copied at all. Decided once, even when the body cannot be
+    /// read: then the exchange is lost to a document unknown.
     /// </summary>
     void Decide()
     {
         var sampled = true;
         if (kind == "cellstorage")
         {
-            document = TapSampler.Document(Peek());
+            try
+            {
+                document = TapSampler.Document(Peek());
+            }
+            catch (Exception exception)
+            {
+                decided = 1;
+                unread = true;
+                failure = $"the request body could not be read again: {exception.Message}";
+                return;
+            }
+
             sampled = TapSampler.Sampled(TapSampler.Key(document ?? ""), runtime.Sender.SamplePercent);
         }
 
-        if (sampled)
+        if (!sampled)
         {
-            response = new(runtime.Budget, runtime.Settings.MaxExchangeBytes);
-            decided = 1;
-            if (requestBody == null)
-            {
-                CopyRequestBody();
-            }
-
+            decided = 2;
+            runtime.Queue.Ended(sequence);
             return;
         }
 
-        decided = 2;
-        runtime.Queue.Ended(sequence);
+        decided = 1;
+        if (!copying)
+        {
+            failure = "not copied: the shadow paused the module, or could not be reached";
+            return;
+        }
+
+        response = new(runtime.Budget, runtime.Settings.MaxExchangeBytes);
+        if (requestBody == null)
+        {
+            CopyRequestBody();
+        }
     }
 
     /// <summary>
@@ -251,41 +275,57 @@ sealed class TapCapture
     {
         try
         {
-            runtime.Queue.Ended(sequence);
-            if (decided != 1)
+            if (Enqueue())
             {
-                Release();
-                return;
+                runtime.Sender.Signal();
             }
-
-            if (status == 401)
-            {
-                Release();
-                return;
-            }
-
-            var reason = Reason();
-            if (reason != null)
-            {
-                Release();
-                runtime.Queue.AddTombstone(TapItem.Tombstone(sequence, started, document, reason));
-            }
-            else
-            {
-                var item = TapItem.Exchange(sequence, started, document, requestHead, requestBody, responseHead!, response);
-                if (!runtime.Queue.TryAdd(item))
-                {
-                    runtime.Queue.AddTombstone(item.Bury("the module's queue was full"));
-                }
-            }
-
-            runtime.Sender.Signal();
         }
         catch (Exception exception)
         {
             Release();
             TapLog.Write($"A request was not copied: {exception.Message}");
         }
+        finally
+        {
+            // only once its exchange or tombstone waits: the watermark must not pass its start before
+            runtime.Queue.Ended(sequence);
+        }
+    }
+
+    /// <summary>
+    /// The exchange, or its tombstone, to the queue; false when there is nothing to send.
+    /// </summary>
+    bool Enqueue()
+    {
+        if (decided != 1 ||
+            status == 401)
+        {
+            Release();
+            return false;
+        }
+
+        var reason = Reason();
+        if (reason == null)
+        {
+            var item = TapItem.Exchange(sequence, started, document, requestHead, requestBody, responseHead!, response);
+            if (!runtime.Queue.TryAdd(item))
+            {
+                runtime.Queue.AddTombstone(item.Bury("the module's queue was full"));
+            }
+
+            return true;
+        }
+
+        Release();
+        if (unread)
+        {
+            // no document to name: every document of this instance is untrusted
+            runtime.Queue.Drop();
+            return true;
+        }
+
+        runtime.Queue.AddTombstone(TapItem.Tombstone(sequence, started, document, reason));
+        return true;
     }
 
     string? Reason()

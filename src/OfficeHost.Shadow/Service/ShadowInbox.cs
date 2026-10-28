@@ -119,16 +119,17 @@ sealed class ShadowInbox(IOptions<OfficeHostShadowOptions> options, TimeProvider
                 .Where(_ => !_.Final && now - _.LastSeen < settings.InstanceTimeout)
                 .Select(_ => _.Watermark)
                 .ToList();
+            bool Ready(ShadowItem item) =>
+                now - item.Received >= settings.MaximumDelay ||
+                watermarks.All(_ => _ >= item.Started);
+
             var ready = pending
-                .Where(_ => now - _.Received >= settings.MaximumDelay || watermarks.All(watermark => watermark >= _.Started))
+                .Where(Ready)
                 .OrderBy(_ => _.Started)
                 .ThenBy(_ => _.Sequence)
                 .ToList();
-            foreach (var item in ready)
-            {
-                pending.Remove(item);
-            }
-
+            // in one pass: the inbox holds up to QueueCapacity
+            pending.RemoveAll(Ready);
             return ready;
         }
     }

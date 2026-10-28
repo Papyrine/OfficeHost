@@ -10,6 +10,12 @@ sealed class Tracked(ShadowDocument document)
     public DateTimeOffset LastSeen { get; set; }
     public DateTimeOffset LastStarted { get; set; }
     public HashSet<Guid> Instances { get; } = [];
+
+    /// <summary>
+    /// Whether its content was written to the storage: not when only a tombstone of it was seen.
+    /// </summary>
+    public bool Seeded { get; set; }
+
     public string? Untrusted { get; private set; }
     public bool All { get; private set; }
 
@@ -103,7 +109,7 @@ sealed class ShadowProcessor
             }
 
             Count(ShadowOutcome.TapDropped, "server");
-            Write(ShadowOutcome.TapDropped, "{Outcome}: {Server} {Reason}; the documents it sent are not compared until their next session", ShadowOutcome.TapDropped, loss.Server, loss.Reason);
+            Write(ShadowOutcome.TapDropped, "{Outcome}: {Server} {Reason}; the documents it sent are not compared until they are forgotten", ShadowOutcome.TapDropped, loss.Server, loss.Reason);
         }
 
         Forget(DateTimeOffset.UtcNow);
@@ -127,8 +133,17 @@ sealed class ShadowProcessor
         if (ShadowComparer.Kind(exchange.Request) == "cellstorage" &&
             SoapBody.TryRead(exchange.Request) is { } body)
         {
+            var host = exchange.Request.Header("Host") is { } value ? new HostString(value).Host : null;
             foreach (var (document, makes) in ShadowComparer.Documents(body))
             {
+                // the Url is the client's to write: a document of another host is never fetched, nor written to the
+                // storage
+                if (!string.Equals(document.Url.Host, host, StringComparison.OrdinalIgnoreCase))
+                {
+                    Log(ShadowOutcome.NotCompared, "cell storage", document.Key, item, [], $"a document of another host than the request's ({host ?? "none"}): not replayed");
+                    return;
+                }
+
                 if (tracked.TryGetValue(document.Key, out var known) &&
                     item.Started < known.LastStarted)
                 {
@@ -138,7 +153,13 @@ sealed class ShadowProcessor
                     return;
                 }
 
-                var state = known ?? await Seed(document, makes, exchange, ShadowComparer.Opens(body), item, cancel);
+                // a document known only by a tombstone is seeded too, untrusted all the same
+                var state = known;
+                if (state is not { Seeded: true })
+                {
+                    state = await Seed(document, makes, exchange, ShadowComparer.Opens(body), item, cancel);
+                }
+
                 state.LastSeen = DateTimeOffset.UtcNow;
                 state.LastStarted = item.Started;
                 state.Instances.Add(item.Instance);
@@ -203,6 +224,7 @@ sealed class ShadowProcessor
         replay.Forget(document.Key);
         files.Forget(document.Key);
         var state = Track(document);
+        state.Seeded = true;
         var fileId = await documents.Find(document, cancel);
         var captured = ShadowComparer.Contents(exchange, document.Key).FirstOrDefault();
         if (captured == null &&
