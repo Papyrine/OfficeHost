@@ -16,7 +16,7 @@ It is made of two packages:
 
 ```mermaid
 flowchart TD
-    office([Desktop Office]) <-->|cell storage, IsOnlyClient| sp
+    office([Desktop Office]) <-->|"requests the module copies:<br/>cellstorage.svc (open, save, locks, coauthoring)<br/>sharedaccess.asmx IsOnlyClient (anyone else editing?)"| sp
 
     subgraph farm [SharePoint farm: each server]
         sp[SharePoint] -.->|copy, after SharePoint's handler| module[ShadowModule]
