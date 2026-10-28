@@ -6,7 +6,7 @@
 The host side of the Office document protocols as a library for ASP.NET Core. Add it to a web application, and the files of any storage the application has open, edit and save in:
 
 * the clients of the Web Application Open Platform Interface ([WOPI](https://learn.microsoft.com/en-us/microsoft-365/cloud-storage-partner-program/online/)): Collabora Online, ONLYOFFICE, Microsoft 365 for the web.
-* desktop Word, Excel and PowerPoint, through the cell storage service of SharePoint ([MS-FSSHTTP]), with coauthoring in Word and PowerPoint.
+* desktop Word, Excel and PowerPoint, through the cell storage service that SharePoint uses ([MS-FSSHTTP]), with coauthoring in Word and PowerPoint.
 
 
 ## How it works
