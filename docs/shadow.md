@@ -121,7 +121,7 @@ SharePoint must never fail, and must not slow down noticeably, because of the mo
   recycles the application pools: install in a maintenance window.
 
   ```mermaid
-  flowchart LR
+  flowchart TD
       wsp[build the WSP] --> add[Add-SPSolution] --> deploy[Install-SPSolution -GACDeployment]
       deploy --> wait{deployed on<br/>every server?}
       wait -->|not yet| wait
