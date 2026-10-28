@@ -72,7 +72,7 @@ public class FssHttpServiceTests
         var results = await word.Send(
             word.Join(),
             WordClient.SubRequest("SchemaLock", "5", WordClient.Data(new XAttribute("SchemaLockRequestType", "GetLock"), new XAttribute("SchemaLockID", WordClient.SchemaLockId), new XAttribute("ClientID", word.ClientId)), "1", "OnNotSupported"),
-            WordClient.Cell("8", WordClient.Query(), new XAttribute("PartitionID", "7808F4DD-2385-49D6-B7CE-37ACA5E43602")),
+            WordClient.Cell("8", WordClient.Query(), new XAttribute("PartitionID", "7808F4DD-2385-49D6-B7CE-37ACA5E43602"), new XAttribute("GetFileProps", "true")),
             WordClient.Cell("7", WordClient.Query(), new XAttribute("PartitionID", "383ADC0B-E66E-4438-95E6-E39EF9720122")),
             WordClient.Cell("6", WordClient.Query(), new XAttribute("GetFileProps", "true")),
             WordClient.SubRequest("EditorsTable", "4", WordClient.Data(new XAttribute("EditorsTableRequestType", "UpdateEditorMetadata"), new XAttribute("ClientID", word.ClientId), new XAttribute("Key", "Platform"), new XAttribute("Value", "MQ==")), "1", "OnSuccess"),
@@ -98,9 +98,15 @@ public class FssHttpServiceTests
         var query = (QueryChangesResponse) content.SubResponses.Single();
         var storage = CellStorage.Create(content.DataElements!.Elements, query.StorageIndex);
         await Assert.That(FileCell.Read(storage).Root.ToArray().SameAs(await FileOf(host))).IsTrue();
+        // a query with nothing new: the properties without HaveOnlyDemotionChanges, as SharePoint Server SE answers
+        var again = (await word.Send(WordClient.Cell("1", WordClient.Query(query.Knowledge), new XAttribute("GetFileProps", "true")))).Single();
+        await Assert.That(again.Attribute("Etag")).IsNotNull();
+        await Assert.That(again.Attribute("HaveOnlyDemotionChanges")).IsNull();
         await Assert.That(byToken["6"].Attribute("Etag")).StartsWith("\"{");
         await Assert.That(byToken["6"].Attribute("ModifiedBy")).IsEqualTo("Alice");
         await Assert.That(byToken["6"].Attribute("HaveOnlyDemotionChanges")).IsEqualTo("False");
+        // the properties of a Cell of another partition: none, as SharePoint Server SE answers
+        await Assert.That(byToken["8"].Attribute("Etag")).IsNull();
 
         // the metadata, with nothing in it: a Storage Index with a null Storage Manifest mapping
         var metadata = byToken["7"].FssHttpB;
@@ -489,6 +495,24 @@ public class FssHttpServiceTests
             "InvalidArgument"
         ]);
         await Assert.That(results[9].Attribute("AmIAlone")).IsEqualTo("True");
+    }
+
+    /// <summary>
+    /// A refresh of the shared lock answers as a join, without the TransitionID, as SharePoint Server SE answers.
+    /// </summary>
+    [Test]
+    public async Task Coauth_RefreshWithoutTransitionId()
+    {
+        var (host, _, token) = await Start();
+        await using var _ = host;
+        var word = new WordClient(host, token);
+        var join = await word.Coauth("JoinCoauthoring", new XAttribute("Timeout", 3600));
+        await Assert.That(join.Attribute("TransitionID")).IsNotNull();
+        var refresh = await word.Coauth("RefreshCoauthoring", new XAttribute("Timeout", 3600));
+        await Assert.That(refresh.ErrorCode).IsEqualTo("Success");
+        await Assert.That(refresh.Attribute("LockType")).IsEqualTo("SchemaLock");
+        await Assert.That(refresh.Attribute("CoauthStatus")).IsEqualTo("Alone");
+        await Assert.That(refresh.Attribute("TransitionID")).IsNull();
     }
 
     /// <summary>

@@ -121,6 +121,24 @@ same and 7 different. Three of the differences were OfficeHost's, now answered a
 `JoinCoauthTime` of the editors table, and `HaveOnlyDemotionChanges` with the properties of a save. Now 16 are the same,
 and the 5 left are known: GetVersions, the `vti_` properties of GetDocMetaInfo (twice), and the two untranslated Cells.
 
+A second recording, the same day, `office-scenarios`: 47 exchanges of four sessions, each on its own document.
+- **Word coauthoring** `Lab.docx` with a second client: two Word instances of one Windows user cannot open the same
+  document, so the second client is a script sending Word's Coauth sub-requests (join, status, refresh, exit) as
+  alice, with a client id of its own. SharePoint answered Word `Coauthoring` until it left.
+- **A Save As** of `Probe.docx` to a new name, and a save of the copy.
+- **Excel** on `Lab.xlsx`, which opened it read-only through COM and saved nothing.
+- **PowerPoint** on `Lab.pptx`.
+
+Its first replay found three more of OfficeHost's (docs/fsshttp-notes.md: the `TransitionID` of a refresh, the
+`LockType` of a Save As, file properties for the content only) and refined `HaveOnlyDemotionChanges`. Now 93 are the
+same, and the 35 left are of the known kinds. It also found two of the replay's: a document made by a Save As in the
+recording is no longer seeded, and the files of the seeds come from content queries only.
+
+One request was recorded without a body: PowerPoint's first, which declared `Content-Length: 1043`. SharePoint
+answered it with its error page (a 302, "Object reference not set to an instance of an object"), and PowerPoint sent it
+again. The recorder found the body empty, and logged no error, so nothing it did kept the body from SharePoint;
+why it was empty is not known. The replay reports such a request and goes on.
+
 To translate the cells, the replay would keep a copy of each server's cell. It would read the file each Put Changes
 writes against SharePoint's copy, and put the same file to OfficeHost against OfficeHost's copy, as `WordClient.Save`
 does. Then it would compare the outcomes and the files. That tests OfficeHost with a Put Changes of the replay's

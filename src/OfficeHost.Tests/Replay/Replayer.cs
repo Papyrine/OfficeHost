@@ -79,31 +79,43 @@ class Replayer : IAsyncDisposable
 
     /// <summary>
     /// Writes each document of the cell storage requests to the storage: the file of its name in the files folder, or
-    /// the file of the first content query the recorded server answered in full.
+    /// the file of the first content query the recorded server answered in full. A document whose first request puts
+    /// it, made by a Save As in the recording, is not written.
     /// </summary>
     async Task Seed(List<Exchange> exchanges, string? files)
     {
-        var names = new List<string>();
+        // each document, and whether its first request puts it
+        var names = new Dictionary<string, bool>();
         foreach (var exchange in exchanges.Where(_ => Kind(_.Request) == "cellstorage"))
         {
-            var request = SoapBody.Read(exchange.Request);
-            foreach (var name in request.Document.Descendants(soap + "Request").Select(_ => DocumentName((string?) _.Attribute("Url"))))
+            if (SoapBody.TryRead(exchange.Request) is not { } request)
             {
-                if (name != null &&
-                    !names.Contains(name))
+                continue;
+            }
+
+            foreach (var item in request.Document.Descendants(soap + "Request"))
+            {
+                if (DocumentName((string?) item.Attribute("Url")) is { } name)
                 {
-                    names.Add(name);
+                    names.TryAdd(name, item.Elements(soap + "SubRequest").Any(_ => Puts(_, request)));
                 }
             }
         }
 
-        foreach (var name in names)
+        foreach (var (name, made) in names)
         {
             byte[]? content = null;
             if (files != null &&
                 File.Exists(Path.Combine(files, name)))
             {
                 content = await File.ReadAllBytesAsync(Path.Combine(files, name));
+            }
+
+            if (content == null &&
+                made)
+            {
+                lines.Add($"Not seeded {name}: made in the recording");
+                continue;
             }
 
             content ??= exchanges
@@ -122,25 +134,57 @@ class Replayer : IAsyncDisposable
     }
 
     /// <summary>
-    /// The files that the content queries of a recorded exchange for a document answer in full.
+    /// Whether a sub-request is a Cell that puts changes.
+    /// </summary>
+    static bool Puts(XElement subRequest, SoapBody body)
+    {
+        if ((string?) subRequest.Attribute("Type") != "Cell")
+        {
+            return false;
+        }
+
+        try
+        {
+            return body.Binary(subRequest.Element(soap + "SubRequestData")) is { } binary &&
+                   FssHttpBRequest.Read(binary).SubRequests.Any(_ => _ is PutChangesRequest);
+        }
+        catch (Exception exception) when (exception is FssHttpBException or InvalidDataException or FormatException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The files that the queries of the content (Cells without a PartitionID) of a recorded exchange for a document
+    /// answer in full.
     /// </summary>
     static IEnumerable<byte[]> Contents(Exchange exchange, string name)
     {
-        var request = SoapBody.Read(exchange.Request);
-        var response = SoapBody.Read(exchange.Response);
-        var urls = request.Document.Descendants(soap + "Request")
-            .Select(_ => ((string?) _.Attribute("RequestToken"), DocumentName((string?) _.Attribute("Url"))))
-            .ToList();
+        if (SoapBody.TryRead(exchange.Request) is not { } request ||
+            SoapBody.TryRead(exchange.Response) is not { } response)
+        {
+            yield break;
+        }
+
+        var requests = request.Document.Descendants(soap + "Request").ToList();
         foreach (var item in response.Document.Descendants(soap + "Response"))
         {
-            if (!urls.Contains(((string?) item.Attribute("RequestToken"), name)))
+            var requestToken = (string?) item.Attribute("RequestToken");
+            var matching = requests.FirstOrDefault(_ => (string?) _.Attribute("RequestToken") == requestToken);
+            if (matching == null ||
+                DocumentName((string?) matching.Attribute("Url")) != name)
             {
                 continue;
             }
 
-            foreach (var data in item.Elements(soap + "SubResponse").Select(_ => _.Element(soap + "SubResponseData")))
+            var contentTokens = matching.Elements(soap + "SubRequest")
+                .Where(_ => (string?) _.Attribute("Type") == "Cell" &&
+                            (string?) _.Element(soap + "SubRequestData")?.Attribute("PartitionID") is null or "" or "00000000-0000-0000-0000-000000000000")
+                .Select(_ => (string?) _.Attribute("SubRequestToken"))
+                .ToHashSet();
+            foreach (var subResponse in item.Elements(soap + "SubResponse").Where(_ => contentTokens.Contains((string?) _.Attribute("SubRequestToken"))))
             {
-                if (FileOf(response.Binary(data)) is { } file)
+                if (FileOf(response.Binary(subResponse.Element(soap + "SubResponseData"))) is { } file)
                 {
                     yield return file;
                 }
@@ -280,7 +324,13 @@ class Replayer : IAsyncDisposable
     async Task ReplayCellStorage(Exchange exchange)
     {
         var user = UserOf(exchange.User);
-        var body = SoapBody.Read(exchange.Request);
+        if (SoapBody.TryRead(exchange.Request) is not { } body)
+        {
+            lines.Add($"#{exchange.Number} cell storage: no SOAP message in the recorded request ({exchange.Request.Body.Length} bytes), SharePoint answered {exchange.Response.Status}: not replayed");
+            skipped++;
+            return;
+        }
+
         var document = Translate(body.Document);
         var requests = document.Descendants(soap + "Request").ToList();
         string? site = null;
@@ -617,8 +667,23 @@ class Replayer : IAsyncDisposable
             return null;
         }
 
-        using var deflate = new DeflateStream(new MemoryStream(file, editorsTableHeader.Length, file.Length - editorsTableHeader.Length), CompressionMode.Decompress);
-        var table = XDocument.Load(deflate);
+        XDocument table;
+        try
+        {
+            using var deflate = new DeflateStream(new MemoryStream(file, editorsTableHeader.Length, file.Length - editorsTableHeader.Length), CompressionMode.Decompress);
+            table = XDocument.Load(deflate);
+        }
+        catch (Exception exception) when (exception is InvalidDataException or XmlException)
+        {
+            return null;
+        }
+
+        // another stream with the same header, as Word's metadata
+        if (table.Root?.Name.LocalName != "EditorsTable")
+        {
+            return null;
+        }
+
         return string.Join(
             "; ",
             table.Root!.Elements("Editor")

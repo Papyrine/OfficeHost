@@ -65,6 +65,8 @@ public class NewFileTests
         var results = await saveAs.SaveAs(Url(token, "Saved As.docx"), content);
         await Assert.That(results.Select(_ => _.ErrorCode)).IsEquivalentTo(["Success", "Success", "Success"]);
         await Assert.That(results[0].FssHttpB.SubResponses.Single()).IsTypeOf<PutChangesResponse>();
+        // the Cell holds the exclusive lock it took, as SharePoint Server SE answers
+        await Assert.That(results[0].Attribute("LockType")).IsEqualTo("ExclusiveLock");
         await Assert.That(results[1].Attribute("CoauthStatus")).IsEqualTo("Alone");
         await Assert.That((await File.ReadAllBytesAsync(host.PathOf("Saved As.docx"))).SameAs(content)).IsTrue();
         await Assert.That((await File.ReadAllBytesAsync(host.PathOf("base.docx"))).SameAs(original)).IsTrue();

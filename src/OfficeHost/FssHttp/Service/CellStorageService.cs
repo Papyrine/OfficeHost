@@ -342,6 +342,7 @@ class CellStorageService(
 
         // the Cell of a Save As takes the exclusive lock it names, which its ExclusiveLock ConvertToSchemaJoinCoauth then
         // turns into a coauthoring session, as on SharePoint Server SE
+        var tookExclusiveLock = false;
         if (Attribute(requestData, "ExclusiveLockID") is { } exclusiveLockId &&
             Int(requestData, "Timeout") is { } timeout &&
             request.SubRequests.Any(_ => _ is PutChangesRequest))
@@ -351,6 +352,8 @@ class CellStorageService(
             {
                 return locked;
             }
+
+            tookExclusiveLock = true;
         }
 
         var subResponses = new List<SubResponse>();
@@ -409,7 +412,10 @@ class CellStorageService(
         }
 
         var fssHttpB = new FssHttpBResponse(subResponses, new(elements.Values.ToList()), ProtocolVersion: 13).ToMemory();
-        if (requestData.Attribute("GetFileProps")?.Value is "true" or "True")
+        // the properties of the file, for a Cell of the content only, as SharePoint Server SE answers
+        // (docs/fsshttp-notes.md, "Word's session replayed")
+        if (requestData.Attribute("GetFileProps")?.Value is "true" or "True" &&
+            defaultPartition == FssHttpCells.ContentPartition)
         {
             file = await storage.GetFile(site.FileId, cancel) ?? file;
             data.Add(
@@ -417,11 +423,18 @@ class CellStorageService(
                 new XAttribute("CreateTime", file.LastModified.ToFileTime()),
                 new XAttribute("LastModifiedTime", file.LastModified.ToFileTime()),
                 new XAttribute("ModifiedBy", site.Access.UserName ?? site.Access.UserId));
-            // with the properties of a query, not of a put, as SharePoint Server SE answers (docs/replay.md)
-            if (!request.SubRequests.Any(_ => _ is PutChangesRequest))
+            // with a query that sends changes, not with one that has none, nor with a put
+            if (elements.Count > 0 &&
+                !request.SubRequests.Any(_ => _ is PutChangesRequest))
             {
                 data.Add(new XAttribute("HaveOnlyDemotionChanges", "False"));
             }
+        }
+
+        // the Cell of a Save As holds the exclusive lock it took
+        if (tookExclusiveLock)
+        {
+            data.Add(new XAttribute("LockType", "ExclusiveLock"));
         }
 
         data.Add(mtom.Include(fssHttpB));
@@ -758,8 +771,12 @@ class CellStorageService(
                 {
                     data.Add(
                         new XAttribute("LockType", "SchemaLock"),
-                        new XAttribute("CoauthStatus", Status(result.Session)),
-                        new XAttribute("TransitionID", site.ResourceId));
+                        new XAttribute("CoauthStatus", Status(result.Session)));
+                    // with a join only: SharePoint Server SE answers a refresh without it (docs/fsshttp-notes.md)
+                    if (Attribute(requestData, "CoauthRequestType") == "JoinCoauthoring")
+                    {
+                        data.Add(new XAttribute("TransitionID", site.ResourceId));
+                    }
                 }
 
                 return result.ErrorCode;

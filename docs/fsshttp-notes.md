@@ -546,12 +546,28 @@ for the timeout:
   its join, a FILETIME in base64 (05:42:18.077 for a join at 05:42:18), before the client's own metadata (Word's open
   sends `SupportsRename`, `Capabilities` and `Platform` after its query of the editors table). OfficeHost adds it too,
   outside the client's quota of four pairs.
-- **`HaveOnlyDemotionChanges`** is in the file properties (`GetFileProps`) of a query, not of a put: OfficeHost now
-  sends it only with a query.
+- **`HaveOnlyDemotionChanges`** is in the file properties (`GetFileProps`) of a query that sends changes: not of a
+  query that has none (the knowledge only, about 200 bytes), nor of a put. OfficeHost now answers so. Seen on 7 content
+  queries: with it, 589 to 16,432 bytes; without, 149 to 222.
 - **The editors table's timeout** is the join plus the client's `Timeout` on SharePoint (2,580 seconds), where OfficeHost
   keeps a client an hour at least and rounds the time up to ten minutes. Not changed: the spec lets the server pick
   its own from 60 to 3,600 seconds.
 - **IsOnlyClient** came without a user: `sharedaccess.asmx` is served without sign-in on SharePoint.
+
+A second recording added Word with a second client in its session, a Save As, Excel and PowerPoint (docs/replay.md):
+
+- **RefreshCoauthoring** is answered `LockType` and `CoauthStatus`, without the `TransitionID` of a join. OfficeHost
+  sent it with a refresh too; now with a join only.
+- **The Cell of a Save As** (its `ExclusiveLockID`, `Timeout` and a whole file) is answered `LockType="ExclusiveLock"`
+  with its file properties: it holds the lock it took. OfficeHost now answers so.
+- **`GetFileProps` is for the content:** a Cell of the editors table with `GetFileProps="true"` (Word's after a Save
+  As) has no `Etag` or times. OfficeHost now gives the properties to the Cells of the content only.
+- **A second client joining** makes Word's next IsOnlyClient `false`, then Word sends `MarkTransitionComplete` with its
+  three Cell queries, then a poll of three Cell queries and `GetCoauthoringStatus` every 30 seconds while coauthoring,
+  and IsOnlyClient again once alone. OfficeHost answered all of these as SharePoint did.
+- **Excel through COM** opened `Lab.xlsx` read-only (no lock, nothing saved), with SharePoint's `vti_canmaybeedit`
+  true and no lock on the file: Excel's choice, as "Excel takes an exclusive lock at the first edit" says of its
+  object model.
 - **The same as SharePoint:** the join, the schema lock kept from running, the editor metadata, WhoAmI, ServerTime,
   the IsOnlyClient polls, the exit and the release of the lock. Different as known: GetVersions (see Versions), the
   `vti_` properties of GetDocMetaInfo (OfficeHost sends a subset), and the Cells whose ids the replay does not

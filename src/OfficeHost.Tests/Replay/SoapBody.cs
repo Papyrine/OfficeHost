@@ -20,6 +20,22 @@ class SoapBody
 
     public Dictionary<string, byte[]> Parts { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// The body, or null when it is no SOAP message: a body the recorder found empty, as one of PowerPoint's
+    /// (docs/replay.md).
+    /// </summary>
+    public static SoapBody? TryRead(HttpMessage message)
+    {
+        try
+        {
+            return Read(message);
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or System.Xml.XmlException)
+        {
+            return null;
+        }
+    }
+
     public static SoapBody Read(HttpMessage message)
     {
         var body = new SoapBody();
