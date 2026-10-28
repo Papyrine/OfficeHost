@@ -37,9 +37,12 @@ The recordings hold the documents and the users' names: keep those of a real Sha
 lab's SharePoint from inside it. It runs after the sign-in, so NTLM is not in its way.
 - **What it records:** the cell storage and shared access requests of the web application, with their responses. It
   leaves out the 401s of the NTLM handshake, and the credentials (`Authorization`, cookies).
-- **How:** it reads the request body when the request is authenticated and rewinds it for the service. WCF reads it
-  again in the ASP.NET compatibility mode, which SharePoint enables. The response goes through a filter that keeps a
-  copy, and the exchange is written when the response ends, to `C:\ReplayRecording` in the VM.
+- **How:** it takes the request's headers, user and time when the request is authenticated. The response goes through
+  a filter that keeps a copy. When the response ends, it reads the request body again from its start (SharePoint's
+  handler read it through the buffered input stream: SharePoint SE serves `cellstorage.svc` with
+  `/_vti_bin/cobalt.ashx/cellstorageservice`, as its IIS log shows), and writes the exchange to `C:\ReplayRecording` in
+  the VM. So it reads nothing before SharePoint does: reading the body first, it made PowerPoint drop its first
+  request (see below).
 - **Errors** of the recorder go to `errors.txt` in that folder, never to the request.
 
 In an elevated PowerShell, from the repository (each script asks for the lab Administrator's password):
@@ -92,25 +95,43 @@ For each SubResponse, by its SubRequestToken:
 - for the editors table (a query of its partition), the editors by their CacheID, permission and metadata keys: not
   their login names (the users are mapped), their timeouts (OfficeHost keeps clients an hour at least), nor the layout
   of the XML.
+- for a translated Cell, the copies of the two servers after it rather than its answers (see "The cells").
 
 IsOnlyClient is compared by its result, and a request either server failed by its HTTP status.
 
 
-## Not translated: the cells
+## The cells
 
-The Cells are where the replay stops being exact. Office sends back the ids SharePoint gave the cell: its Storage
-Index, its knowledge, and the data elements of the file. OfficeHost made other ids when it chunked the same file. So
-a Put Changes, or a query with SharePoint's knowledge, refers to ids OfficeHost does not have. Their Cells are
-labelled `(untranslated)`, and their differences are expected:
+Office sends back the ids SharePoint gave the cell: its Storage Index, its knowledge, and the data elements of the
+file. OfficeHost made other ids when it chunked the same file, so a Put Changes, or a query with SharePoint's
+knowledge, refers to ids OfficeHost does not have. `ReplayCells` translates them. For each document and partition it
+keeps:
+- **the client's copy:** what SharePoint sent its clients, and what they put;
+- **OfficeHost's copy:** what OfficeHost sent the replay, and what the replay put;
+- **the knowledge of each server, in pairs:** from the answers both gave to the same Cell.
 
-- **Put Changes:** OfficeHost answers a coherency failure (`CellRequestFail`, `PutChanges Cell 12`) where SharePoint
-  applied it. From then on, OfficeHost's copy of the file stays the version before the save.
-- **A query with knowledge:** OfficeHost does not know SharePoint's knowledge, so it answers with the whole file where
-  SharePoint sent only the changes.
+Then:
+- **A query** gets OfficeHost's knowledge of the pair for SharePoint's, whichever client sends it, or else the latest
+  OfficeHost gave.
+- **A put of the content** is made again: the file the client put is read from the client's copy with its data
+  elements, and put to OfficeHost against OfficeHost's copy, as `WordClient.Save` puts: new data elements, a new
+  Storage Index, and OfficeHost's as the expected one. So OfficeHost is tested with a put of the replay's making, of
+  the file Office put, not with Office's bytes.
+- **A put of another partition** (Office's metadata), or of a whole file expecting nothing (a Save As), has the
+  client's ids only, and goes as it was.
+- **After each Cell,** the two copies are compared rather than the two answers: the file (its hash), or the editors of
+  the editors table. Each answer holds only what was new to its client, so the copies are what the clients have.
+
+These Cells are labelled `(translated)`. One that cannot be translated is labelled `(Office's cache)`: a client that
+opened the document from Office's cache before the recording has data elements the recording never had, so its
+knowledge is not known to the replay (OfficeHost answers with the whole file), and the file of its put cannot be read
+(it goes as it was, and OfficeHost answers a coherency failure, `PutChanges Cell 12`). To test the puts, record
+documents Office has not opened: new ones, uploaded for the recording.
 
 The lock and coauthoring sub-requests do not depend on the cells, and are compared exactly all through a recording.
-`ReplayTests.OfficeHostAgainstItself` shows both: a session of two Word clients recorded with OfficeHost and replayed to
-another gives the same answers, except for one Put Changes and the query after it.
+`ReplayTests.OfficeHostAgainstItself` replays a session of two Word clients recorded with OfficeHost to another: the
+same answers, the save and the query after it translated, and the same file after the four Cells of the content.
+`ReplayTests.OfficeHostFromCache` shows the labels of a client that knew the document before the recording.
 
 ## The first recording
 
@@ -134,12 +155,23 @@ Its first replay found three more of OfficeHost's (docs/fsshttp-notes.md: the `T
 same, and the 35 left are of the known kinds. It also found two of the replay's: a document made by a Save As in the
 recording is no longer seeded, and the files of the seeds come from content queries only.
 
-One request was recorded without a body: PowerPoint's first, which declared `Content-Length: 1043`. SharePoint
-answered it with its error page (a 302, "Object reference not set to an instance of an object"), and PowerPoint sent it
-again. The recorder found the body empty, and logged no error, so nothing it did kept the body from SharePoint;
-why it was empty is not known. The replay reports such a request and goes on.
+With the cells translated, it gives 106 the same and 22 different: the saves of `Lab.docx` and `Lab.pptx`, and the
+queries of documents opened from Office's cache, are `(Office's cache)`; the copies were compared after 13 Cells.
 
-To translate the cells, the replay would keep a copy of each server's cell. It would read the file each Put Changes
-writes against SharePoint's copy, and put the same file to OfficeHost against OfficeHost's copy, as `WordClient.Save`
-does. Then it would compare the outcomes and the files. That tests OfficeHost with a Put Changes of the replay's
-making, not of Office's.
+A third recording, `fresh-documents`: 23 exchanges on two documents uploaded for it, which Office had never opened.
+Word saved twice, closed, opened the document again and saved; PowerPoint saved once. All four puts were translated and
+applied as on SharePoint, and the copies held the same file after each of the 11 Cells compared: 49 the same, and of
+the 10 different, 9 are GetVersions and GetDocMetaInfo. The tenth: when Word opened the document again, SharePoint
+sent it changes (`HaveOnlyDemotionChanges="False"`) though Word had made every change itself, and the file of the
+copies stayed the same: something of SharePoint's own in the cell, as a new revision, that OfficeHost does not have.
+
+One request was recorded without a body, in both recordings with PowerPoint: its first, `GetMetadata_EnsureDocMetaInfo`
+on a keep-alive connection, which declared a `Content-Length` (1043, 1015). SharePoint answered it with its error page
+(a 302, "Object reference not set to an instance of an object") in 25 to 45 ms, and IIS logged `sc-win32-status` 64:
+PowerPoint had dropped the connection. PowerPoint sent the same request again 30 ms later, on a new connection, which
+succeeded. The IIS log of 2026-10-21, before the recorder, has 12 cell storage requests of PowerPoint answered 200 and no
+302; that of 2026-10-28 has the two 302s, both with the recorder, which then read the request body at authentication.
+The recorder now reads it after SharePoint's handler, and PowerPoint's next sessions (06:46, the first in a new
+process) had none: 9 more requests, all 200. The replay reports such a request and goes on.
+`src/sharepoint-lab/Find-CellStorageErrors.ps1` lists the cell storage requests of the lab's IIS logs that were
+answered neither 200 nor 401, and with `-Around` the raw lines of a moment.

@@ -570,8 +570,24 @@ A second recording added Word with a second client in its session, a Save As, Ex
   object model.
 - **The same as SharePoint:** the join, the schema lock kept from running, the editor metadata, WhoAmI, ServerTime,
   the IsOnlyClient polls, the exit and the release of the lock. Different as known: GetVersions (see Versions), the
-  `vti_` properties of GetDocMetaInfo (OfficeHost sends a subset), and the Cells whose ids the replay does not
-  translate.
+  `vti_` properties of GetDocMetaInfo (OfficeHost sends a subset), and the Cells of documents Office had in its cache
+  before the recording, which the replay cannot translate.
+
+A third recording, of documents Office had never opened, with the cells translated (docs/replay.md, "The cells"):
+
+- **Word's and PowerPoint's puts** (two saves, a save after opening again, PowerPoint's save) were applied by
+  OfficeHost as by SharePoint, to the same file.
+- **Opening a document again,** after its own saves, Word was sent changes by SharePoint (`HaveOnlyDemotionChanges`
+  `False`) that left the file as it was: something of SharePoint's own in the cell, as a new revision. OfficeHost had
+  nothing new to send, and Word opened, edited and saved as well.
+- **PowerPoint's first request,** `GetMetadata_EnsureDocMetaInfo` on a keep-alive connection, came with no body in two
+  recordings though it declared a `Content-Length`: PowerPoint dropped the connection (IIS: `sc-win32-status` 64),
+  SharePoint answered its error page to no one, and PowerPoint sent the request again 30 ms later, which succeeded.
+  Not seen before the replay recorder (the IIS log of 2026-10-21: 12 requests of PowerPoint, all 200), which then read
+  the request body at authentication; it now reads it after SharePoint's handler, and PowerPoint's next 9 requests,
+  from a new process, were all 200 (docs/replay.md). Not a behaviour of PowerPoint's, then.
+- **SharePoint SE serves `cellstorage.svc`** with `/_vti_bin/cobalt.ashx/cellstorageservice`, an ASP.NET handler, not
+  WCF: its IIS log has the 401 of the handshake under the first, and the request signed in under the second.
 
 ### New files
 

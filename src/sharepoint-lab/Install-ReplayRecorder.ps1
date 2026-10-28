@@ -68,11 +68,6 @@ try {
             throw "The web application of $Url has the trust level $trust, not Full: the recorder in its bin folder could not write"
         }
 
-        # the recorder reads the body before the service: WCF reads it again only in the ASP.NET compatibility mode
-        if (-not $config.SelectSingleNode("//serviceHostingEnvironment[@aspNetCompatibilityEnabled='true']")) {
-            Write-Warning "The web.config of $Url does not enable the ASP.NET compatibility of WCF: the cell storage service may fail to read the requests"
-        }
-
         $csc = Join-Path ([Runtime.InteropServices.RuntimeEnvironment]::GetRuntimeDirectory()) csc.exe
         & $csc /nologo /target:library /optimize "/out:$dll" /reference:System.Web.dll /reference:System.Configuration.dll C:\ReplayRecorder\ReplayRecorder.cs
         if ($LASTEXITCODE -ne 0) {

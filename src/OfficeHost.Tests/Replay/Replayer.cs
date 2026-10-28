@@ -5,7 +5,8 @@ using System.Xml.Linq;
 /// <summary>
 /// What a replay found: a line per exchange or sub-response, and the sub-responses that differ by their label.
 /// </summary>
-record ReplayResult(List<string> Lines, int Same, Dictionary<string, int> Different, int Skipped)
+/// <param name="Contents">The Cells after which the files of both copies of the content were compared.</param>
+record ReplayResult(List<string> Lines, int Same, Dictionary<string, int> Different, int Skipped, int Contents)
 {
     public override string ToString() => string.Join(Environment.NewLine, Lines);
 }
@@ -17,8 +18,7 @@ record ReplayResult(List<string> Lines, int Same, Dictionary<string, int> Differ
 /// query of the recording answered them, or as a file of the same name in the files folder.
 ///
 /// The ids the recorded server made are translated in the requests to those OfficeHost made: the ResourceID and the
-/// TransitionID, learned from the pairs of answers. Those of the cells are not: a Put Changes, or a query with the
-/// knowledge of the recorded server, carries ids OfficeHost does not have, and its Cell is labelled "untranslated".
+/// TransitionID, learned from the pairs of answers, and those of the cells by <see cref="ReplayCells"/>.
 /// </summary>
 class Replayer : IAsyncDisposable
 {
@@ -52,6 +52,9 @@ class Replayer : IAsyncDisposable
     // where the files of a content query are written when they differ
     string? output;
 
+    ReplayCells cells = new();
+    int contents;
+
     /// <param name="files">The documents to start from, by name.</param>
     /// <param name="output">Where to write the two files of a content query whose files differ, in <c>differences</c>.</param>
     public static async Task<ReplayResult> Run(List<Exchange> exchanges, string? files = null, string? output = null)
@@ -68,13 +71,13 @@ class Replayer : IAsyncDisposable
         }
 
         var differences = replayer.different.Values.Sum();
-        replayer.lines.Add($"{replayer.same} the same, {differences} different, {replayer.skipped} requests not replayed");
+        replayer.lines.Add($"{replayer.same} the same, {differences} different, {replayer.skipped} requests not replayed, the content compared after {replayer.contents} Cells");
         foreach (var (label, count) in replayer.different.OrderBy(_ => _.Key))
         {
             replayer.lines.Add($"  {label}: {count} different");
         }
 
-        return new(replayer.lines, replayer.same, replayer.different, replayer.skipped);
+        return new(replayer.lines, replayer.same, replayer.different, replayer.skipped, replayer.contents);
     }
 
     /// <summary>
@@ -333,9 +336,11 @@ class Replayer : IAsyncDisposable
 
         var document = Translate(body.Document);
         var requests = document.Descendants(soap + "Request").ToList();
+        var translations = new Dictionary<(int Request, string? Token), ReplayCells.Translation>();
         string? site = null;
-        foreach (var request in requests)
+        for (var index = 0; index < requests.Count; index++)
         {
+            var request = requests[index];
             var name = DocumentName((string?) request.Attribute("Url"));
             var token = await Token(name, user);
             if (token == null)
@@ -345,6 +350,29 @@ class Replayer : IAsyncDisposable
 
             site ??= token;
             request.SetAttributeValue("Url", $"http://localhost/fsshttp/{token}/{Uri.EscapeDataString(name ?? "")}");
+            if (name == null)
+            {
+                continue;
+            }
+
+            foreach (var subRequest in request.Elements(soap + "SubRequest").Where(_ => (string?) _.Attribute("Type") == "Cell"))
+            {
+                var data = subRequest.Element(soap + "SubRequestData");
+                if (RequestOf(body.Binary(data)) is not { } cell)
+                {
+                    continue;
+                }
+
+                var bytes = cells.Translate(name, PartitionOf(data), cell, out var translation);
+                translations[(index, (string?) subRequest.Attribute("SubRequestToken"))] = translation;
+                if (bytes != null)
+                {
+                    // inline, as base64: OfficeHost reads either
+                    data!.RemoveNodes();
+                    data.Add(Convert.ToBase64String(bytes));
+                    data.SetAttributeValue("BinaryDataSize", bytes.Length);
+                }
+            }
         }
 
         if (site == null)
@@ -355,7 +383,51 @@ class Replayer : IAsyncDisposable
         }
 
         var response = await Send($"/fsshttp/{site}/_vti_bin/cellstorage.svc/CellStorageService", exchange.Request, body.With(document));
-        await Compare(exchange, body, response);
+        await Compare(exchange, body, response, translations);
+    }
+
+    static Guid PartitionOf(XElement? data)
+    {
+        if (Guid.TryParse((string?) data?.Attribute("PartitionID"), out var partition))
+        {
+            return partition;
+        }
+
+        return FssHttpCells.ContentPartition;
+    }
+
+    static FssHttpBRequest? RequestOf(byte[]? binary)
+    {
+        if (binary == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return FssHttpBRequest.Read(binary);
+        }
+        catch (Exception exception) when (exception is FssHttpBException or InvalidDataException)
+        {
+            return null;
+        }
+    }
+
+    static FssHttpBResponse? ResponseOf(byte[]? binary)
+    {
+        if (binary == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return FssHttpBResponse.Read(binary);
+        }
+        catch (Exception exception) when (exception is FssHttpBException or InvalidDataException)
+        {
+            return null;
+        }
     }
 
     async Task ReplaySharedAccess(Exchange exchange)
@@ -464,7 +536,7 @@ class Replayer : IAsyncDisposable
         }
     }
 
-    async Task Compare(Exchange exchange, SoapBody request, HttpMessage response)
+    async Task Compare(Exchange exchange, SoapBody request, HttpMessage response, Dictionary<(int Request, string? Token), ReplayCells.Translation> translations)
     {
         if (exchange.Response.Status != 200 ||
             response.Status != 200)
@@ -507,7 +579,8 @@ class Replayer : IAsyncDisposable
             {
                 var token = (string?) expectedSubResponse.Attribute("SubRequestToken");
                 var subRequest = subRequests.FirstOrDefault(_ => (string?) _.Attribute("SubRequestToken") == token);
-                var label = Label(subRequest, request);
+                var translation = translations.GetValueOrDefault((index, token));
+                var label = Label(subRequest, request, translation?.Status);
                 var actualSubResponse = actualSubResponses.FirstOrDefault(_ => (string?) _.Attribute("SubRequestToken") == token);
                 if (actualSubResponse == null)
                 {
@@ -520,6 +593,35 @@ class Replayer : IAsyncDisposable
                 Learn((string?) expectedData?.Attribute("TransitionID"), (string?) actualData?.Attribute("TransitionID"));
                 var expectedFacets = Facets(expectedSubResponse, expected);
                 var actualFacets = Facets(actualSubResponse, actual);
+                if (translation != null)
+                {
+                    // the copies of the partition after the answers, when both copies have it all: what each server
+                    // has sent its client so far, rather than this answer alone, which holds only what was new to it
+                    cells.Answered(translation, ResponseOf(expected.Binary(expectedData)), ResponseOf(actual.Binary(actualData)));
+                    if (cells.File(translation.Document, translation.Partition, true) is { } recordedFile &&
+                        cells.File(translation.Document, translation.Partition, false) is { } replayFile)
+                    {
+                        foreach (var facets in new[] { expectedFacets, actualFacets })
+                        {
+                            facets.Remove("file");
+                            facets.Remove("editors");
+                        }
+
+                        if (EditorsOf(recordedFile) is { } recordedEditors &&
+                            EditorsOf(replayFile) is { } replayEditors)
+                        {
+                            expectedFacets["editors"] = recordedEditors;
+                            actualFacets["editors"] = replayEditors;
+                        }
+                        else
+                        {
+                            expectedFacets["content"] = Hash(recordedFile);
+                            actualFacets["content"] = Hash(replayFile);
+                        }
+
+                        contents++;
+                    }
+                }
                 var differences = Differences(expectedFacets, actualFacets);
                 if (differences.Count == 0)
                 {
@@ -546,9 +648,10 @@ class Replayer : IAsyncDisposable
 
     /// <summary>
     /// The sub-request type, with its request type (<c>Coauth JoinCoauthoring</c>), or the FSSHTTPB sub-requests of a
-    /// Cell (<c>Cell QueryChanges</c>), "untranslated" when the ids of the recorded server are in it.
+    /// Cell (<c>Cell QueryChanges</c>), with whether the ids of the recorded server in it were translated
+    /// (<see cref="ReplayCells"/>).
     /// </summary>
-    static string Label(XElement? subRequest, SoapBody request)
+    static string Label(XElement? subRequest, SoapBody request, string? status)
     {
         if (subRequest == null)
         {
@@ -565,12 +668,9 @@ class Replayer : IAsyncDisposable
                 {
                     var fssHttpB = FssHttpBRequest.Read(binary);
                     var types = string.Join(" ", fssHttpB.SubRequests.Select(_ => _.Type));
-                    var untranslated = fssHttpB.SubRequests.Any(_ =>
-                        _ is PutChangesRequest ||
-                        _ is QueryChangesRequest { Knowledge.Items.Count: > 0 });
-                    if (untranslated)
+                    if (status != null)
                     {
-                        return $"Cell {types} (untranslated)";
+                        return $"Cell {types} ({status})";
                     }
 
                     return $"Cell {types}";
@@ -645,13 +745,15 @@ class Replayer : IAsyncDisposable
                 }
                 else
                 {
-                    facets["file"] = Convert.ToHexString(SHA256.HashData(file))[..12];
+                    facets["file"] = Hash(file);
                 }
             }
         }
 
         return facets;
     }
+
+    static string Hash(byte[] file) => Convert.ToHexString(SHA256.HashData(file))[..12];
 
     // the Editors Table Zip Stream Header ([MS-FSSHTTPB] 2.2.3.1.2.1.1)
     static byte[] editorsTableHeader = [0x1A, 0x5A, 0x3A, 0x30, 0x00, 0x00, 0x00, 0x00];

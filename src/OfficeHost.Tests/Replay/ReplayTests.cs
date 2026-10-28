@@ -11,8 +11,9 @@ public class ReplayTests
     const string recordingVariable = "OFFICEHOST_REPLAY";
 
     /// <summary>
-    /// A session of two Word clients recorded with OfficeHost and replayed to another: the same answers but for the
-    /// Cells that carry the ids of the cells of the first, which the replay does not translate.
+    /// A session of two Word clients recorded with OfficeHost and replayed to another: the same answers, the Cells with
+    /// the ids of the first translated (<see cref="ReplayCells"/>), and the same file after each Cell of the content:
+    /// the two queries, the save, and the query of the other client after it.
     /// </summary>
     [Test]
     public async Task OfficeHostAgainstItself()
@@ -50,8 +51,11 @@ public class ReplayTests
 
         await Assert.That(result.Lines[0]).IsEqualTo("Seeded doc.docx, " + result.Lines[0].Split(", ")[1]);
         await Assert.That(result.Skipped).IsEqualTo(0);
-        await Assert.That(result.Different.Keys).IsEquivalentTo(["Cell PutChanges (untranslated)", "Cell QueryChanges (untranslated)"]);
-        await Assert.That(result.Same).IsEqualTo(13);
+        await Assert.That(result.Different).IsEmpty();
+        await Assert.That(result.Same).IsEqualTo(15);
+        await Assert.That(result.Lines).Contains("#9 Cell PutChanges (translated): same Success");
+        await Assert.That(result.Lines).Contains("#10 Cell QueryChanges (translated): same Success");
+        await Assert.That(result.Contents).IsEqualTo(4);
 
         // a recorded answer that OfficeHost does not give
         var status = Path.Combine(folder, "0007.response.http");
@@ -59,6 +63,40 @@ public class ReplayTests
         var tampered = await Replayer.Run(Exchange.ReadFolder(folder));
         await Assert.That(tampered.Different["Coauth GetCoauthoringStatus"]).IsEqualTo(1);
         await Assert.That(tampered.Lines).Contains("    @CoauthStatus: Alone / Coauthoring");
+    }
+
+    /// <summary>
+    /// A client that knew the document before the recording, as Word opening it from Office's cache: its query has
+    /// knowledge the replay never saw, and its save changes data elements the recording does not have, so neither is
+    /// translated, and both say why.
+    /// </summary>
+    [Test]
+    public async Task OfficeHostFromCache()
+    {
+        using var folder = new TempDirectory();
+        var files = Directory.CreateDirectory(Path.Combine(folder, "files")).FullName;
+        await using (var recorded = await TestServerHost.Start())
+        {
+            await File.WriteAllBytesAsync(recorded.PathOf("doc.docx"), Zips.Create(("word/document.xml", Zips.Random(3000, 1))));
+            var (_, token) = await recorded.Open("doc.docx");
+            var word = new WordClient(recorded, token);
+            await word.Sync();
+            await word.Save(Zips.Create(("word/document.xml", Zips.Random(3000, 2))));
+            // the file as the recording starts
+            File.Copy(recorded.PathOf("doc.docx"), Path.Combine(files, "doc.docx"));
+
+            recorded.Record(folder);
+            await word.Sync();
+            await word.Save(Zips.Create(("word/document.xml", Zips.Random(3000, 3))));
+        }
+
+        var result = await Replayer.Run(Exchange.ReadFolder(folder), files);
+        Console.WriteLine(result);
+
+        await Assert.That(result.Lines[0]).StartsWith("Seeded doc.docx");
+        await Assert.That(result.Lines).Contains(_ => _.StartsWith("#1 Cell QueryChanges (Office's cache)"));
+        await Assert.That(result.Lines).Contains(_ => _.StartsWith("#2 Cell PutChanges (Office's cache)"));
+        await Assert.That(result.Contents).IsEqualTo(0);
     }
 
     /// <summary>

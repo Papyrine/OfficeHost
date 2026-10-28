@@ -124,14 +124,16 @@ public class ReplayRecorder : IHttpModule
     }
 
     /// <summary>
-    /// A request read when it was authenticated, written with its response once the response is complete.
+    /// A request, its headers taken when it was authenticated, written with its body and its response once the response
+    /// is complete: the body is read after the handler read it, so that the recorder reads nothing before SharePoint.
+    /// Reading it first, PowerPoint dropped the connection of its first request (docs/replay.md).
     /// </summary>
     class Exchange
     {
         readonly HttpContext context;
         readonly string folder;
         readonly int number;
-        readonly byte[] request;
+        readonly byte[] requestHead;
 
         public Exchange(HttpContext context, string folder, int number)
         {
@@ -151,14 +153,28 @@ public class ReplayRecorder : IHttpModule
 
             head.Append("X-Replay-User: ").Append(user).Append("\r\n");
             head.Append("X-Replay-Time: ").Append(DateTime.UtcNow.ToString("o")).Append("\r\n\r\n");
+            requestHead = Encoding.UTF8.GetBytes(head.ToString());
+        }
 
-            // the stream buffers the body, and is read again from its start by the service: WCF reads it so in the ASP.NET
-            // compatibility mode of SharePoint
-            var input = httpRequest.InputStream;
-            var body = new MemoryStream();
-            input.CopyTo(body);
-            input.Position = 0;
-            request = Concat(Encoding.UTF8.GetBytes(head.ToString()), body.ToArray());
+        /// <summary>
+        /// The body of the request, read again from its start: SharePoint's handler (cobalt.ashx for cellstorage.svc)
+        /// read it through the buffered input stream.
+        /// </summary>
+        byte[] RequestBody()
+        {
+            try
+            {
+                var input = context.Request.InputStream;
+                input.Position = 0;
+                var body = new MemoryStream();
+                input.CopyTo(body);
+                return body.ToArray();
+            }
+            catch (Exception exception)
+            {
+                Error(folder, exception);
+                return new byte[0];
+            }
         }
 
         public void Write(byte[] body)
@@ -168,6 +184,8 @@ public class ReplayRecorder : IHttpModule
             {
                 return;
             }
+
+            var request = Concat(requestHead, RequestBody());
 
             var head = new StringBuilder();
             head.Append("HTTP/1.1 ").Append(response.StatusCode).Append(' ').Append(response.StatusDescription).Append("\r\n");
