@@ -5,8 +5,10 @@ what SharePoint answered, is replayed to an OfficeHost of its own, request by re
 with SharePoint's. [Compare-CellStorage.ps1](sharepoint-lab.md) sends sub-requests written by hand; the replay sends
 the ones Office sent.
 
-The code is in [src/OfficeHost.Tests/Replay](../src/OfficeHost.Tests/Replay). `Replayer` replays, and `ReplayTests`
-runs it:
+The engine is in [src/OfficeHost.Shadow/Replay](../src/OfficeHost.Shadow/Replay) (`ShadowReplay`, `ShadowComparer`,
+`ReplayCells`), shared with the live shadow of [shadow.md](shadow.md). `Replayer`
+([src/OfficeHost.Tests/Replay](../src/OfficeHost.Tests/Replay)) replays a recording with it to an OfficeHost on a test
+server, and `ReplayTests` runs it:
 
 ```bash
 $env:OFFICEHOST_REPLAY = 'D:/SharePointLab/recordings/word-open-save'
@@ -33,24 +35,27 @@ The recordings hold the documents and the users' names: keep those of a real Sha
 
 ## Recording the lab
 
-[src/sharepoint-lab/ReplayRecorder.cs](../src/sharepoint-lab/ReplayRecorder.cs) is an ASP.NET module that records the
-lab's SharePoint from inside it. It runs after the sign-in, so NTLM is not in its way.
+The module of the shadow, [OfficeHost.SharePoint](../src/OfficeHost.SharePoint), records the lab's SharePoint from
+inside it when its sink is a folder ([shadow.md](shadow.md)). It runs after the sign-in, so NTLM is not in its way.
 - **What it records:** the cell storage and shared access requests of the web application, with their responses. It
-  leaves out the 401s of the NTLM handshake, and the credentials (`Authorization`, cookies).
+  leaves out the 401s of the NTLM handshake, and copies an allowlist of request headers: never credentials or cookies.
 - **How:** it takes the request's headers, user and time when the request is authenticated. The response goes through
-  a filter that keeps a copy. When the response ends, it reads the request body again from its start (SharePoint's
-  handler read it through the buffered input stream: SharePoint SE serves `cellstorage.svc` with
-  `/_vti_bin/cobalt.ashx/cellstorageservice`, as its IIS log shows), and writes the exchange to `C:\ReplayRecording` in
-  the VM. So it reads nothing before SharePoint does: reading the body first, it made PowerPoint drop its first
-  request (see below).
-- **Errors** of the recorder go to `errors.txt` in that folder, never to the request.
+  a filter that keeps a copy. At the response's first write, it reads the request body again from its start
+  (SharePoint's handler read it through the buffered input stream: SharePoint SE serves `cellstorage.svc` with
+  `/_vti_bin/cobalt.ashx/cellstorageservice`, as its IIS log shows), and a thread of its own writes the exchange to
+  `C:\ReplayRecording` in the VM. So it reads nothing of cell storage before SharePoint does: reading the body first, an
+  earlier recorder made PowerPoint drop its first request (see below). IsOnlyClient is read at authentication instead:
+  after its ASMX handler (`sharedaccess.asmx`), even at the response's first write, the body reads empty, as the first
+  versions of the module found in the lab. The earlier recorder read it so, and SharePoint answered all 27 as usual.
+- **Errors** of the module go to the event log (source `OfficeHost.Shadow`), never to the request; exchanges it could not
+  record, to `tombstones.txt` in the folder.
 
 In an elevated PowerShell, from the repository (each script asks for the lab Administrator's password):
 
-1. **Install it:** `src/sharepoint-lab/Install-ReplayRecorder.ps1`. It compiles the module in the VM with the C#
-   compiler of the .NET Framework (so the module is C# 5) into the bin folder of the web application. It then adds the
-   module and its folder to the web.config as SharePoint web.config modifications. The bin folder needs the trust level
-   `Full`, which the script checks.
+1. **Install it:** `src/sharepoint-lab/Install-ReplayRecorder.ps1`. It builds the module (Release), copies it and its
+   install script into the VM, and runs the script there: a farm solution deployed to the GAC, then the module in the
+   web.config ([shadow.md](shadow.md), "Install"). `-Sink` and `-ApiKey` send to a shadow instead of the folder. It
+   removes the recorder of earlier versions of the lab first (a module in the bin folder).
 2. **Record:** open, edit and save documents of `http://spse.mshome.net` in Office.
 3. **Save it:** close Office, then `src/sharepoint-lab/Save-ReplayRecording.ps1 -Destination <folder>`. It copies the
    recording to the host and empties the folder in the VM for the next one.
@@ -61,10 +66,9 @@ Office keeps a cache of the documents it opened. A document opened from the cach
 knowledge, and SharePoint answers only the changes, so the replay cannot start the document from that answer. Put the
 document in `files/`, or clear the cache (File > Options > Save > Delete cached files).
 
-**Tested** in the lab (SharePoint Server SE 16.0.14326): it recorded Word's open, polls, save and exit, and SharePoint
-answered as without it. IsOnlyClient is recorded without a user, as SharePoint serves `sharedaccess.asmx` without
-sign-in; the replay sends it as alice. The install checks what it did, and stops if the DLL, the web.config entry or the
-module in IIS for `_vti_bin` is missing.
+**Tested** in the lab (SharePoint Server SE 16.0.14326) with the recorder before the module (the same capture, from a
+bin folder): it recorded Word's open, polls, save and exit, and SharePoint answered as without it. IsOnlyClient is
+recorded without a user, as SharePoint serves `sharedaccess.asmx` without sign-in; the replay sends it as alice.
 
 
 ## What it replays

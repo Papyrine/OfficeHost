@@ -44,14 +44,15 @@ sealed class TestServerHost : IAsyncDisposable
     /// <param name="wrapStorage">Decorates the storage, to simulate storage behaviours.</param>
     /// <param name="userInfo">Whether an <see cref="IOfficeUserInfoStore"/> is registered.</param>
     /// <param name="kestrel">Runs on Kestrel, on a free local port, rather than on a TestServer.</param>
-    public static async Task<TestServerHost> Start(Action<OfficeHostOptions>? configure = null, TimeProvider? time = null, Func<IOfficeStorage, IOfficeStorage>? wrapStorage = null, bool userInfo = true, Action<IServiceCollection>? services = null, bool kestrel = false)
+    /// <param name="endpoints">Maps endpoints of its own, after those of OfficeHost.</param>
+    public static async Task<TestServerHost> Start(Action<OfficeHostOptions>? configure = null, TimeProvider? time = null, Func<IOfficeStorage, IOfficeStorage>? wrapStorage = null, bool userInfo = true, Action<IServiceCollection>? services = null, bool kestrel = false, Action<WebApplication>? endpoints = null)
     {
         var host = new TestServerHost();
-        await host.Init(configure, time, wrapStorage, userInfo, services, kestrel);
+        await host.Init(configure, time, wrapStorage, userInfo, services, kestrel, endpoints);
         return host;
     }
 
-    async Task Init(Action<OfficeHostOptions>? configure, TimeProvider? time, Func<IOfficeStorage, IOfficeStorage>? wrapStorage, bool userInfo, Action<IServiceCollection>? configureServices, bool kestrel)
+    async Task Init(Action<OfficeHostOptions>? configure, TimeProvider? time, Func<IOfficeStorage, IOfficeStorage>? wrapStorage, bool userInfo, Action<IServiceCollection>? configureServices, bool kestrel, Action<WebApplication>? endpoints)
     {
         Directory.CreateDirectory(StoragePath);
         Storage = new(StoragePath);
@@ -75,6 +76,8 @@ sealed class TestServerHost : IAsyncDisposable
         }
 
         services.AddSingleton(wrapStorage?.Invoke(Storage) ?? Storage);
+        // the files themselves, as a shadow's documents are in them (FileSystemShadowDocuments)
+        services.AddSingleton(Storage);
         if (userInfo)
         {
             services.AddSingleton<IOfficeUserInfoStore, MemoryUserInfoStore>();
@@ -96,6 +99,7 @@ sealed class TestServerHost : IAsyncDisposable
         app.MapOfficeHost();
         app.MapFssHttp();
         app.MapGroup("/pages").MapOfficePages(PageAccess);
+        endpoints?.Invoke(app);
         await app.StartAsync();
         if (kestrel)
         {
@@ -130,7 +134,7 @@ sealed class TestServerHost : IAsyncDisposable
     public void Record(string folder, string user = "alice")
     {
         var previous = Client;
-        Client = new(new RecordingHandler(folder, user)
+        Client = new(new RecordingHandler(folder, user, Service<TimeProvider>())
         {
             InnerHandler = app.GetTestServer().CreateHandler()
         })

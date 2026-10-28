@@ -27,6 +27,9 @@
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="ProjectDefaults" PrivateAssets="all" />
     <ProjectReference Include="..\OfficeHost\OfficeHost.csproj" />
+    <ProjectReference Include="..\OfficeHost.Shadow\OfficeHost.Shadow.csproj" />
+    <!-- the module in SharePoint, but for what needs System.Web: tested here, against the shadow -->
+    <Compile Include="..\OfficeHost.SharePoint\Tap\*.cs" LinkBase="Tap" />
     <ProjectReference Include="..\OfficeHost.Sample\OfficeHost.Sample.csproj" />
   </ItemGroup>
 </Project>

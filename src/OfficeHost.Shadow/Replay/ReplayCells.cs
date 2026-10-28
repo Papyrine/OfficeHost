@@ -50,7 +50,13 @@ class ReplayCells
         return copies;
     }
 
-    static string Key(Knowledge knowledge) => Convert.ToHexString(FssHttpB.Write(knowledge));
+    static string Key(Knowledge knowledge)
+    {
+        var output = new ArrayBufferWriter<byte>();
+        var writer = new FssHttpBWriter(output);
+        knowledge.Write(ref writer);
+        return Convert.ToHexString(output.WrittenSpan);
+    }
 
     /// <summary>
     /// The request with the knowledge of its queries, and a put of the content, translated to OfficeHost's, or null

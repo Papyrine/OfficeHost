@@ -63,11 +63,15 @@ specifics.
   Office against a real SharePoint; its output holds that site's data: keep it out of the repository.
 - SharePoint lab (docs/sharepoint-lab.md): `src/sharepoint-lab` builds a Hyper-V VM with SharePoint Server
   Subscription Edition and test users, from Microsoft's evaluations, to capture Office against a SharePoint of our own.
-- Replay (docs/replay.md): `src/OfficeHost.Tests/Replay` replays a recording of Office with SharePoint (raw HTTP
-  exchanges) to an OfficeHost of its own and compares the answers, the cells untranslated. `ReplayTests.Recording`
-  runs it on the folder of `OFFICEHOST_REPLAY`; `TestServerHost.Record` records an OfficeHost the same way, and
-  `src/sharepoint-lab/ReplayRecorder.cs` (C# 5, an ASP.NET module compiled in the VM by `Install-ReplayRecorder.ps1`)
-  records the lab's SharePoint.
+- Shadow (docs/shadow.md) and replay (docs/replay.md): `OfficeHost.Shadow` (own package) has the engine that replays
+  Office's exchanges with SharePoint to OfficeHost and compares the answers (`Replay/`: `ShadowReplay`, `ShadowComparer`,
+  `ReplayCells`, which translates the cells), and the live shadow (`Service/`: the ingest of `MapOfficeHostShadow`,
+  `ShadowInbox` ordering by watermarks, `ShadowProcessor`, OfficeHost in process at the exchange's time through
+  `ShadowClock`). `OfficeHost.SharePoint` (own package, net462, no dependencies) is the module in SharePoint
+  (`ShadowModule`) that sends them, its pure parts in `Tap/` linked into the tests; `Install-OfficeHostShadow.ps1`
+  deploys it as a farm solution. Tests: `src/OfficeHost.Tests/Replay` (`Replayer` runs a recording, the folder of
+  `OFFICEHOST_REPLAY`, with `ReplayTests.Recording`; `ShadowTests`; `TapTests`); `TestServerHost.Record` records an
+  OfficeHost as the module records SharePoint. The lab installs the module with `src/sharepoint-lab/Install-ReplayRecorder.ps1`.
 
 ## Conventions
 

@@ -10,6 +10,7 @@
     <File Path="mdsnippets.json" />
   </Folder>
   <Project Path="OfficeHost/OfficeHost.csproj" />
+  <Project Path="OfficeHost.Shadow/OfficeHost.Shadow.csproj" />
   <Project Path="OfficeHost.SqlServer/OfficeHost.SqlServer.csproj" />
   <Project Path="OfficeHost.SqlServer.Install/OfficeHost.SqlServer.Install.csproj" />
   <Project Path="OfficeHost.SqlServer.Tests/OfficeHost.SqlServer.Tests.csproj" />

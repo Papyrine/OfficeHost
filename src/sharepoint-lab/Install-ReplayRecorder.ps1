@@ -1,16 +1,20 @@
 <#
 .SYNOPSIS
-Installs the replay recorder in the lab's SharePoint, or removes it with -Remove.
+Installs the module of the OfficeHost shadow in the lab's SharePoint, or removes it with -Remove.
 
 .DESCRIPTION
-Copies ReplayRecorder.cs to the VM and, there, through PowerShell Direct: compiles it with the C# compiler of the .NET
-Framework into the bin folder of the web application, and adds it to the modules of the web application, with the
-folder it records to (C:\ReplayRecording in the VM), as SharePoint web.config modifications. From then on, the cell
-storage and shared access requests of the site are recorded with their responses, for the replay of OfficeHost;
-Save-ReplayRecording.ps1 moves them to the host. Run elevated. See docs/replay.md.
+Builds src/OfficeHost.SharePoint (Release), copies the module and its install script
+(src/OfficeHost.SharePoint/Install-OfficeHostShadow.ps1) to the VM, and runs the script there through PowerShell Direct:
+a farm solution deployed to the GAC, then the module in the web.config of http://<Name>.mshome.net. By default it
+records to C:\ReplayRecording in the VM, for the replay (Save-ReplayRecording.ps1 moves the recording to the host);
+with -Sink and -ApiKey it sends to a shadow instead. Removes the recorder of earlier versions of the lab (a module in the
+bin folder) first. Run elevated. See docs/replay.md and docs/shadow.md.
 
 .EXAMPLE
 src/sharepoint-lab/Install-ReplayRecorder.ps1
+
+.EXAMPLE
+src/sharepoint-lab/Install-ReplayRecorder.ps1 -Sink https://172.25.48.1:5001/officehost-shadow/exchanges -ApiKey <key>
 
 .EXAMPLE
 src/sharepoint-lab/Install-ReplayRecorder.ps1 -Remove
@@ -19,7 +23,10 @@ src/sharepoint-lab/Install-ReplayRecorder.ps1 -Remove
 param(
     [string] $Name = 'SPSE',
     [string] $NetBios = 'LAB',
-    # takes the recorder out of the web application
+    # a folder of the VM to record to, or the ingest of a shadow
+    [string] $Sink = 'C:\ReplayRecording',
+    [string] $ApiKey,
+    [int] $SamplePercent = 100,
     [switch] $Remove,
     [securestring] $AdministratorPassword = (Read-Host -AsSecureString 'Password of the lab Administrator')
 )
@@ -27,89 +34,61 @@ param(
 $ErrorActionPreference = 'Stop'
 $credential = New-Object PSCredential("$NetBios\Administrator", $AdministratorPassword)
 $url = "http://$($Name.ToLowerInvariant()).mshome.net"
+$project = Join-Path $PSScriptRoot '..\OfficeHost.SharePoint'
+
+if (-not $Remove) {
+    dotnet build $project --configuration Release | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw 'The module did not build'
+    }
+}
 
 $session = New-PSSession -VMName $Name -Credential $credential
 try {
+    Invoke-Command -Session $session { New-Item -ItemType Directory -Force C:\OfficeHostShadow | Out-Null }
+    Copy-Item (Join-Path $project 'Install-OfficeHostShadow.ps1') -Destination C:\OfficeHostShadow\ -ToSession $session
     if (-not $Remove) {
-        Invoke-Command -Session $session { New-Item -ItemType Directory -Force C:\ReplayRecorder | Out-Null }
-        Copy-Item (Join-Path $PSScriptRoot ReplayRecorder.cs) -Destination C:\ReplayRecorder\ -ToSession $session
+        Copy-Item (Join-Path $project 'bin\Release\net462\OfficeHost.SharePoint.dll') -Destination C:\OfficeHostShadow\ -ToSession $session
     }
 
-    Invoke-Command -Session $session -ArgumentList $url, $Remove.IsPresent -ScriptBlock {
-        param([string] $Url, [bool] $Remove)
+    Invoke-Command -Session $session -ArgumentList $url, $Sink, $ApiKey, $SamplePercent, $Remove.IsPresent -ScriptBlock {
+        param([string] $Url, [string] $Sink, [string] $ApiKey, [int] $SamplePercent, [bool] $Remove)
         $ErrorActionPreference = 'Stop'
         Import-Module SharePointServer -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
         if (-not (Get-Command Get-SPWebApplication -ErrorAction SilentlyContinue)) {
             Add-PSSnapin Microsoft.SharePoint.PowerShell
         }
 
-        $owner = 'ReplayRecorder'
+        # the recorder of earlier versions of the lab: a module in the bin folder, owner ReplayRecorder
         $webApp = Get-SPWebApplication $Url
-        $site = $webApp.IisSettings['Default'].Path.FullName
-        $dll = Join-Path $site bin\ReplayRecorder.dll
+        $old = @($webApp.WebConfigModifications | Where-Object Owner -eq 'ReplayRecorder')
+        if ($old.Count -gt 0) {
+            foreach ($modification in $old) {
+                $webApp.WebConfigModifications.Remove($modification) | Out-Null
+            }
 
-        # what a previous install added
-        foreach ($modification in @($webApp.WebConfigModifications | Where-Object Owner -eq $owner)) {
-            $webApp.WebConfigModifications.Remove($modification) | Out-Null
+            $webApp.Update()
+            $webApp.Parent.ApplyWebConfigModifications()
         }
-        $webApp.Update()
-        $webApp.Parent.ApplyWebConfigModifications()
+
+        Remove-Item (Join-Path $webApp.IisSettings['Default'].Path.FullName 'bin\ReplayRecorder.dll') -ErrorAction SilentlyContinue
+
         if ($Remove) {
-            Remove-Item $dll -ErrorAction SilentlyContinue
-            Write-Host "Removed the recorder from $Url"
+            & C:\OfficeHostShadow\Install-OfficeHostShadow.ps1 -Remove
             return
         }
 
-        # an assembly of the bin folder runs with the trust level of the web application: unsigned, out of the GAC, the
-        # recorder needs full trust to write its files
-        $config = [xml] (Get-Content (Join-Path $site web.config))
-        $trust = $config.SelectSingleNode('/configuration/system.web/trust/@level').Value
-        if ($trust -ne 'Full') {
-            throw "The web application of $Url has the trust level $trust, not Full: the recorder in its bin folder could not write"
+        New-Item -ItemType Directory -Force C:\ReplayRecording | Out-Null
+        $arguments = @{
+            WebApplication = $Url
+            Sink = $Sink
+            SamplePercent = $SamplePercent
+        }
+        if ($ApiKey) {
+            $arguments.ApiKey = $ApiKey
         }
 
-        $csc = Join-Path ([Runtime.InteropServices.RuntimeEnvironment]::GetRuntimeDirectory()) csc.exe
-        & $csc /nologo /target:library /optimize "/out:$dll" /reference:System.Web.dll /reference:System.Configuration.dll C:\ReplayRecorder\ReplayRecorder.cs
-        if ($LASTEXITCODE -ne 0) {
-            throw 'ReplayRecorder.cs did not compile'
-        }
-
-        $folder = 'C:\ReplayRecording'
-        New-Item -ItemType Directory -Force $folder | Out-Null
-        $module = New-Object Microsoft.SharePoint.Administration.SPWebConfigModification
-        $module.Path = 'configuration/system.webServer/modules'
-        $module.Name = "add[@name='ReplayRecorder']"
-        $module.Value = '<add name="ReplayRecorder" type="ReplayRecorder, ReplayRecorder" />'
-        $setting = New-Object Microsoft.SharePoint.Administration.SPWebConfigModification
-        $setting.Path = 'configuration/appSettings'
-        $setting.Name = "add[@key='ReplayRecorder.Folder']"
-        $setting.Value = "<add key=`"ReplayRecorder.Folder`" value=`"$folder`" />"
-        foreach ($modification in $module, $setting) {
-            $modification.Owner = $owner
-            $modification.Sequence = 0
-            $modification.Type = [Microsoft.SharePoint.Administration.SPWebConfigModification+SPWebConfigModificationType]::EnsureChildNode
-            $webApp.WebConfigModifications.Add($modification)
-        }
-        $webApp.Update()
-        $webApp.Parent.ApplyWebConfigModifications()
-
-        # what the web application has now, as IIS reads it
-        if (-not (Test-Path $dll)) {
-            throw "No $dll after the install"
-        }
-
-        if (-not (Select-String -Path (Join-Path $site web.config) -Pattern 'ReplayRecorder' -Quiet)) {
-            throw "The web.config of $Url does not have the recorder: SharePoint did not apply the modifications"
-        }
-
-        Import-Module WebAdministration
-        $iisSite = $webApp.IisSettings['Default'].ServerComment
-        $modules = Get-WebConfiguration -PSPath "IIS:\Sites\$iisSite\_vti_bin" -Filter system.webServer/modules/add | ForEach-Object name
-        if ($modules -notcontains 'ReplayRecorder') {
-            throw "IIS does not load the recorder for $Url/_vti_bin"
-        }
-
-        Write-Host "The recorder records $Url to $folder in the VM"
+        & C:\OfficeHostShadow\Install-OfficeHostShadow.ps1 @arguments
     }
 }
 finally {

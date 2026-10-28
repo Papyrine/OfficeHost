@@ -35,7 +35,30 @@ services.AddOfficeHost(
         };
     });
 
+// begin-snippet: Shadow
+// a shadow of SharePoint (docs/shadow.md), when the OfficeHostShadow section has an ApiKey:
+// the module in SharePoint posts desktop Office's traffic here, and the shadow replays it
+// to this application's OfficeHost and logs how the answers compare. A deployment of its own,
+// with storage of its own: SharePoint's documents are written to it
+var shadow = !string.IsNullOrEmpty(builder.Configuration["OfficeHostShadow:ApiKey"]);
+if (shadow)
+{
+    // the documents of SharePoint as files of the folder, under their host and path
+    services.AddSingleton<IShadowDocuments>(new FileSystemShadowDocuments(storage));
+    // the documents Office opened from its cache, from SharePoint, as the application's account
+    services.AddHttpClient<IShadowContent, SharePointShadowContent>()
+        .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseDefaultCredentials = true });
+    services.AddOfficeHostShadow();
+}
+// end-snippet
+
 var app = builder.Build();
+if (shadow)
+{
+    // where the module posts: /officehost-shadow/exchanges
+    app.MapOfficeHostShadow();
+}
+
 // the WOPI endpoints the WOPI client calls: /wopi/files/{fileId}
 app.MapOfficeHost();
 // the pages that open a file in the WOPI client: /edit/{fileId} and /view/{fileId}

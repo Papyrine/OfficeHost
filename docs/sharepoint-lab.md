@@ -77,9 +77,12 @@ the SharePoint setup refuses it, the domain goes to a second, small VM.
   the lab and to the sample (running with its `desktop` profile, with `Lab.docx` in its files) and shows where they
   differ. It signs in to the lab with the Windows credential saved for its host
   (`cmdkey /add:spse.mshome.net /user:LAB\alice /pass`), or `-Credential`.
-- **Replay what Office sent:** `Install-ReplayRecorder.ps1` records the lab's cell storage traffic from inside
-  SharePoint, `Save-ReplayRecording.ps1` copies it to the host, and the replay compares OfficeHost with it, answer by
-  answer ([replay.md](replay.md)).
+- **Replay what Office sent:** `Install-ReplayRecorder.ps1` installs the module of the shadow (OfficeHost.SharePoint)
+  recording the lab's cell storage traffic from inside SharePoint, `Save-ReplayRecording.ps1` copies it to the host,
+  and the replay compares OfficeHost with it, answer by answer ([replay.md](replay.md)). With `-Sink` and `-ApiKey` the
+  module sends to a shadow instead, live ([shadow.md](shadow.md)).
+- **Find what SharePoint failed:** `Find-CellStorageErrors.ps1` lists the cell storage requests of Office that the IIS
+  log has answered neither 200 nor 401 (`-Around` for the raw lines of a moment).
 - **Sign in once:** with that credential saved, Word and Excel stop asking too.
 - **A second user:** Office keeps one sign-in per host, so bob is a second Windows account on the host, another
   machine, or a script sending bob's requests with his credentials (`-Credential` of `Invoke-WebRequest`).

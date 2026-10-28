@@ -1,8 +1,8 @@
 /// <summary>
 /// Records the requests of a client and their responses to a folder, as <see cref="Replayer"/> reads them, all as one
-/// user: a recording of OfficeHost, to replay to another.
+/// user, at the time of the application's clock: a recording of OfficeHost, to replay to another.
 /// </summary>
-class RecordingHandler(string folder, string user) : DelegatingHandler
+class RecordingHandler(string folder, string user, TimeProvider time) : DelegatingHandler
 {
     int number;
 
@@ -18,7 +18,7 @@ class RecordingHandler(string folder, string user) : DelegatingHandler
             .Concat(request.Content?.Headers ?? Enumerable.Empty<KeyValuePair<string, IEnumerable<string>>>())
             .Select(_ => (_.Key, string.Join(", ", _.Value)))
             .Append((Exchange.UserHeader, user))
-            .Append((Exchange.TimeHeader, DateTimeOffset.UtcNow.ToString("O")))
+            .Append((Exchange.TimeHeader, time.GetUtcNow().ToString("O")))
             .ToList();
 
         var response = await base.SendAsync(request, cancellationToken);

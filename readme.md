@@ -67,7 +67,28 @@ services.AddOfficeHost(
         };
     });
 
+// a shadow of SharePoint (docs/shadow.md), when the OfficeHostShadow section has an ApiKey:
+// the module in SharePoint posts desktop Office's traffic here, and the shadow replays it
+// to this application's OfficeHost and logs how the answers compare. A deployment of its own,
+// with storage of its own: SharePoint's documents are written to it
+var shadow = !string.IsNullOrEmpty(builder.Configuration["OfficeHostShadow:ApiKey"]);
+if (shadow)
+{
+    // the documents of SharePoint as files of the folder, under their host and path
+    services.AddSingleton<IShadowDocuments>(new FileSystemShadowDocuments(storage));
+    // the documents Office opened from its cache, from SharePoint, as the application's account
+    services.AddHttpClient<IShadowContent, SharePointShadowContent>()
+        .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseDefaultCredentials = true });
+    services.AddOfficeHostShadow();
+}
+
 var app = builder.Build();
+if (shadow)
+{
+    // where the module posts: /officehost-shadow/exchanges
+    app.MapOfficeHostShadow();
+}
+
 // the WOPI endpoints the WOPI client calls: /wopi/files/{fileId}
 app.MapOfficeHost();
 // the pages that open a file in the WOPI client: /edit/{fileId} and /view/{fileId}
@@ -99,7 +120,7 @@ app.MapGet(
         return Results.Content(SamplePages.Desktop(link), "text/html");
     });
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L11-L69' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L11-L92' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 `MapOfficePages` maps the pages that open a file in a WOPI client, `/edit/{fileId}` and `/view/{fileId}`, and `/editnew/{fileId}` for a new document. The application gives it the access of the user to the file, which only it can decide from its own users and permissions, or null to refuse it with a 403, and optionally its own results for the errors:
@@ -136,7 +157,7 @@ static IResult? OnError(HttpContext context, Exception exception)
     return null;
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L100-L129' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L123-L152' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The page is `OfficeLaunch.HostPage()`: a form posts the access token to the editor, in a full-page iframe. An application that puts the editor in a page of its own calls `OfficeLauncher.Launch` itself, and takes the form, the iframe and the script from `HostPageHtml()`. A missing file is a 404, a WOPI client that cannot be reached a 503, and an action no WOPI client offers for the file a 400.
@@ -166,7 +187,7 @@ app.MapPost(
         return Results.Redirect(page);
     });
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L71-L89' title='Snippet source file'>snippet source</a> | <a href='#snippet-NewDocument' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L94-L112' title='Snippet source file'>snippet source</a> | <a href='#snippet-NewDocument' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 Desktop Office can also Save As: with `CanWriteRelative`, as for the Save As of the WOPI clients, the file is created next to the one being edited, and edited on through the same link.
@@ -329,6 +350,37 @@ Preview. Desktop Word, Excel and PowerPoint open files as they open those of a S
 The host must use HTTPS with a certificate Windows trusts. A host in the Internet zone opens in Protected View first, as SharePoint Online does. Tested with Word, Excel and PowerPoint for Microsoft 365 16.0.20326 on Windows, with `.docx`, `.xlsx` and `.pptx` files. Notes on what Office does that the specs do not say are in [docs/fsshttp-notes.md](docs/fsshttp-notes.md), and the check by hand in [docs/fsshttp-checklist.md](docs/fsshttp-checklist.md).
 
 
+## Shadow of SharePoint
+
+Before moving users from SharePoint Server, an application can run as a shadow of it, for diagnostics: SharePoint goes on serving desktop Office, and a copy of each exchange goes to a separate deployment of the application, which replays it to its OfficeHost, compares the answers, and logs what differs, at levels of its choosing ("OfficeHost failed", "the responses are different", known differences, not compared). SharePoint's answers never change, nor fail, because of it.
+
+* [OfficeHost.SharePoint](https://www.nuget.org/packages/OfficeHost.SharePoint/): the module for SharePoint Server 2016, 2019 and Subscription Edition, deployed to the farm by its `tools/Install-OfficeHostShadow.ps1`.
+* [OfficeHost.Shadow](https://www.nuget.org/packages/OfficeHost.Shadow/): what the application adds, as the sample does when `OfficeHostShadow:ApiKey` is set:
+
+<!-- snippet: Shadow -->
+<a id='snippet-Shadow'></a>
+```cs
+// a shadow of SharePoint (docs/shadow.md), when the OfficeHostShadow section has an ApiKey:
+// the module in SharePoint posts desktop Office's traffic here, and the shadow replays it
+// to this application's OfficeHost and logs how the answers compare. A deployment of its own,
+// with storage of its own: SharePoint's documents are written to it
+var shadow = !string.IsNullOrEmpty(builder.Configuration["OfficeHostShadow:ApiKey"]);
+if (shadow)
+{
+    // the documents of SharePoint as files of the folder, under their host and path
+    services.AddSingleton<IShadowDocuments>(new FileSystemShadowDocuments(storage));
+    // the documents Office opened from its cache, from SharePoint, as the application's account
+    services.AddHttpClient<IShadowContent, SharePointShadowContent>()
+        .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseDefaultCredentials = true });
+    services.AddOfficeHostShadow();
+}
+```
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L38-L53' title='Snippet source file'>snippet source</a> | <a href='#snippet-Shadow' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+How it works, its guarantees to SharePoint, its configuration and limits are in [docs/shadow.md](docs/shadow.md). The same engine replays recordings offline: [docs/replay.md](docs/replay.md).
+
+
 ## Proof keys
 
 WOPI clients that publish a `proof-key` in their discovery sign their requests ([MS-WOPI] 2.2.1). The requests that carry `X-WOPI-Proof` are validated against the keys of `DiscoveryUrls`: the current and the old key, for clients that rotate theirs. The keys are cached for an hour, and refetched on a mismatch when over a minute old, so forged requests do not turn into a discovery request each. When a client is down, its last keys are kept, and its discovery is attempted again once a minute.
@@ -361,6 +413,7 @@ For desktop Office (`FssHttp/`):
 And for both:
 
 * `StorageTests`: `FileSystemStorage` and `MemoryLockStore`.
+* `ReplayTests`, `ShadowTests`, `TapTests` (`Replay/`): the replay of recordings, the shadow, and the module in SharePoint but for System.Web, its sources linked.
 * `ApiTests`: the launcher, the tokens, the options and the registration.
 * `SampleTests`: the sample application, with a stubbed WOPI client.
 

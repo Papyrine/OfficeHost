@@ -12,5 +12,6 @@
     <Using Include="OfficeHost" />
     <PackageReference Include="ProjectDefaults" PrivateAssets="all" />
     <ProjectReference Include="..\OfficeHost\OfficeHost.csproj" />
+    <ProjectReference Include="..\OfficeHost.Shadow\OfficeHost.Shadow.csproj" />
   </ItemGroup>
 </Project>

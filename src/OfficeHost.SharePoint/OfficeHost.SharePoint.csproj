@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- SharePoint Server 2016, 2019 and Subscription Edition: .NET Framework 4.6.2 or later -->
+    <TargetFramework>net462</TargetFramework>
+    <Description>The module for SharePoint Server of the OfficeHost shadow: copies desktop Office's cell storage traffic with SharePoint to an OfficeHost.Shadow application, or to a folder as a recording, without changing what SharePoint answers. Deployed as a farm solution by tools/Install-OfficeHostShadow.ps1; see docs/shadow.md.</Description>
+    <!-- a farm solution, not a library to reference: the DLL and the script under tools/ -->
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <NoWarn>$(NoWarn);NU5100;NU5128</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- the global alias of Directory.Build.props: no ReadOnlySpan on .NET Framework without System.Memory -->
+    <Using Remove="System.ReadOnlySpan`1[System.Char]" />
+    <Using Remove="System.ReadOnlySpan&lt;System.Char&gt;" />
+    <Reference Include="System.Configuration" />
+    <Reference Include="System.Web" />
+    <PackageReference Include="ProjectDefaults" PrivateAssets="all" />
+    <None Include="Install-OfficeHostShadow.ps1" Pack="true" PackagePath="tools" />
+  </ItemGroup>
+  <Target Name="PackTools" BeforeTargets="GenerateNuspec" DependsOnTargets="Build">
+    <ItemGroup>
+      <_PackageFiles Include="$(TargetPath)" PackagePath="tools" />
+    </ItemGroup>
+  </Target>
+</Project>
