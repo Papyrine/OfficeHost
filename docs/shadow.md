@@ -15,7 +15,7 @@ It is made of two packages:
 ## How it works
 
 ```mermaid
-flowchart LR
+flowchart TD
     office([Desktop Office]) <-->|cell storage, IsOnlyClient| sp
 
     subgraph farm [SharePoint farm: each server]
