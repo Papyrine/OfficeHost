@@ -47,7 +47,11 @@ if (shadow)
     services.AddSingleton<IShadowDocuments>(new FileSystemShadowDocuments(storage));
     // the documents Office opened from its cache, from SharePoint, as the application's account
     services.AddHttpClient<IShadowContent, SharePointShadowContent>()
-        .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { UseDefaultCredentials = true });
+        .ConfigurePrimaryHttpMessageHandler(
+            () => new HttpClientHandler
+            {
+                UseDefaultCredentials = true
+            });
     services.AddOfficeHostShadow();
 }
 // end-snippet

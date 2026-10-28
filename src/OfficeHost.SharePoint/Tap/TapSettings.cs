@@ -99,7 +99,7 @@ sealed class TapSettings
         }
 
         return path.Length == prefix.Length ||
-               prefix[prefix.Length - 1] == '/' ||
+               prefix[^1] == '/' ||
                path[prefix.Length] == '/';
     }
 
