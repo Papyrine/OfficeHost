@@ -152,8 +152,11 @@ sealed class ShadowInbox(IOptions<OfficeHostShadowOptions> options, TimeProvider
                 }
 
                 var silent = now - instance.LastSeen;
-                if (!instance.Final &&
-                    !instance.Lost &&
+                if (instance is
+                    {
+                        Final: false,
+                        Lost: false
+                    } &&
                     silent >= settings.InstanceTimeout)
                 {
                     losses.Add(new(id, instance.Server, "stopped sending without its last batch"));

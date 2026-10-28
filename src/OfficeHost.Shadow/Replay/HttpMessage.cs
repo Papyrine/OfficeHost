@@ -1,5 +1,3 @@
-using System.Globalization;
-
 /// <summary>
 /// A request or response of a recorded exchange, as raw HTTP/1.1 (docs/replay.md): the start line, the headers, a blank
 /// line, and the body as it was sent, without chunking, to the end of the file.

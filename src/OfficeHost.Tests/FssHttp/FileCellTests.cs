@@ -1,5 +1,3 @@
-using System.IO.Compression;
-
 /// <summary>
 /// A file stream in a cell storage ([MS-FSSHTTPD]): the tree of node objects read from data elements, and written from
 /// the bytes of a file.

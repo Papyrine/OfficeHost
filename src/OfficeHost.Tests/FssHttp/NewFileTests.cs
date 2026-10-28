@@ -1,5 +1,3 @@
-using System.Xml.Linq;
-
 /// <summary>
 /// New files from desktop Office, as on SharePoint Server SE (docs/fsshttp-notes.md): an empty file, as an application
 /// creates for a new document, opens and takes the first save; and a Save As to a new name in the folder of the file,

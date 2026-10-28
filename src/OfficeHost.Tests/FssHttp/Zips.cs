@@ -1,5 +1,3 @@
-using System.IO.Compression;
-
 /// <summary>
 /// Zip files for the chunking tests, made with <see cref="ZipArchive"/> on a seekable stream, so that the sizes are in
 /// the local file headers, with a fixed time, so that the same items make the same bytes.

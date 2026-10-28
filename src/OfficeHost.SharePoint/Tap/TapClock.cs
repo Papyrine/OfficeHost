@@ -1,6 +1,3 @@
-using System;
-using System.Diagnostics;
-
 /// <summary>
 /// The time of the module: UTC from a stopwatch anchored once, so that it never goes back within an app domain, as the
 /// watermarks it sends need (docs/shadow.md, "Order").

@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-
 /// <summary>
 /// The items waiting to be sent, bounded: exchanges up to a count (their bytes are bounded by the
 /// <see cref="TapBudget"/>), tombstones up to another, beyond which they are only counted. And the requests in flight,
@@ -9,7 +5,7 @@ using System.Linq;
 /// </summary>
 sealed class TapQueue(int capacity = 1000, int tombstoneCapacity = 10_000)
 {
-    object gate = new();
+    Lock gate = new();
     List<TapItem> items = [];
     int tombstones;
     long dropped;

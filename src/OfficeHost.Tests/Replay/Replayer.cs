@@ -16,7 +16,7 @@ record ReplayResult(List<string> Lines, int Same, Dictionary<string, int> Differ
 class Replayer : IShadowTarget, IShadowFiles, IAsyncDisposable
 {
     TestServerHost host = null!;
-    ManualTime time = new();
+    ManualTime time = null!;
     Dictionary<(string Path, string User), ShadowFile> files = [];
     List<string> lines = [];
     int same;
@@ -31,11 +31,13 @@ class Replayer : IShadowTarget, IShadowFiles, IAsyncDisposable
     /// <param name="output">Where to write the two files of a content query whose files differ, in <c>differences</c>.</param>
     public static async Task<ReplayResult> Run(List<Exchange> exchanges, string? files = null, string? output = null)
     {
+        var time = new ManualTime();
         await using var replayer = new Replayer
         {
+            time = time,
+            host = await TestServerHost.Start(time: time),
             output = output
         };
-        replayer.host = await TestServerHost.Start(time: replayer.time);
         await replayer.Seed(exchanges, files);
         var replay = new ShadowReplay(replayer, replayer, ShadowRule.Defaults);
         foreach (var exchange in exchanges)
@@ -224,11 +226,5 @@ class Replayer : IShadowTarget, IShadowFiles, IAsyncDisposable
         }
     }
 
-    public async ValueTask DisposeAsync()
-    {
-        if (host != null)
-        {
-            await host.DisposeAsync();
-        }
-    }
+    public ValueTask DisposeAsync() => host.DisposeAsync();
 }

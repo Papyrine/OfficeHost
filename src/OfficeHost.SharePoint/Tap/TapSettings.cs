@@ -1,7 +1,3 @@
-using System;
-using System.Globalization;
-using System.Linq;
-
 /// <summary>
 /// The settings of the module, the appSettings <c>OfficeHostShadow.*</c> of the web application that
 /// Install-OfficeHostShadow.ps1 adds (docs/shadow.md, "Configuration").

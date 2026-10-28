@@ -1,5 +1,3 @@
-using Microsoft.AspNetCore.WebUtilities;
-
 /// <summary>
 /// Replays to the OfficeHost of the application in process: the handler of the desktop sites (<see cref="FssHttpHandler"/>,
 /// as <see cref="OfficeHostExtensions.MapFssHttp"/> maps it), with a request of its own in a scope of its own, at the

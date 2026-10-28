@@ -1,9 +1,3 @@
-using System.Collections.Generic;
-using System.Globalization;
-using System.IO;
-using System.IO.Compression;
-using System.Text;
-
 /// <summary>
 /// The body of a batch the module sends the shadow (docs/shadow.md, "Protocol"): a <c>multipart/mixed</c> of a part per
 /// item, gzip. An exchange's part is its request then its response, raw HTTP; a tombstone's part has no body.
@@ -54,7 +48,10 @@ static class TapBatch
 
     static void Header(StringBuilder head, string name, string value) =>
         // header values of one line
-        head.Append(name).Append(": ").Append(value.Replace("\r", " ").Replace("\n", " ")).Append("\r\n");
+        head.Append(name)
+            .Append(": ")
+            .Append(value.Replace("\r", " ").Replace("\n", " "))
+            .Append("\r\n");
 
     static void Write(Stream stream, string text)
     {

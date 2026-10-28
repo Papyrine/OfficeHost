@@ -1,14 +1,12 @@
-using System.Buffers.Binary;
-using System.Xml.Linq;
-using System.IO.Compression;
-
 /// <summary>
 /// The desktop site of <see cref="OfficeHostExtensions.MapFssHttp"/>: discovery, the cell storage service as Word uses it
 /// (docs/fsshttp-spike.md), locks shared with WOPI, coauthoring, and the editors table.
 /// </summary>
 public class FssHttpServiceTests
 {
-    static byte[] Zip(string text) => Zips.Create(("word/document.xml", Zips.Text(text)), ("large.bin", Zips.Random(10_000, 1)));
+    static byte[] Zip(string text) => Zips.Create(
+        ("word/document.xml", Zips.Text(text)),
+        ("large.bin", Zips.Random(10_000, 1)));
 
     static async Task<(TestServerHost Host, string FileId, string Token)> Start(byte[]? content = null, Mode mode = Mode.Edit, TimeProvider? time = null)
     {

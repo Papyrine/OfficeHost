@@ -1,6 +1,4 @@
 using Microsoft.AspNetCore.Http.Features;
-using Microsoft.AspNetCore.WebUtilities;
-using Microsoft.Net.Http.Headers;
 
 /// <summary>
 /// The endpoint the module in SharePoint posts its batches to (<see cref="ShadowProtocol"/>): checks the key, reads the

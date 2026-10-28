@@ -1,5 +1,3 @@
-using System.Xml.Linq;
-
 /// <summary>
 /// Desktop PowerPoint, as it went against SharePoint Server and the sample (docs/fsshttp-notes.md): WhoAmI and
 /// GetDocMetaInfo first, as Excel, then a coauthoring session, as Word, with an exclusive lock id to fall back to; the

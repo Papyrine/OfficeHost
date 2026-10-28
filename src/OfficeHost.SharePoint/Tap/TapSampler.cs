@@ -1,8 +1,3 @@
-using System;
-using System.Net;
-using System.Text;
-using System.Text.RegularExpressions;
-
 /// <summary>
 /// Which documents the module copies: a percentage of them, by a hash (FNV-1a) of their URL, the same on every server
 /// and in every app domain, so that a document's exchanges are all copied or none (the shadow needs them all).

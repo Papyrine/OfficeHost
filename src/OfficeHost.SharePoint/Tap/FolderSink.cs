@@ -1,9 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Globalization;
-using System.IO;
-using System.Threading;
-
 /// <summary>
 /// Records the exchanges to a folder, as the replay reads them (docs/replay.md): <c>{number}.request.http</c> and
 /// <c>{number}.response.http</c>, numbered after those already there, the response first so that a request is never

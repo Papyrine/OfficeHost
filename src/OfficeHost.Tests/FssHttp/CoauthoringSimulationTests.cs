@@ -1,5 +1,3 @@
-using System.Xml.Linq;
-
 /// <summary>
 /// Sessions of several clients over time, with clients that do what Word does (<see cref="WordClient"/>): saves in turn,
 /// saves at the same time, a client that disappears, a file changed outside the session, and a file passed between

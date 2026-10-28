@@ -9,7 +9,7 @@ using System.Diagnostics;
 static class TapLog
 {
     const string source = "OfficeHost.Shadow";
-    static object gate = new();
+    static Lock gate = new();
     static Dictionary<string, DateTime> written = [];
     static bool eventLog = true;
 

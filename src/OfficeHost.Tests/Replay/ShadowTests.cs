@@ -168,10 +168,10 @@ public class ShadowTests
     public async Task Different_And_KnownDifference()
     {
         using var folder = new TempDirectory();
-        var (exchanges, file) = await Record(folder);
+        var (_, file) = await Record(folder);
         var status = Path.Combine(folder, "0006.response.http");
         await File.WriteAllTextAsync(status, (await File.ReadAllTextAsync(status)).Replace("CoauthStatus=\"Coauthoring\"", "CoauthStatus=\"Alone\""));
-        exchanges = Exchange.ReadFolder(folder);
+        var exchanges = Exchange.ReadFolder(folder);
 
         await using (var shadow = await StartShadow(file))
         {
@@ -223,10 +223,10 @@ public class ShadowTests
     public async Task Tombstone()
     {
         using var folder = new TempDirectory();
-        var (exchanges, file) = await Record(folder);
+        var (_, file) = await Record(folder);
         var status = Path.Combine(folder, "0006.response.http");
         await File.WriteAllTextAsync(status, (await File.ReadAllTextAsync(status)).Replace("CoauthStatus=\"Coauthoring\"", "CoauthStatus=\"Alone\""));
-        exchanges = Exchange.ReadFolder(folder);
+        var exchanges = Exchange.ReadFolder(folder);
         await using var shadow = await StartShadow(file, options => options.Levels[ShadowOutcome.NotCompared] = LogLevel.Information);
 
         var document = ShadowDocument.From("https://localhost/fsshttp/doc.docx")!;

@@ -1,5 +1,3 @@
-using System.Xml.Linq;
-
 /// <summary>
 /// FileOperation Rename, the rename of Office's title bar, answered as SharePoint Server SE answers it
 /// (src/sharepoint-lab/Compare-CellStorage.ps1, docs/fsshttp-notes.md).

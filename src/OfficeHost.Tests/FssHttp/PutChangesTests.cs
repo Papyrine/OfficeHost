@@ -70,7 +70,9 @@ public class PutChangesTests
             if (@case.Expected == "stale")
             {
                 // the client expects another Storage Manifest
-                entries = entries.Select(_ => _ is StorageIndexManifestMapping mapping ? mapping with { MappingId = ids.NewId() } : _).ToList();
+                entries = entries
+                    .Select(_ => _ is StorageIndexManifestMapping mapping ? mapping with { MappingId = ids.NewId() } : _)
+                    .ToList();
             }
 
             if (@case.Expected == "partial")

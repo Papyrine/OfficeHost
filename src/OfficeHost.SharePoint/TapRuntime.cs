@@ -10,7 +10,7 @@ using System.Web.Hosting;
 /// </summary>
 sealed class TapRuntime : IRegisteredObject
 {
-    static object gate = new();
+    static Lock gate = new();
     static TapRuntime? current;
     static volatile bool read;
     long sequence;

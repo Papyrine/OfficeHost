@@ -1,5 +1,3 @@
-using System.Xml.Linq;
-
 /// <summary>
 /// What a client cannot do beyond its access, and inputs that once failed: replacing the file of the token through a
 /// Save As, writing under the lock of desktop Office, names Windows keeps, FSSHTTPB that takes far more memory than its
@@ -295,7 +293,7 @@ public class HardeningTests
             await Assert.That(JsonNode.Parse(await stale.Content.ReadAsStringAsync())!["COOLStatusCode"]!.GetValue<int>()).IsEqualTo(1010);
         }
 
-        var lastModified = (await host.Storage.GetFile(fileId))!.LastModified.UtcDateTime.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
+        var lastModified = (await host.Storage.GetFile(fileId))!.LastModified.UtcDateTime.ToString("O", CultureInfo.InvariantCulture);
         using var saved = await host.PutFile(fileId, token, "saved", ("X-WOPI-Lock", "L"), ("X-COOL-WOPI-Timestamp", lastModified));
         await Assert.That(saved.StatusCode).IsEqualTo(HttpStatusCode.OK);
         await Assert.That(await File.ReadAllTextAsync(host.PathOf("doc.docx"))).IsEqualTo("saved");

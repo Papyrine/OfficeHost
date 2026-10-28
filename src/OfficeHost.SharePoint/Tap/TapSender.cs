@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Threading;
-
 /// <summary>
 /// Sends the queue to the sink from a thread of its own, never from a request's: a batch whenever items wait, a heartbeat
 /// (a batch of none, with the watermark) every few seconds otherwise. When the shadow is full it waits as the shadow

@@ -20,7 +20,8 @@ sealed class ShadowWorker(ShadowInbox inbox, ShadowProcessor processor, ILogger<
             }
             catch (Exception exception)
             {
-                log.LogWarning(new EventId((int) ShadowOutcome.ShadowFailed, nameof(ShadowOutcome.ShadowFailed)), exception, "The shadow failed a pass");
+                var id = new EventId((int) ShadowOutcome.ShadowFailed, nameof(ShadowOutcome.ShadowFailed));
+                log.LogWarning(id, exception, "The shadow failed a pass");
             }
         }
     }

@@ -31,5 +31,8 @@
     <!-- the module in SharePoint, but for what needs System.Web: tested here, against the shadow -->
     <Compile Include="..\OfficeHost.SharePoint\Tap\*.cs" LinkBase="Tap" />
     <ProjectReference Include="..\OfficeHost.Sample\OfficeHost.Sample.csproj" />
+    <Compile Update="..\OfficeHost.SharePoint\Tap\ITapSink.cs">
+      <Link>Tap\ITapSink.cs</Link>
+    </Compile>
   </ItemGroup>
 </Project>

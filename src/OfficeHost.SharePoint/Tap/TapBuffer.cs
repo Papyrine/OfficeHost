@@ -1,8 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Threading;
-
 /// <summary>
 /// The bytes of copies the module holds, across all requests, bounded: a copy that would go beyond stops.
 /// </summary>
@@ -60,7 +55,7 @@ sealed class TapBuffer(TapBudget budget, long limit)
             }
 
             var length = Math.Min(count, chunkSize - used);
-            Buffer.BlockCopy(buffer, offset, chunks[chunks.Count - 1], used, length);
+            Buffer.BlockCopy(buffer, offset, chunks[^1], used, length);
             used += length;
             offset += length;
             count -= length;

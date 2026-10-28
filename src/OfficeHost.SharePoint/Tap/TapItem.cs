@@ -1,5 +1,3 @@
-using System;
-
 /// <summary>
 /// What the module sends of a request: an exchange, SharePoint's request and response as raw HTTP as a recording has them
 /// (docs/replay.md), or a tombstone, the document of an exchange it could not send and why (docs/shadow.md, "Protocol").

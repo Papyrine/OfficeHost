@@ -1,8 +1,3 @@
-using System.Xml.Linq;
-using Microsoft.AspNetCore.WebUtilities;
-using Microsoft.Extensions.Primitives;
-using Microsoft.Net.Http.Headers;
-
 /// <summary>
 /// The SOAP envelope of a recorded body, plain or MTOM, with its binary parts by Content-ID, and the sections of an MTOM
 /// body as they were, to write the body again with another envelope.
@@ -30,7 +25,7 @@ class SoapBody
         {
             return Read(message);
         }
-        catch (Exception exception) when (exception is IOException or InvalidDataException or System.Xml.XmlException)
+        catch (Exception exception) when (exception is IOException or InvalidDataException or XmlException)
         {
             return null;
         }

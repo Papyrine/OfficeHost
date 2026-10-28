@@ -1,4 +1,3 @@
-using System.Xml.Linq;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Net.Http.Headers;
 

@@ -1,5 +1,3 @@
-using System.Xml.Linq;
-
 /// <summary>
 /// Desktop Excel, as it went against SharePoint Server and the sample (docs/fsshttp-notes.md): it opens without a lock,
 /// takes an exclusive lock at the first edit, with a LockStatus that runs only if the lock fails, saves with the lock

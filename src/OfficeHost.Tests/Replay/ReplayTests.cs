@@ -1,5 +1,3 @@
-using System.Xml.Linq;
-
 /// <summary>
 /// The replay of recorded exchanges to an OfficeHost (docs/replay.md).
 /// </summary>
