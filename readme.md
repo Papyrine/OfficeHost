@@ -31,7 +31,7 @@ The host side of the Office document protocols as a library for ASP.NET Core. Ad
 * Access tokens that grant a user's access to one file: signed tokens out of the box, or any token scheme through `IOfficeTokens`.
 * The discovery of the WOPI clients, to launch their actions and validate the proof keys of their requests (`X-WOPI-Proof`).
 * Pluggable storage and locks: `FileSystemStorage` and `MemoryLockStore` are included.
-* Desktop Office, in preview: Word, Excel and PowerPoint open, edit and save files through the cell storage service of SharePoint ([MS-FSSHTTP]), Word and PowerPoint with the shared lock and coauthoring, Excel with an exclusive lock. See [Desktop Office](#desktop-office).
+* Desktop Office: Word, Excel and PowerPoint open, edit and save files through the cell storage service of SharePoint ([MS-FSSHTTP]), Word and PowerPoint with the shared lock and coauthoring, Excel with an exclusive lock. See [Desktop Office](#desktop-office).
 
 
 ## Usage
@@ -376,7 +376,7 @@ The tests of the package run on [Azurite](https://github.com/Azure/Azurite) in D
 
 ## Desktop Office
 
-Preview. Desktop Word, Excel and PowerPoint open files as they open those of a SharePoint site: through the cell storage service of [MS-FSSHTTP], which syncs a file in chunks ([MS-FSSHTTPB], [MS-FSSHTTPD]), shares the lock between the users of a coauthoring session, and keeps an editors table.
+Desktop Word, Excel and PowerPoint open files as they open those of a SharePoint site: through the cell storage service of [MS-FSSHTTP], which syncs a file in chunks ([MS-FSSHTTPB], [MS-FSSHTTPD]), shares the lock between the users of a coauthoring session, and keeps an editors table.
 
 * `MapFssHttp()` maps the sites: `{DesktopPath}/{token}/{name}` is the URL of a file, the token of `IOfficeTokens` in its path standing for the file and the user, as Office blocks Basic and forms-based sign-in by default.
 * `OfficeLauncher.LaunchDesktop(access, request)` gives the link that opens the file: `ms-word:ofe|u|{url}` (or `ms-excel:`, `ms-powerpoint:`; `ofv` without write access).
