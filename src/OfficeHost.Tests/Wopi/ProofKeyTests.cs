@@ -438,4 +438,28 @@ public class ProofKeyTests
         await Assert.That(other.Fetches).IsEqualTo(1);
         await Assert.That(context.Client.Fetches).IsEqualTo(1);
     }
+
+    /// <summary>
+    /// A WOPI client that is down, listed first, is not tried again by the requests of another whose keys were fetched
+    /// recently: they do not wait for its discovery, once a minute, to fail.
+    /// </summary>
+    [Test]
+    public async Task SeveralClients_OneDown()
+    {
+        using var down = new WopiClient
+        {
+            Url = "https://down/hosting/discovery",
+            Unreachable = true
+        };
+        await using var context = await Start(other: down);
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            using var response = await context.CheckFileInfo(context.Client.Current);
+            await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+            context.Time.Advance(TimeSpan.FromMinutes(2));
+        }
+
+        await Assert.That(down.Attempts).IsEqualTo(1);
+        await Assert.That(context.Client.Fetches).IsEqualTo(1);
+    }
 }

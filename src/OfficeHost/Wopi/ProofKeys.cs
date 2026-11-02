@@ -50,9 +50,10 @@ sealed class ProofKeys(WopiDiscovery discovery, IOptions<OfficeHostOptions> opti
 
         var expected = ExpectedProof(accessToken, requestUrl, ticks);
         var proofOld = request.Header("X-WOPI-ProofOld");
-        // the cached keys of all the WOPI clients first, so that the requests of one do not refetch the discovery of
-        // another
-        if (await Verify(expected, proof, proofOld, false, cancel) ||
+        // the keys of the WOPI clients fetched recently first, so that the requests of one neither fetch nor wait for
+        // the discovery of another, as of a WOPI client that is down; then those of the others, fetched as needed
+        if (VerifyRecent(expected, proof, proofOld) ||
+            await Verify(expected, proof, proofOld, false, cancel) ||
             // a WOPI client may have rotated its keys since its discovery was fetched
             await Verify(expected, proof, proofOld, true, cancel))
         {
@@ -60,6 +61,21 @@ sealed class ProofKeys(WopiDiscovery discovery, IOptions<OfficeHostOptions> opti
         }
 
         return "The proof does not match the keys of any trusted WOPI client";
+    }
+
+    bool VerifyRecent(byte[] expected, string proof, string? proofOld)
+    {
+        foreach (var url in Options.DiscoveryUrls)
+        {
+            var document = discovery.Recent(url);
+            if (document != null &&
+                Verify(expected, proof, proofOld, document.Keys))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     async Task<bool> Verify(byte[] expected, string proof, string? proofOld, bool refetch, Cancel cancel)

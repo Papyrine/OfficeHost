@@ -145,7 +145,8 @@ if (!string.IsNullOrEmpty(requestLog))
 }
 
 app.MapGet("/", () => Results.Content(SamplePages.Files(storage), "text/html"));
-// the server listens on 0.0.0.0 for the WOPI client in Docker, which is not an address to browse
+// the server listens on every address, for the WOPI client in Docker, and on IPv6 too, so that the requests to
+// localhost (the discovery of Morph) do not wait for ::1 to be refused: * is not an address to browse
 app.Lifetime.ApplicationStarted.Register(() => app.Logger.LogInformation("Open {AppUrl} in a browser", appUrl));
 app.Run();
 
