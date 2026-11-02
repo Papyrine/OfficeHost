@@ -67,6 +67,26 @@ sealed class WopiDiscovery(IHttpClientFactory httpFactory, TimeProvider time, IL
     }
 
     /// <summary>
+    /// The discovery if it was fetched in the last hour, with no fetch: null when it was not, or is older.
+    /// </summary>
+    public Document? Recent(string url)
+    {
+        if (!clients.TryGetValue(url, out var client))
+        {
+            return null;
+        }
+
+        var cached = client.Cached;
+        if (cached?.Document == null ||
+            time.GetUtcNow() - cached.Fetched >= refreshInterval)
+        {
+            return null;
+        }
+
+        return cached.Document;
+    }
+
+    /// <summary>
     /// Whether the cache answers, without a fetch.
     /// </summary>
     bool FromCache(Cached? cached, bool refetch, out Document? document)
