@@ -54,7 +54,8 @@ public sealed class BlobStorage(BlobContainerClient container) :
     {
         try
         {
-            await FileBlob(fileId).DeleteIfExistsAsync(cancellationToken: Cancel.None);
+            var blob = FileBlob(fileId);
+            await blob.DeleteIfExistsAsync(cancellationToken: Cancel.None);
         }
         catch (RequestFailedException)
         {
@@ -100,7 +101,8 @@ public sealed class BlobStorage(BlobContainerClient container) :
     {
         try
         {
-            BlobProperties properties = await FileBlob(fileId).GetPropertiesAsync(cancellationToken: cancel);
+            var blob = FileBlob(fileId);
+            BlobProperties properties = await blob.GetPropertiesAsync(cancellationToken: cancel);
             var metadata = properties.Metadata;
             var file = new OfficeFile(
                 fileId,
@@ -224,17 +226,18 @@ public sealed class BlobStorage(BlobContainerClient container) :
 
     async Task<OfficeFile> Upload(string fileId, string folder, string name, string ownerId, Stream content, Cancel cancel)
     {
-        await FileBlob(fileId).UploadAsync(
-            content,
-            new BlobUploadOptions
-            {
-                Metadata = Metadata(folder, name, ownerId),
-                Conditions = new()
+        var blob = FileBlob(fileId);
+        await blob.UploadAsync(
+                content,
+                new BlobUploadOptions
                 {
-                    IfNoneMatch = ETag.All
-                }
-            },
-            cancel);
+                    Metadata = Metadata(folder, name, ownerId),
+                    Conditions = new()
+                    {
+                        IfNoneMatch = ETag.All
+                    }
+                },
+                cancel);
         return (await GetProperties(fileId, cancel))!.File;
     }
 
@@ -252,8 +255,10 @@ public sealed class BlobStorage(BlobContainerClient container) :
     {
         try
         {
-            BlobDownloadStreamingResult download = await FileBlob(fileId).DownloadStreamingAsync(cancellationToken: cancel);
-            return download.Content;
+            var blob = FileBlob(fileId);
+            var download = await blob
+                .DownloadStreamingAsync(cancellationToken: cancel);
+            return download.Value.Content;
         }
         catch (RequestFailedException exception) when (exception.Status == 404)
         {
@@ -282,17 +287,18 @@ public sealed class BlobStorage(BlobContainerClient container) :
             };
             try
             {
-                BlobContentInfo info = await FileBlob(fileId).UploadAsync(
-                    buffered,
-                    new BlobUploadOptions
-                    {
-                        Metadata = metadata,
-                        Conditions = new()
+                var blob = FileBlob(fileId);
+                BlobContentInfo info = await blob.UploadAsync(
+                        buffered,
+                        new BlobUploadOptions
                         {
-                            IfMatch = source.ETag
-                        }
-                    },
-                    cancel);
+                            Metadata = metadata,
+                            Conditions = new()
+                            {
+                                IfMatch = source.ETag
+                            }
+                        },
+                        cancel);
                 // the file as written, not as another write may have left it since
                 return source.File with
                 {
@@ -366,7 +372,8 @@ public sealed class BlobStorage(BlobContainerClient container) :
             // created meanwhile: the content was read, so the one uploaded is what replaces it
             if (overwrite)
             {
-                await using var uploaded = await FileBlob(file.Id).OpenReadAsync(cancellationToken: cancel);
+                var blob = FileBlob(file.Id);
+                await using var uploaded = await blob.OpenReadAsync(cancellationToken: cancel);
                 return await Write(holder.File.Id, uploaded, cancel);
             }
 
@@ -436,13 +443,14 @@ public sealed class BlobStorage(BlobContainerClient container) :
             };
             try
             {
-                await FileBlob(fileId).SetMetadataAsync(
-                    metadata,
-                    new()
-                    {
-                        IfMatch = source.ETag
-                    },
-                    cancel);
+                var blob = FileBlob(fileId);
+                await blob.SetMetadataAsync(
+                        metadata,
+                        new()
+                        {
+                            IfMatch = source.ETag
+                        },
+                        cancel);
                 return;
             }
             catch (RequestFailedException exception) when (exception.Status == 412)
@@ -461,7 +469,8 @@ public sealed class BlobStorage(BlobContainerClient container) :
         var source = await ExistingProperties(fileId, cancel);
         try
         {
-            await FileBlob(fileId).DeleteAsync(cancellationToken: cancel);
+            var blob = FileBlob(fileId);
+            await blob.DeleteAsync(cancellationToken: cancel);
         }
         catch (RequestFailedException exception) when (exception.Status == 404)
         {

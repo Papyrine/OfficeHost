@@ -51,16 +51,17 @@ class SoapBody
             using var buffer = new MemoryStream();
             section.Body.CopyTo(buffer);
             var headers = section.Headers ?? [];
-            body.sections.Add((headers, buffer.ToArray()));
+            var bytes = buffer.ToArray();
+            body.sections.Add((headers, bytes));
             if (body.sections.Count == 1)
             {
-                body.Document = XDocument.Parse(Encoding.UTF8.GetString(buffer.ToArray()));
+                body.Document = XDocument.Parse(Encoding.UTF8.GetString(bytes));
                 continue;
             }
 
             if (headers.TryGetValue("Content-ID", out var id))
             {
-                body.Parts[Normalize(id.ToString())] = buffer.ToArray();
+                body.Parts[Normalize(id.ToString())] = bytes;
             }
         }
 

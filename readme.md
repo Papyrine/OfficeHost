@@ -310,6 +310,7 @@ PutUserInfo, where the editors keep per-user data such as the tips a user has se
 
 The state of desktop coauthoring (the data elements Office syncs, the coauthoring session) is kept by an `IFssHttpStore`: the default `MemoryFssHttpStore` for a single instance, `FileSystemFssHttpStore` for a single machine, or a shared store with an atomic compare and exchange. The file stays in the storage: a lost state only makes Office download the file again. A WOPI DeleteFile deletes the state of the file too; an application that deletes files itself calls `IFssHttpStore.Delete` after them, or the state stays, unused.
 
+
 ### SQL Server
 
 The [OfficeHost.SqlServer](https://www.nuget.org/packages/OfficeHost.SqlServer/) package keeps everything in SQL Server, shared by all the instances of the application: `SqlServerStorage` (the files, in folders the application names, added with `Add(folder, name, ownerId, content)`, which gives the id), `SqlServerLockStore`, `SqlServerFssHttpStore` and `SqlServerUserInfoStore`. Each can be used alone, or `AddOfficeHostSqlServer` registers them all. The tables are created by [OfficeHost.SqlServer.Install](https://www.nuget.org/packages/OfficeHost.SqlServer.Install/), so the application needs no rights to change the schema; `OfficeHostSqlServerInstaller.GetScript()` gives the script to apply by hand. Both take a schema, `dbo` by default.
@@ -366,6 +367,7 @@ erDiagram
 The installer keeps the version of the tables in `OfficeHostSchemaVersion`, and brings older tables up to date: ids, lock ids and versions are in a binary collation, so compared as they are whatever the collation of the database, while folders and names follow it (unique ignoring case with the default one). Content is read in chunks of a statement each, so that a slow download holds no connection nor lock.
 
 The tests of the package run on LocalDB, so on Windows only.
+
 
 ### Azure Blob Storage
 
@@ -483,13 +485,13 @@ CI builds and runs the tests on Linux and Windows, with the coverage in the job 
 A Release build packs the library into `nugets/`. Pushing a tag releases it: the tag is the version (`1.2.3` or `v1.2.3`), and the `publish` job of `build.yml` pushes the package to nuget.org through trusted publishing, once the tests and the validator pass.
 
 
-## Credits and license
+## References
 
  * [CS3 WOPI server](https://github.com/cs3org/wopiserver), by Giuseppe Lo Presti (CERN) and its contributors.
- * [MS-WOPI]: https://learn.microsoft.com/en-us/openspecs/office_protocols/ms-wopi/
- * [MS-FSSHTTP]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fsshttp/
- * [MS-FSSHTTPB]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fsshttpb/
- * [MS-FSSHTTPD]: https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fsshttpd/
+ * [MS-WOPI](https://learn.microsoft.com/en-us/openspecs/office_protocols/ms-wopi/)
+ * [MS-FSSHTTP](https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fsshttp/)
+ * [MS-FSSHTTPB](https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fsshttpb/)
+ * [MS-FSSHTTPD](https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-fsshttpd/)
 
 
 ## Icon

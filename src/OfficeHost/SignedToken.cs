@@ -39,8 +39,8 @@ static class SignedToken
             }
         }
 
-        var payload = stream.ToArray();
-        return Base64Url.EncodeToString([.. payload, .. Mac(payload, key)]);
+        stream.Write(Mac(stream.GetBuffer().AsSpan(0, (int) stream.Length), key));
+        return Base64Url.EncodeToString(stream.GetBuffer().AsSpan(0, (int) stream.Length));
     }
 
     static byte Flags(OfficeAccess access)
@@ -90,66 +90,53 @@ static class SignedToken
             return null;
         }
 
-        byte[] bytes;
-        try
-        {
-            bytes = Base64Url.DecodeFromChars(token);
-        }
-        catch (FormatException)
+        var bytes = new byte[Base64Url.GetMaxDecodedLength(token.Length)];
+        if (Base64Url.DecodeFromChars(token, bytes, out _, out var length) != OperationStatus.Done ||
+            length <= macLength)
         {
             return null;
         }
 
-        if (bytes.Length <= macLength)
+        var payload = bytes.AsSpan(0, length - macLength);
+        if (!CryptographicOperations.FixedTimeEquals(Mac(payload, key), bytes.AsSpan(payload.Length, macLength)))
         {
             return null;
         }
 
-        var payload = bytes.AsSpan(0, bytes.Length - macLength);
-        if (!CryptographicOperations.FixedTimeEquals(Mac(payload, key), bytes.AsSpan(payload.Length)))
+        // signed by this host, so well formed: a read past the end is a bug of Encode, not a forged token
+        var stream = new MemoryStream(bytes, 0, payload.Length, writable: false);
+        using var reader = new BinaryReader(stream, Encoding.UTF8);
+        if (reader.ReadByte() != version)
         {
             return null;
         }
 
-        try
+        var flags = reader.ReadByte();
+        var expires = DateTimeOffset.FromUnixTimeSeconds(reader.ReadUInt32());
+        var fileId = reader.ReadString();
+        var userId = reader.ReadString();
+        string? name = null;
+        if ((flags & userName) != 0)
         {
-            using var reader = new BinaryReader(new MemoryStream(payload.ToArray()), Encoding.UTF8);
-            if (reader.ReadByte() != version)
-            {
-                return null;
-            }
-
-            var flags = reader.ReadByte();
-            var expires = DateTimeOffset.FromUnixTimeSeconds(reader.ReadUInt32());
-            var fileId = reader.ReadString();
-            var userId = reader.ReadString();
-            string? name = null;
-            if ((flags & userName) != 0)
-            {
-                name = reader.ReadString();
-            }
-
-            if (reader.BaseStream.Position != reader.BaseStream.Length ||
-                expires <= now)
-            {
-                return null;
-            }
-
-            var access = new OfficeAccess(fileId, userId)
-            {
-                UserName = name,
-                IsAnonymous = (flags & anonymous) != 0,
-                CanWrite = (flags & write) != 0,
-                CanWriteRelative = (flags & writeRelative) != 0,
-                CanRename = (flags & rename) != 0,
-                ViewOnly = (flags & viewOnly) != 0
-            };
-            return (access, expires);
+            name = reader.ReadString();
         }
-        catch (EndOfStreamException)
+
+        if (stream.Position != stream.Length ||
+            expires <= now)
         {
             return null;
         }
+
+        var access = new OfficeAccess(fileId, userId)
+        {
+            UserName = name,
+            IsAnonymous = (flags & anonymous) != 0,
+            CanWrite = (flags & write) != 0,
+            CanWriteRelative = (flags & writeRelative) != 0,
+            CanRename = (flags & rename) != 0,
+            ViewOnly = (flags & viewOnly) != 0
+        };
+        return (access, expires);
     }
 
     static byte[] Mac(ReadOnlySpan<byte> payload, byte[] key) =>

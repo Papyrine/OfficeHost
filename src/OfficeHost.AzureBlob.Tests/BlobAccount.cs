@@ -1,6 +1,3 @@
-using Testcontainers.Azurite;
-using TUnit.Core.Interfaces;
-
 /// <summary>
 /// The blob service of the test session: a real storage account when <c>OFFICEHOST_BLOB_CONNECTION_STRING</c> is set,
 /// otherwise Azurite in Docker. Each test class uses a container of its own, deleted at the end.
