@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+  <!--
+  Morph's editor for the sample: a WebAssembly app whose root component is Morph.Blazor's MorphWopi, which
+  OfficeHost.Sample serves through Morph.Wopi, a WOPI client beside Collabora Online.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <BlazorEnableTimeZoneSupport>false</BlazorEnableTimeZoneSupport>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
+    <PackageReference Include="Morph.Blazor" />
+    <PackageReference Include="ProjectDefaults" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

@@ -33,12 +33,20 @@ static class SamplePages
         {
             var name = Path.GetFileName(path);
             var id = Uri.EscapeDataString(storage.GetFileId(name));
+            // Morph edits Word documents only
+            var morph = "";
+            if (name.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
+            {
+                morph = $"""<a href="/edit-in-morph/{id}">Edit using Morph</a>""";
+            }
+
             rows.Append(
                 $"""
                  <tr>
                    <td>{WebUtility.HtmlEncode(name)}</td>
-                   <td><a href="/edit/{id}">Edit</a></td>
-                   <td><a href="/view/{id}">View</a></td>
+                   <td><a href="/edit/{id}">Edit in Collabora</a></td>
+                   <td><a href="/view/{id}">View in Collabora</a></td>
+                   <td>{morph}</td>
                    <td><a href="/desktop/{id}">Open in desktop Office</a></td>
                  </tr>
                  """);

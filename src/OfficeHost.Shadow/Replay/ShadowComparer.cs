@@ -1,46 +1,4 @@
 /// <summary>
-/// A difference of a SubResponse between SharePoint and OfficeHost: the facet (<see cref="ShadowComparer.Facets"/>) and
-/// each server's value of it, or null when it had none.
-/// </summary>
-record ShadowDifference(string Facet, string? SharePoint, string? OfficeHost)
-{
-    public override string ToString()
-    {
-        if (SharePoint != null &&
-            OfficeHost != null &&
-            !Facet.StartsWith('@') &&
-            Facet is not ("ErrorCode" or "ErrorMessage" or "FSSHTTPB" or "file" or "content" or "editors" or "HTTP" or "IsOnlyClientResult"))
-        {
-            // a list of keys: what one has and the other not
-            var sharePoint = SharePoint.Split(',');
-            var officeHost = OfficeHost.Split(',');
-            return $"{Facet}: only SharePoint {string.Join(",", sharePoint.Except(officeHost))}; only OfficeHost {string.Join(",", officeHost.Except(sharePoint))}";
-        }
-
-        return $"{Facet}: {SharePoint ?? "(none)"} / {OfficeHost ?? "(none)"}";
-    }
-}
-
-/// <summary>
-/// What the shadow found of a sub-response, or of a whole exchange (a label of <c>cell storage</c> or
-/// <c>IsOnlyClient</c>).
-/// </summary>
-/// <param name="Detail">The error code of a sub-response the same on both.</param>
-/// <param name="Reason">Why it is a known difference or was not compared.</param>
-/// <param name="ContentCompared">Whether the files of both copies of a partition were compared after it.</param>
-/// <param name="Files">The two files of a content query whose files differ.</param>
-record ShadowFinding(
-    Exchange Exchange,
-    string? Document,
-    string Label,
-    ShadowOutcome Outcome,
-    IReadOnlyList<ShadowDifference> Differences,
-    string? Detail = null,
-    string? Reason = null,
-    bool ContentCompared = false,
-    (byte[] SharePoint, byte[] OfficeHost)? Files = null);
-
-/// <summary>
 /// Compares the answers of SharePoint and OfficeHost (docs/replay.md, "What it compares"): what is compared of a
 /// SubResponse (its facets), the differences, the label of a sub-request, and the outcome of the differences.
 /// </summary>
@@ -105,7 +63,9 @@ static class ShadowComparer
             return false;
         }
 
-        return RequestOf(body.Binary(subRequest.Element(Soap + "SubRequestData")))?.SubRequests
+        var subRequestData = body.Binary(subRequest.Element(Soap + "SubRequestData"));
+        return RequestOf(subRequestData)?
+            .SubRequests
             .OfType<PutChangesRequest>()
             .Any(_ => _.ExpectedStorageIndex.IsNull) == true;
     }
@@ -114,7 +74,8 @@ static class ShadowComparer
     /// Whether a cell storage request starts a session on a document: a join of coauthoring, or a lock.
     /// </summary>
     public static bool Opens(SoapBody request) =>
-        request.Document.Descendants(Soap + "SubRequestData")
+        request.Document
+            .Descendants(Soap + "SubRequestData")
             .Any(_ => (string?) _.Attribute("CoauthRequestType") == "JoinCoauthoring" ||
                       (string?) _.Attribute("SchemaLockRequestType") == "GetLock" ||
                       (string?) _.Attribute("ExclusiveLockRequestType") == "GetLock");
@@ -147,7 +108,8 @@ static class ShadowComparer
                             PartitionOf(_.Element(Soap + "SubRequestData")) == FssHttpCells.ContentPartition)
                 .Select(_ => (string?) _.Attribute("SubRequestToken"))
                 .ToHashSet();
-            foreach (var subResponse in item.Elements(Soap + "SubResponse").Where(_ => contentTokens.Contains((string?) _.Attribute("SubRequestToken"))))
+            foreach (var subResponse in item.Elements(Soap + "SubResponse")
+                         .Where(_ => contentTokens.Contains((string?) _.Attribute("SubRequestToken"))))
             {
                 if (FileOf(response.Binary(subResponse.Element(Soap + "SubResponseData"))) is { } file)
                 {
@@ -168,7 +130,10 @@ static class ShadowComparer
         }
 
         long? version = null;
-        foreach (var etag in response.Document.Descendants(Soap + "SubResponseData").Select(_ => (string?) _.Attribute("Etag")))
+        foreach (var etag in response
+                     .Document
+                     .Descendants(Soap + "SubResponseData")
+                     .Select(_ => (string?) _.Attribute("Etag")))
         {
             if (etag != null &&
                 long.TryParse(etag.Trim('"').Split(',')[^1], NumberStyles.None, CultureInfo.InvariantCulture, out var value) &&
@@ -202,7 +167,12 @@ static class ShadowComparer
             var storage = CellStorage.Create(response.DataElements?.Elements ?? [], query.StorageIndex);
             return FileCell.Read(storage).Root.ToArray();
         }
-        catch (Exception exception) when (exception is FssHttpBException or FssHttpDException or InvalidDataException or KeyNotFoundException)
+        catch (Exception exception)
+            when (exception is
+                      FssHttpBException or
+                      FssHttpDException or
+                      InvalidDataException or
+                      KeyNotFoundException)
         {
             return null;
         }
@@ -229,7 +199,10 @@ static class ShadowComparer
         {
             return FssHttpBRequest.Read(binary);
         }
-        catch (Exception exception) when (exception is FssHttpBException or InvalidDataException)
+        catch (Exception exception)
+            when (exception is
+                      FssHttpBException or
+                      InvalidDataException)
         {
             return null;
         }
@@ -246,7 +219,10 @@ static class ShadowComparer
         {
             return FssHttpBResponse.Read(binary);
         }
-        catch (Exception exception) when (exception is FssHttpBException or InvalidDataException)
+        catch (Exception exception)
+            when (exception is
+                      FssHttpBException or
+                      InvalidDataException)
         {
             return null;
         }
@@ -259,7 +235,10 @@ static class ShadowComparer
     {
         try
         {
-            return XDocument.Parse(Encoding.UTF8.GetString(response.Body)).Descendants().FirstOrDefault(_ => _.Name.LocalName == "IsOnlyClientResult")?.Value;
+            return XDocument.Parse(Encoding.UTF8.GetString(response.Body))
+                .Descendants()
+                .FirstOrDefault(_ => _.Name.LocalName == "IsOnlyClientResult")?
+                .Value;
         }
         catch (XmlException)
         {
@@ -288,7 +267,7 @@ static class ShadowComparer
                 return "Cell (unreadable)";
             }
 
-            var types = string.Join(" ", fssHttpB.SubRequests.Select(_ => _.Type));
+            var types = string.Join(' ', fssHttpB.SubRequests.Select(_ => _.Type));
             if (status != null)
             {
                 return $"Cell {types} ({status})";
@@ -298,7 +277,14 @@ static class ShadowComparer
         }
 
         var requestType = data?.Attributes()
-            .FirstOrDefault(_ => _.Name.LocalName is "CoauthRequestType" or "SchemaLockRequestType" or "ExclusiveLockRequestType" or "EditorsTableRequestType" or "FileOperation" or "VersioningRequestType" or "Properties");
+            .FirstOrDefault(_ => _.Name.LocalName is
+                "CoauthRequestType" or
+                "SchemaLockRequestType" or
+                "ExclusiveLockRequestType" or
+                "EditorsTableRequestType" or
+                "FileOperation" or
+                "VersioningRequestType" or
+                "Properties");
         if (requestType == null)
         {
             return type;
@@ -341,12 +327,14 @@ static class ShadowComparer
             facets[$"@{name}"] = value;
         }
 
-        foreach (var child in data.Elements().Where(_ => _.Name.LocalName != "Include"))
+        foreach (var child in data
+                     .Elements()
+                     .Where(_ => _.Name.LocalName != "Include"))
         {
             var keys = child.Descendants()
                 .Select(_ => (string?) _.Attribute("Key") ?? _.Name.LocalName)
                 .Order(StringComparer.Ordinal);
-            facets[child.Name.LocalName] = string.Join(",", keys);
+            facets[child.Name.LocalName] = string.Join(',', keys);
         }
 
         if (body.Binary(data) is { } binary)
@@ -384,10 +372,14 @@ static class ShadowComparer
         XDocument table;
         try
         {
-            using var deflate = new DeflateStream(new MemoryStream(file, editorsTableHeader.Length, file.Length - editorsTableHeader.Length), CompressionMode.Decompress);
+            var memoryStream = new MemoryStream(file, editorsTableHeader.Length, file.Length - editorsTableHeader.Length);
+            using var deflate = new DeflateStream(memoryStream, CompressionMode.Decompress);
             table = XDocument.Load(deflate);
         }
-        catch (Exception exception) when (exception is InvalidDataException or XmlException)
+        catch (Exception exception)
+            when (exception is
+                      InvalidDataException or
+                      XmlException)
         {
             return null;
         }
@@ -403,8 +395,12 @@ static class ShadowComparer
             table.Root!.Elements("Editor")
                 .Select(_ =>
                 {
-                    var keys = (_.Element("Metadata")?.Elements() ?? []).Select(_ => _.Name.LocalName).Order(StringComparer.Ordinal);
-                    return $"{((string?) _.Element("CacheID"))?.ToUpperInvariant()} editor {(string?) _.Element("HasEditorPermission")} metadata {string.Join(",", keys)}";
+                    var keys = (_.Element("Metadata")?.Elements() ?? [])
+                        .Select(_ => _.Name.LocalName)
+                        .Order(StringComparer.Ordinal);
+                    var cacheId = (string?) _.Element("CacheID");
+                    var hasEditorPermission = (string?) _.Element("HasEditorPermission");
+                    return $"{cacheId?.ToUpperInvariant()} editor {hasEditorPermission} metadata {string.Join(',', keys)}";
                 })
                 .Order(StringComparer.Ordinal));
     }
@@ -416,17 +412,22 @@ static class ShadowComparer
             var response = FssHttpBResponse.Read(binary);
             return string.Join(
                 "; ",
-                response.SubResponses.Select(_ =>
-                {
-                    if (_ is FailedSubResponse failed)
+                response
+                    .SubResponses
+                    .Select(_ =>
                     {
-                        return $"{failed.Type} {failed.Error.Type} {failed.Error.Code}";
-                    }
+                        if (_ is FailedSubResponse failed)
+                        {
+                            return $"{failed.Type} {failed.Error.Type} {failed.Error.Code}";
+                        }
 
-                    return $"{_.Type} ok";
-                }));
+                        return $"{_.Type} ok";
+                    }));
         }
-        catch (Exception exception) when (exception is FssHttpBException or InvalidDataException)
+        catch (Exception exception)
+            when (exception is
+                      FssHttpBException or
+                      InvalidDataException)
         {
             return $"unreadable: {exception.Message}";
         }
@@ -466,7 +467,11 @@ static class ShadowComparer
             return ShadowOutcome.KnownDifference;
         }
 
-        if (differences.FirstOrDefault(_ => _.Facet == "ErrorCode") is { SharePoint: "Success", OfficeHost: { } failed } &&
+        if (differences.FirstOrDefault(_ => _.Facet == "ErrorCode") is
+            {
+                SharePoint: "Success",
+                OfficeHost: { } failed
+            } &&
             failed != "Success")
         {
             reason = $"OfficeHost answered {failed} where SharePoint succeeded";

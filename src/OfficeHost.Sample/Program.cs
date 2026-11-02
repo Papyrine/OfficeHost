@@ -7,6 +7,10 @@ Directory.CreateDirectory(folder);
 SampleFiles.AddWelcome(folder);
 // a folder to log every request and response to, as the desktop launch profile sets, to see what desktop Office sends
 var requestLog = sample["RequestLog"];
+// the discovery of Collabora, the first of OfficeHost:DiscoveryUrls, and of Morph, a second WOPI client, which the
+// sample serves itself
+var collaboraDiscovery = builder.Configuration["OfficeHost:DiscoveryUrls:0"];
+var morphDiscovery = $"{appUrl}/hosting/discovery";
 
 // begin-snippet: Registration
 // the storage of the files, here a folder: implement IOfficeStorage for any other
@@ -22,6 +26,8 @@ services.AddOfficeHost(
     {
         // SigningKey, BaseUrl and DiscoveryUrls come from appsettings.json
         builder.Configuration.GetSection("OfficeHost").Bind(options);
+        // Morph, whose proofs are checked against its discovery
+        options.DiscoveryUrls.Add(morphDiscovery);
         // the pages below, which the WOPI client links to, as after a Save As
         options.HostEditUrl = (file, _) => $"{appUrl}/edit/{Uri.EscapeDataString(file.Id)}";
         options.HostViewUrl = (file, _) => $"{appUrl}/view/{Uri.EscapeDataString(file.Id)}";
@@ -34,6 +40,11 @@ services.AddOfficeHost(
             return Task.CompletedTask;
         };
     });
+
+// Morph (Morph.Wopi): its discovery, the page a file opens in, and the proxy its editor, the WebAssembly app of
+// OfficeHost.Sample.Morph, calls the WOPI endpoints through. Morph opens files only for the WOPISrc of the sample
+var wopiUrl = new Uri(builder.Configuration["OfficeHost:BaseUrl"] ?? appUrl);
+services.AddMorphWopi(options => options.TrustedHosts.Add(wopiUrl.GetLeftPart(UriPartial.Authority)));
 
 // begin-snippet: Shadow
 // a shadow of SharePoint (docs/shadow.md), when the OfficeHostShadow section has an ApiKey:
@@ -67,10 +78,22 @@ if (shadow)
 
 // the WOPI endpoints the WOPI client calls: /wopi/files/{fileId}
 app.MapOfficeHost();
-// the pages that open a file in the WOPI client: /edit/{fileId} and /view/{fileId}
-app.MapOfficePages(Access, OnError);
+// the pages that open a file in Collabora: /edit/{fileId} and /view/{fileId}
+app.MapOfficePages(Access, OnError, collaboraDiscovery);
 // the sites desktop Office edits and coauthors files through: /fsshttp/{token}/{name}
 app.MapFssHttp();
+// Morph's editor, and its endpoints: /hosting/discovery, /morph/wopi/edit and /morph/wopi/view, /morph/wopi/proxy
+app.MapStaticAssets();
+app.MapMorphWopi();
+// the page that opens a Word document in Morph
+app.MapGet(
+    "/edit-in-morph/{fileId}",
+    async (HttpContext context, string fileId, OfficeLauncher launcher) =>
+    {
+        var access = await Access(context, fileId, "edit");
+        var launch = await launcher.Launch(access!, "edit", context.Request, morphDiscovery, context.RequestAborted);
+        return launch.HostPage("Morph");
+    });
 // the page that opens a file in desktop Office, through an ms-word: (or ms-excel:, ms-powerpoint:) link. The user comes
 // from ?user= so that two people can coauthor the demo, and may edit any file: an application takes the user from its
 // sign-in, and decides the access from its permissions, as Access below does for the WOPI client

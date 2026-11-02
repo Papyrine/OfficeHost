@@ -35,7 +35,9 @@ public class FileSystemShadowDocuments(FileSystemStorage storage) :
     {
         string[] segments = [document.Url.Host, .. document.Path.Split('/')];
         // a path of the traffic, kept under the root
-        if (segments.Any(_ => _.Length == 0 || _ is "." or ".." || _.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0))
+        if (segments.Any(_ => _.Length == 0 ||
+                              _ is "." or ".." ||
+                              _.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0))
         {
             throw new InvalidDataException($"Not a path of a document: {document.Url}");
         }

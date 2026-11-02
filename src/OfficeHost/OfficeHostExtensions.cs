@@ -103,16 +103,19 @@ public static class OfficeHostExtensions
     /// 403. The page is
     /// <see cref="OfficeLaunch.HostPage"/>. A missing file is a 404, an unreachable WOPI client a 503, and an action no
     /// WOPI client offers for the file a 400, unless <paramref name="onError"/> returns a result of its own for them.
+    /// <paramref name="discoveryUrl"/>, one of <see cref="OfficeHostOptions.DiscoveryUrls"/>, opens the files in that WOPI
+    /// client only; null, in the first that offers the action.
     /// </summary>
     public static RouteGroupBuilder MapOfficePages(
         this IEndpointRouteBuilder endpoints,
         Func<HttpContext, string, string, ValueTask<OfficeAccess?>> access,
-        Func<HttpContext, Exception, IResult?>? onError = null)
+        Func<HttpContext, Exception, IResult?>? onError = null,
+        string? discoveryUrl = null)
     {
         var group = endpoints.MapGroup("");
-        group.MapGet("/edit/{fileId}", (HttpContext context, string fileId, OfficeLauncher launcher) => OpenPage(context, fileId, "edit", launcher, access, onError));
-        group.MapGet("/view/{fileId}", (HttpContext context, string fileId, OfficeLauncher launcher) => OpenPage(context, fileId, "view", launcher, access, onError));
-        group.MapGet("/editnew/{fileId}", (HttpContext context, string fileId, OfficeLauncher launcher) => OpenPage(context, fileId, "editnew", launcher, access, onError));
+        group.MapGet("/edit/{fileId}", (HttpContext context, string fileId, OfficeLauncher launcher) => OpenPage(context, fileId, "edit", launcher, access, onError, discoveryUrl));
+        group.MapGet("/view/{fileId}", (HttpContext context, string fileId, OfficeLauncher launcher) => OpenPage(context, fileId, "view", launcher, access, onError, discoveryUrl));
+        group.MapGet("/editnew/{fileId}", (HttpContext context, string fileId, OfficeLauncher launcher) => OpenPage(context, fileId, "editnew", launcher, access, onError, discoveryUrl));
         return group;
     }
 
@@ -122,7 +125,8 @@ public static class OfficeHostExtensions
         string action,
         OfficeLauncher launcher,
         Func<HttpContext, string, string, ValueTask<OfficeAccess?>> access,
-        Func<HttpContext, Exception, IResult?>? onError)
+        Func<HttpContext, Exception, IResult?>? onError,
+        string? discoveryUrl)
     {
         var granted = await access(context, fileId, action);
         if (granted == null)
@@ -132,7 +136,7 @@ public static class OfficeHostExtensions
 
         try
         {
-            var launch = await launcher.Launch(granted, action, context.Request, cancel: context.RequestAborted);
+            var launch = await launcher.Launch(granted, action, context.Request, discoveryUrl, context.RequestAborted);
             return launch.HostPage();
         }
         catch (FileNotFoundException exception)

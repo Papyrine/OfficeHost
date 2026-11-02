@@ -1,6 +1,4 @@
-﻿// Global using directives
-
-global using System.Buffers.Binary;
+﻿global using System.Buffers.Binary;
 global using System.Collections.Concurrent;
 global using System.Numerics;
 global using System.Text.RegularExpressions;

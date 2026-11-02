@@ -13,6 +13,9 @@
     <PackageTags>office;wopi;ms-wopi;collabora;onlyoffice;office-online;fsshttp;ms-fsshttp;cobalt;coauthoring;sharepoint;word;excel;powerpoint;aspnetcore;sqlserver;azure;blob</PackageTags>
     <Verify_SponsorshipExemption>OpenSource</Verify_SponsorshipExemption>
     <Verify_SponsorshipExemptionUntil>2027-08</Verify_SponsorshipExemptionUntil>
+    <!-- Morph, in the sample -->
+    <Papyrine_SponsorshipExemption>OpenSource</Papyrine_SponsorshipExemption>
+    <Papyrine_SponsorshipExemptionUntil>2027-08</Papyrine_SponsorshipExemptionUntil>
   </PropertyGroup>
   <ItemGroup>
     <Using Include="System.ReadOnlySpan&lt;System.Char&gt;" Alias="CharSpan" />

@@ -165,7 +165,7 @@ if (shadow)
     services.AddOfficeHostShadow();
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L38-L57' title='Snippet source file'>snippet source</a> | <a href='#snippet-Shadow' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L49-L68' title='Snippet source file'>snippet source</a> | <a href='#snippet-Shadow' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 <!-- snippet: MapShadow -->
@@ -177,7 +177,7 @@ if (shadow)
     app.MapOfficeHostShadow();
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L60-L66' title='Snippet source file'>snippet source</a> | <a href='#snippet-MapShadow' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L71-L77' title='Snippet source file'>snippet source</a> | <a href='#snippet-MapShadow' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 `AddOfficeHost` is needed too, configured as the application's production deployment would be: the point is to test

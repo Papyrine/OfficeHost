@@ -66,7 +66,7 @@ public partial class ValidatorTests
 
     static string WopiSrc(RunningServer server, string fileId)
     {
-        var baseUrl = server.Service<Microsoft.Extensions.Options.IOptions<OfficeHostOptions>>().Value.BaseUrl;
+        var baseUrl = server.Service<IOptions<OfficeHostOptions>>().Value.BaseUrl;
         return $"{baseUrl}/wopi/files/{Uri.EscapeDataString(fileId)}";
     }
 

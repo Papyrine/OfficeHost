@@ -10,8 +10,13 @@
     <Using Include="System.IO.Compression" />
     <Using Include="System.Net" />
     <Using Include="OfficeHost" />
+    <Using Include="Morph" />
     <PackageReference Include="ProjectDefaults" PrivateAssets="all" />
     <ProjectReference Include="..\OfficeHost\OfficeHost.csproj" />
     <ProjectReference Include="..\OfficeHost.Shadow\OfficeHost.Shadow.csproj" />
+    <!-- Morph, a WOPI client the sample serves itself: its endpoints, and its editor as static assets -->
+    <PackageReference Include="Morph.Wopi" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" />
+    <ProjectReference Include="..\OfficeHost.Sample.Morph\OfficeHost.Sample.Morph.csproj" />
   </ItemGroup>
 </Project>

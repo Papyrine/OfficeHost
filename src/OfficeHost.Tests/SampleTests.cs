@@ -24,6 +24,21 @@ public partial class SampleTests : IAsyncDisposable
         </wopi-discovery>
         """;
 
+    // Morph, which the sample serves itself, at its AppUrl
+    const string morphDiscoveryUrl = "http://localhost:5000/hosting/discovery";
+
+    const string morphDiscovery =
+        """
+        <wopi-discovery>
+          <net-zone name="external-http">
+            <app name="Word">
+              <action name="edit" ext="docx" urlsrc="http://localhost:5000/morph/wopi/edit?"/>
+              <action name="view" ext="docx" urlsrc="http://localhost:5000/morph/wopi/view?"/>
+            </app>
+          </net-zone>
+        </wopi-discovery>
+        """;
+
     TempDirectory folder = new();
     WebApplicationFactory<Program> factory;
 
@@ -49,15 +64,16 @@ public partial class SampleTests : IAsyncDisposable
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, Cancel cancellationToken)
         {
-            if (request.RequestUri!.ToString() != discoveryUrl)
+            var content = request.RequestUri!.ToString() switch
             {
-                throw new HttpRequestException($"Unreachable {request.RequestUri}");
-            }
-
+                discoveryUrl => discovery,
+                morphDiscoveryUrl => morphDiscovery,
+                _ => throw new HttpRequestException($"Unreachable {request.RequestUri}")
+            };
             return Task.FromResult(
                 new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent(discovery)
+                    Content = new StringContent(content)
                 });
         }
     }
@@ -102,6 +118,25 @@ public partial class SampleTests : IAsyncDisposable
         await Assert.That((string?) info["UserFriendlyName"]).IsEqualTo("Demo User");
         await Assert.That((string?) info["CloseUrl"]).IsEqualTo("http://localhost:5000");
         await Assert.That((string?) info["HostEditUrl"]).IsEqualTo($"http://localhost:5000/edit/{Uri.EscapeDataString(fileId)}");
+    }
+
+    /// <summary>
+    /// A Word document opens in Morph from its own page, rather than in the first WOPI client.
+    /// </summary>
+    [Test]
+    public async Task EditInMorph()
+    {
+        using var client = factory.CreateClient();
+        var files = await client.GetStringAsync("/");
+        var fileId = await WelcomeId(client);
+        await Assert.That(files).Contains($"""<a href="/edit-in-morph/{Uri.EscapeDataString(fileId)}">Edit using Morph</a>""");
+        var page = await client.GetStringAsync($"/edit-in-morph/{Uri.EscapeDataString(fileId)}");
+        var form = LaunchForm().Match(page);
+        var wopiSrc = $"http://host.docker.internal:5000/wopi/files/{fileId}";
+        await Assert.That(WebUtility.HtmlDecode(form.Groups[1].Value)).IsEqualTo($"http://localhost:5000/morph/wopi/edit?WOPISrc={Uri.EscapeDataString(wopiSrc)}");
+        var token = WebUtility.HtmlDecode(form.Groups[2].Value);
+        var access = (await factory.Services.GetRequiredService<IOfficeTokens>().Validate(token))!.Access;
+        await Assert.That(access.CanWrite).IsTrue();
     }
 
     /// <summary>
@@ -216,7 +251,7 @@ public partial class SampleTests : IAsyncDisposable
     }
 
     /// <summary>
-    /// When the WOPI client is down, the page says how to start Collabora Online.
+    /// When Collabora Online is down, the page says how to start it: Edit does not open the file in Morph instead.
     /// </summary>
     [Test]
     public async Task Launch_ClientUnreachable()

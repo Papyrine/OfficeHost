@@ -388,7 +388,10 @@ sealed class ShadowProcessor
         var (received, refused) = inbox.Totals;
         var outcomes = string.Join(
             "; ",
-            counts.OrderBy(_ => _.Key.Outcome).ThenBy(_ => _.Key.Label, StringComparer.Ordinal).Select(_ => $"{_.Key.Outcome} {_.Key.Label} x{_.Value}"));
+            counts
+                .OrderBy(_ => _.Key.Outcome)
+                .ThenBy(_ => _.Key.Label, StringComparer.Ordinal)
+                .Select(_ => $"{_.Key.Outcome} {_.Key.Label} x{_.Value}"));
         log.LogInformation(
             new EventId(100, "Summary"),
             "Shadow since {Since:O}: {Outcomes}. {Documents} documents known, {Waiting} exchanges waiting, {Received} received and {Refused} refused since the start",

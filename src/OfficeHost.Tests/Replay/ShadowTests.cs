@@ -394,6 +394,6 @@ public class ShadowTests
         await using var shadow = await StartShadow([], _ => _.SamplePercent = 25);
         using var response = await Post(shadow, [], Guid.NewGuid(), DateTimeOffset.UtcNow);
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Accepted);
-        await Assert.That(string.Join(",", response.Headers.GetValues(ShadowProtocol.Sample))).IsEqualTo("25");
+        await Assert.That(string.Join(',', response.Headers.GetValues(ShadowProtocol.Sample))).IsEqualTo("25");
     }
 }
