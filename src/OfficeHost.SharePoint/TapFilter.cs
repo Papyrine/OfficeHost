@@ -8,7 +8,9 @@ using System.IO;
 /// </summary>
 sealed class TapFilter(Stream inner, TapCapture capture) : Stream
 {
+    static int noted;
     bool closed;
+    int writing;
 
     public override bool CanRead => false;
 
@@ -26,7 +28,29 @@ sealed class TapFilter(Stream inner, TapCapture capture) : Stream
 
     public override void Write(byte[] buffer, int offset, int count)
     {
-        inner.Write(buffer, offset, count);
+        writing++;
+        try
+        {
+            inner.Write(buffer, offset, count);
+        }
+        finally
+        {
+            writing--;
+        }
+
+        // a write inside a write: what this filter wrote made ASP.NET flush and filter it again (unbuffered at the final
+        // filtering, as in IIS Express when a module turns buffering off after the handler), so the same bytes come
+        // back before the outer write returns. Copied once, by the outermost; SharePoint's stream gets every write
+        if (writing > 0)
+        {
+            if (Interlocked.Exchange(ref noted, 1) == 0)
+            {
+                TapLog.Write($"The response was filtered again inside a write of the module's filter (a note, once): copied once. {Environment.StackTrace}");
+            }
+
+            return;
+        }
+
         try
         {
             capture.Writing(buffer, offset, count);

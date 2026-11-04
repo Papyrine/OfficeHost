@@ -83,7 +83,21 @@ SharePoint must never fail, and must not slow down noticeably, because of the mo
 - **Its answers are unchanged.** The module copies what the response writes after it went to SharePoint's stream, and
   reads the body of a cell storage request only once SharePoint's handler has read it. Reading it before (at
   authentication) made PowerPoint drop the connection of its first request in the lab; reading it after did not
-  (docs/replay.md). IsOnlyClient is the exception: after its ASMX handler, its body reads empty, so the module reads it
+  (docs/replay.md). SharePoint 2016 serves `cellstorage.svc` with WCF, which reads the body unbuffered
+  (`GetBufferlessInputStream(true)`), so that it cannot be read again: there the module, just before the handler, asks
+  for that same stream, which reads nothing yet, and puts a copying stream over it where ASP.NET keeps it (a private
+  field of `HttpRequest`), which WCF then gets. WCF reads the same bytes, the same way, and the module copies them as
+  they pass. It does so only for WCF's handler with a body no one has read, and leaves WCF alone when its
+  `useClassicReadEntityBodyMode` is set. WCF's response is unbuffered, so each write is flushed, and IIS sends it with
+  its send response notification, raised within the flush for each module of `PreSendRequestHeaders` or
+  `PreSendRequestContent` (SharePoint 2016 has three): at the end of each, ASP.NET filters again what IIS still holds,
+  which the filter wrote already. Office gets each chunk once, but the copy had it four times: the module copies
+  nothing during that notification (`HttpContext.CurrentNotification`, which ASP.NET restores after it, as the
+  notification is re-entrant). A filter written to inside its own write is copied once, by the outermost write.
+  A response filter at all can make ASP.NET send a response twice when a module
+  turns buffering off after a buffered handler (seen with IIS Express, not on SharePoint 2016): after installing,
+  check with a folder sink that an answer is the same as its copy
+  ([Test-ShadowWire.ps1](../src/OfficeHost.SharePoint/Test-ShadowWire.ps1), next to the installer). IsOnlyClient is the exception: after its ASMX handler, its body reads empty, so the module reads it
   at authentication, through the buffered input stream the handler reads too. It is a few hundred bytes, and the lab's
   27 IsOnlyClient requests read so were all answered 200, as without the module.
 - **It never fails a request.** Only the module's own work is in a `try`: a failure of SharePoint's stream is

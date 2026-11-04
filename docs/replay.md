@@ -42,7 +42,8 @@ inside it when its sink is a folder ([shadow.md](shadow.md)). It runs after the 
 - **How:** it takes the request's headers, user and time when the request is authenticated. The response goes through
   a filter that keeps a copy. At the response's first write, it reads the request body again from its start
   (SharePoint's handler read it through the buffered input stream: SharePoint SE serves `cellstorage.svc` with
-  `/_vti_bin/cobalt.ashx/cellstorageservice`, as its IIS log shows), and a thread of its own writes the exchange to
+  `/_vti_bin/cobalt.ashx/cellstorageservice`, as its IIS log shows; SharePoint 2016 serves it with WCF, which reads
+  it unbuffered, so the module copies it as WCF reads it, see shadow.md), and a thread of its own writes the exchange to
   `C:\ReplayRecording` in the VM. So it reads nothing of cell storage before SharePoint does: reading the body first, an
   earlier recorder made PowerPoint drop its first request (see below). IsOnlyClient is read at authentication instead:
   after its ASMX handler (`sharedaccess.asmx`), even at the response's first write, the body reads empty, as the first
