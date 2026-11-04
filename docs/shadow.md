@@ -315,9 +315,12 @@ known, the exchanges waiting, received and refused.
 
 A rule (`ShadowRule`) matches a sub-request label (`Coauth JoinCoauthoring`, `Cell QueryChanges (translated)`), a facet
 (`ErrorCode`, `@CoauthStatus`, `DocProps`, `content`, `editors`, `FSSHTTPB`) and optionally each server's value, by
-regular expressions. The defaults are the differences the lab found expected: GetVersions, which OfficeHost does not
-support; the `vti_` properties of GetDocMetaInfo, of which OfficeHost sends a subset; the revision SharePoint adds after
-a save (`HaveOnlyDemotionChanges`). What is compared of a sub-response is in [replay.md](replay.md).
+regular expressions. The defaults are the differences found expected: GetVersions, which OfficeHost does not support;
+the `vti_` properties of GetDocMetaInfo, of which OfficeHost sends a subset; the revision SharePoint adds after a save
+(`HaveOnlyDemotionChanges`); and where SharePoint 2016 answers otherwise than SE, which OfficeHost follows
+(`HaveOnlyDemotionChanges` with every Cell of the content, the editors table without `JoinCoauthTime` or
+`HasEditorPermission`, MarkTransitionComplete out of the session; docs/fsshttp-notes.md, "SharePoint Server 2016").
+What is compared of a sub-response is in [replay.md](replay.md).
 
 
 ## Documents

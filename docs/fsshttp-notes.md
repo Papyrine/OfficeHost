@@ -638,6 +638,29 @@ Word 16.0.20326 against the lab and the sample, driven through COM (`SaveAs2`), 
 - **OfficeHost** reads both.
 
 
+## SharePoint Server 2016
+
+Word against a SharePoint Server 2016 farm (16.0.5522), recorded from inside it by the module of the shadow
+(docs/shadow.md) and replayed to OfficeHost (docs/replay.md): a new document opened from a library, edited, saved,
+left open 24 minutes, closed. 10 exchanges, 47 sub-responses: OfficeHost had the same file as SharePoint after each of
+the 7 Cells of the content, the save too, and answered 30 sub-responses as SharePoint did. The other 17 are where 2016
+answers otherwise than SE, which OfficeHost follows, now known differences (`ShadowRule.Defaults`):
+
+- **`cellstorage.svc` is WCF,** not SE's `cobalt.ashx`: WCF reads the request body unbuffered, and its response is
+  flushed write by write (what the module of the shadow had to be made for, docs/shadow.md).
+- **`HaveOnlyDemotionChanges="False"`** is on every Cell of the content: the queries, with changes or none, the 27-byte
+  Query Access of the open, and the put. Never on the other partitions. SE sends it with a query that sends changes.
+- **The editors table** has no `JoinCoauthTime`, and the `EmailAddress` of the editor. Once Word updates its metadata
+  (`UpdateEditorMetadata`), the editor has no `HasEditorPermission`. Its `Timeout` has the ticks of the join.
+- **MarkTransitionComplete** of a client that has left the session (after its ExitCoauthoring) is
+  `InvalidCoauthSession`, where SE answers `Success`. Word opened the document again just after, with a join.
+- **No editors table** in the answer to the query of the editors partition when no one is editing, where OfficeHost
+  sends an empty one.
+- **Word's coauthoring** went otherwise than against SE: in a first recording, seven pairs of
+  `GetChangesFile_MarkCoauthTransitionCompleteAndDownload` and `PollingSubscriptionNotConnected_TransitionToCoauthInHostMode`
+  within 1.5 seconds of the open; in the second, one pair, then ExitCoauthoring and ReleaseLock, and the open again.
+
+
 ## PowerPoint
 
 PowerPoint 16.0.20326 (`UserAgentClient="msppt"`), opening, editing (text appended to a slide through COM), saving and

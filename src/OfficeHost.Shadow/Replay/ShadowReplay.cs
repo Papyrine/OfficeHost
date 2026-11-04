@@ -380,14 +380,24 @@ class ShadowReplay(IShadowTarget target, IShadowFiles files, IReadOnlyList<Shado
                         foreach (var facets in new[] { expectedFacets, actualFacets })
                         {
                             facets.Remove("file");
-                            facets.Remove("editors");
+                            foreach (var facet in facets.Keys.Where(_ => _.StartsWith("editors", StringComparison.Ordinal)).ToList())
+                            {
+                                facets.Remove(facet);
+                            }
                         }
 
                         if (ShadowComparer.EditorsOf(recordedFile) is { } recordedEditors &&
                             ShadowComparer.EditorsOf(replayFile) is { } replayEditors)
                         {
-                            expectedFacets["editors"] = recordedEditors;
-                            actualFacets["editors"] = replayEditors;
+                            foreach (var (facet, value) in recordedEditors)
+                            {
+                                expectedFacets[facet] = value;
+                            }
+
+                            foreach (var (facet, value) in replayEditors)
+                            {
+                                actualFacets[facet] = value;
+                            }
                         }
                         else
                         {

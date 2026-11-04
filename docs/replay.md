@@ -97,9 +97,10 @@ For each SubResponse, by its SubRequestToken:
 - for a Cell, its FSSHTTPB sub-responses with their errors (`PutChanges Cell 12`, or `unreadable` with the codec's
   error), and the hash of the file that a query answers in full. When the two files differ, both are written to
   `differences/` in the recording's folder.
-- for the editors table (a query of its partition), the editors by their CacheID, permission and metadata keys: not
-  their login names (the users are mapped), their timeouts (OfficeHost keeps clients an hour at least), nor the layout
-  of the XML.
+- for the editors table (a query of its partition), the editors by their CacheID and the keys of their client's
+  metadata (`editors`), and apart those with a `JoinCoauthTime` (`editors JoinCoauthTime`) and the permission of each
+  (`editors HasEditorPermission`), which SharePoint 2016 leaves out: not their login names (the users are mapped),
+  their timeouts (OfficeHost keeps clients an hour at least), nor the layout of the XML.
 - for a translated Cell, the copies of the two servers after it rather than its answers (see "The cells").
 
 IsOnlyClient is compared by its result, and a request either server failed by its HTTP status.
