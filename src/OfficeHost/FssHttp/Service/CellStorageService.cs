@@ -423,8 +423,10 @@ class CellStorageService(
             defaultPartition == FssHttpCells.ContentPartition)
         {
             file = await storage.GetFile(site.FileId, cancel) ?? file;
-            // no Etag with a part of a save, as on SharePoint Server 2016: the file has no new version yet
-            if (!request.SubRequests.Any(_ => _ is PutChangesRequest { Partial: true }))
+            // no Etag with a part of a save, as on SharePoint Server 2016: the file has no new version yet; nor with a
+            // part of a download
+            if (!request.SubRequests.Any(_ => _ is PutChangesRequest { Partial: true }) &&
+                !subResponses.Any(_ => _ is QueryChangesResponse { Partial: true }))
             {
                 data.Add(new XAttribute("Etag", Etag(site, file)));
             }

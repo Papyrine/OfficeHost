@@ -50,7 +50,7 @@ A large document: pictures Word does not compress, such as random noise, a few M
 | # | Do | Expect |
 |---|---|---|
 | 10a | Add more than 3 MB of pictures, and save. | Word splits the save into partial Put Changes of about 3 MB (fsshttp-notes.md, "SharePoint Server 2016"), each answered `Success`; the file in `files` has the pictures. |
-| 10b | Open it as another user (`?user=bob`), whose URL Word has not cached. | Word downloads it. Fails for now: Word gives up on a partial Query Changes answer (fsshttp-notes.md, "A download over Word's maximum fails"). |
+| 10b | Open it as another user (`?user=bob`), whose URL Word has not cached. | Word downloads it in partial Query Changes answers of about 3 MB, the last with the Storage Index (fsshttp-notes.md, "A download over Word's maximum comes in parts"), and opens it for editing, with its pictures. |
 
 
 ## WOPI and desktop Office
@@ -116,7 +116,8 @@ Other applications (Visio, Project, OneNote) get no links from `LaunchDesktop`, 
   lock taken by a script as user bob; the lock-out also against SharePoint Server with two users (see the notes).
 - **PowerPoint** 16.0.20326: steps 29 and 30 passed (2026-10-21), editing through COM.
 - **Word** 16.0.20326, through COM (2026-11-05): steps 3 to 6 and 10a passed, step 6 once the Storage Index was in
-  every answer; 10b failed.
+  every answer; 10b failed. 10b passed (2026-11-06) once a partial answer named no Storage Index; 10a and 10b again with 30 MB more pictures,
+  a file of 43 MB.
 - What they sent is in [fsshttp-notes.md](fsshttp-notes.md).
 - **Not yet run:** the WOPI client steps, Word coauthoring with two users, and Excel against Excel, which need a second
   Windows account or machine.

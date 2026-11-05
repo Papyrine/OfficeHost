@@ -81,8 +81,9 @@ recorded without a user, as SharePoint serves `sharedaccess.asmx` without sign-i
 - **Time:** the clock of OfficeHost is set to each request's `X-Replay-Time`, so that the coauthoring timeouts run as
   they did.
 - **Documents:** each document a Request Url names starts as its file in `files/`. Without one, it starts as the file
-  of the first content query that SharePoint answered in full. A document SharePoint did not have when the recording
-  began, as one made by Save As, is named through the site of the last one, as Office does.
+  of the first content query that SharePoint answered in full. A document of more than Word's maximum (3,670,016
+  bytes) is answered in parts, none of them in full: it needs its file in `files/`. A document SharePoint did not have
+  when the recording began, as one made by Save As, is named through the site of the last one, as Office does.
 - **Ids:** SharePoint's ResourceID and TransitionID are learned from each pair of answers. They are replaced by
   OfficeHost's in the requests after that, for example in the `id` of IsOnlyClient and the `TransitionID` of AmIAlone.
 

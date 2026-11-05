@@ -433,7 +433,9 @@ public class FssHttpServiceTests
     }
 
     /// <summary>
-    /// A query with a small maximum gets part of the data elements, and the rest with the knowledge it got.
+    /// A query with a small maximum gets part of the data elements, and the rest with the knowledge it got. A partial
+    /// answer is as SharePoint Server 2016's (docs/fsshttp-notes.md, "A download over Word's maximum"): no Storage
+    /// Index named nor sent, and the properties of the file without Etag; the last has them.
     /// </summary>
     [Test]
     public async Task Query_Partial()
@@ -444,19 +446,30 @@ public class FssHttpServiceTests
         var knowledge = Knowledge.Empty;
         var elements = new List<DataElement>();
         ExtendedGuid index = default;
+        var parts = 0;
         for (var round = 0; round < 20; round++)
         {
-            var response = (await word.Send(WordClient.Cell("1", WordClient.Query(knowledge, 20_000)))).Single().FssHttpB;
+            var answer = (await word.Send(WordClient.Cell("1", WordClient.Query(knowledge, 20_000), new XAttribute("GetFileProps", "true")))).Single();
+            var response = answer.FssHttpB;
             var query = (QueryChangesResponse) response.SubResponses.Single();
             elements.AddRange(response.DataElements!.Elements);
             knowledge = query.Knowledge;
             index = query.StorageIndex;
+            await Assert.That(answer.Attribute("LastModifiedTime")).IsNotNull();
             if (!query.Partial)
             {
+                await Assert.That(answer.Attribute("Etag")).IsNotNull();
                 break;
             }
+
+            parts++;
+            await Assert.That(index.IsNull).IsTrue();
+            await Assert.That(response.DataElements.Elements.OfType<StorageIndex>()).IsEmpty();
+            await Assert.That(answer.Attribute("Etag")).IsNull();
         }
 
+        await Assert.That(parts).IsGreaterThan(1);
+        await Assert.That(index.IsNull).IsFalse();
         await Assert.That(elements.Count).IsGreaterThan(4);
         var storage = CellStorage.Create(elements, index);
         await Assert.That(FileCell.Read(storage).Root.ToArray().SameAs(await FileOf(host))).IsTrue();

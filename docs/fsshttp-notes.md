@@ -312,18 +312,24 @@ It opened the document, enabled editing, saved twice and closed, and the file ha
   from its cache, with no second query. The replay did not show the difference: it compares the content of the cells,
   not the data elements of each answer.
 
-### A download over Word's maximum fails
+### A download over Word's maximum comes in parts
 
 - **Spec:** [MS-FSSHTTPB] 2.2.2.1.3: the Maximum Data Elements is "the limit of data elements at which the server
   starts breaking up the results into partial results", and 2.2.3.1.2 has the partial result flag. Neither says what
   a partial result holds, nor what the client does next.
-- **Word** asks for 3,670,016 bytes at most. To a partial answer of OfficeHost (the flag, 3.3 MB of Object Groups, the
-  leaves first, and the knowledge of the client with the elements sent; with the Storage Index too, in an experiment),
-  Word sent no other query: it exited coauthoring, and the open failed, or Word fell back to a GET of the file and
-  opened it read-only. Answering the whole 13 MB at once, in an experiment, Word opened it.
-- **Not fixed:** a document of more than about 3.5 MB that Word has not cached does not open. What SharePoint answers
-  beyond the maximum is to be recorded: the shadow on SharePoint Server 2016, Office's cache cleared, a large brief
-  opened.
+- **Word** asks for 3,670,016 bytes at most, and queries again after a partial answer, with the knowledge of that
+  answer, until one is not partial.
+- **SharePoint Server 2016** (2026-11-06, a document of 7.5 MB, Office's cache cleared): three answers, of 3.1, 3.1 and
+  1.2 MB, within a second. The two partial ones have the flag, a null Storage Index Extended GUID, Object Groups only
+  (of 1 MB at most), and as cell knowledge the Serial Numbers of the Object Groups sent so far, one by one (and
+  `0..0`); their file properties have no `Etag`. The last has the other Object Groups, the manifests and the Storage
+  Index, its Extended GUID, the whole knowledge, and the `Etag`.
+- **The service** named its Storage Index in a partial answer, and sent the `Etag`: Word sent no other query, exited
+  coauthoring, and the open failed, or Word fell back to a GET of the file and opened it read-only (with the Storage
+  Index sent too, in an experiment, the same). It now answers as SharePoint: no Storage Index named in a partial
+  answer, no `Etag` (`FssHttpServiceTests.Query_Partial`). Word then opened a document of 13 MB it had not cached in
+  four answers of 3.3, 3.3, 3.3 and 3.2 MB, for editing, with its pictures, and one of 43 MB in 14 answers within 5
+  seconds.
 
 ### Protected View, then a second open
 
@@ -695,7 +701,8 @@ answers otherwise than SE, which OfficeHost follows, now known differences (`Sha
   applies them with the last (`FssHttpServiceTests.Save_InParts`). Against the sample (2026-11-05), Word saved three
   pictures of 4.3 MB in four parts of 3.1, 3.1, 3.1 and 3.6 MB, flags `0x4B`, `0x0B`, `0x0B` and last `0x4D` (G,
   return complete knowledge, only on some): each answered `Success`, the `Etag` only after the last, and the file had
-  the pictures byte for byte.
+  the pictures byte for byte. Larger (2026-11-06): SharePoint 2016 took a save of 31 MB of pictures in 10 parts within
+  19 seconds; against the sample, Word saved 30 MB in 10 parts within 5 seconds, from 13 to 43 MB.
 - **Word's coauthoring** went otherwise than against SE: in a first recording, seven pairs of
   `GetChangesFile_MarkCoauthTransitionCompleteAndDownload` and `PollingSubscriptionNotConnected_TransitionToCoauthInHostMode`
   within 1.5 seconds of the open; in the second, one pair, then ExitCoauthoring and ReleaseLock, and the open again.

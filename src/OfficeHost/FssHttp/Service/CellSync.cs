@@ -153,9 +153,11 @@ static class CellSync
     /// <summary>
     /// The data elements the client does not know of, by their Serial Numbers, up to the Maximum Data Elements of the
     /// <paramref name="query"/> in bytes (at least one), leaves first: Object Data BLOBs and Object Groups, then the manifests, then the Storage Index.
-    /// When they do not all fit, the response is partial, and its knowledge is that of the client with the elements
-    /// sent; otherwise it is the whole knowledge of the storage, and the Storage Index is sent even when the client
-    /// knows it. Changes is whether the client lacked any of the data elements.
+    /// When they do not all fit, the response is partial, as SharePoint Server 2016 answers a download over the maximum
+    /// (docs/fsshttp-notes.md): it names no Storage Index, and its knowledge is that of the client with the elements
+    /// sent, with which the client queries the rest. Otherwise it is the whole knowledge of the storage, and the
+    /// Storage Index is sent even when the client knows it. Changes is whether the client lacked any of the data
+    /// elements.
     /// </summary>
     public static (QueryChangesResponse Response, List<DataElement> Elements, bool Changes) Query(QueryChangesRequest query, CellStorage storage)
     {
@@ -208,7 +210,8 @@ static class CellSync
             knowledge = SerialNumberSet.Full(storage);
         }
 
-        return (new(query.RequestId, storage.StorageIndexId, flags, knowledge), sent, missing.Count > 0);
+        // no Storage Index named in a partial answer: Word gives up on one whose Storage Index it was not sent
+        return (new(query.RequestId, partial ? ExtendedGuid.Null : storage.StorageIndexId, flags, knowledge), sent, missing.Count > 0);
     }
 
     static int Order(DataElement element) =>
