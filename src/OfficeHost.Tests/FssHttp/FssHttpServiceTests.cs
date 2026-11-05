@@ -100,6 +100,9 @@ public class FssHttpServiceTests
         var again = (await word.Send(WordClient.Cell("1", WordClient.Query(query.Knowledge), new XAttribute("GetFileProps", "true")))).Single();
         await Assert.That(again.Attribute("Etag")).IsNotNull();
         await Assert.That(again.Attribute("HaveOnlyDemotionChanges")).IsNull();
+        // and the Storage Index alone, as SharePoint Server 2016 answers: without it, Word does not open from its cache
+        var unchanged = (StorageIndex) again.FssHttpB.DataElements!.Elements.Single();
+        await Assert.That(unchanged.Id).IsEqualTo(query.StorageIndex);
         await Assert.That(byToken["6"].Attribute("Etag")).StartsWith("\"{");
         await Assert.That(byToken["6"].Attribute("ModifiedBy")).IsEqualTo("Alice");
         await Assert.That(byToken["6"].Attribute("HaveOnlyDemotionChanges")).IsEqualTo("False");

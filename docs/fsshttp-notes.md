@@ -298,6 +298,33 @@ It opened the document, enabled editing, saved twice and closed, and the file ha
 - So that a change made outside Word still fails coherency, a revision written from a file gets a new Cell Manifest, as
   Word makes one per save.
 
+### Word opens from its cache only when the answer has the Storage Index
+
+- **Spec:** [MS-FSSHTTPB] 3.1.4.2 has the server send "a full or partial set of data elements"; nothing says which
+  ones a client that knows them all gets.
+- **Word** (2026-11-05, documents of 13 MB and of 320 KB it had saved): its join's content query had the knowledge of
+  its cache, and OfficeHost answered with nothing, the client knowing every data element. Word then queried the content
+  and the metadata again, with empty knowledge, and downloaded the whole file: every open was a full download (step 6
+  of docs/fsshttp-checklist.md had not passed), and one over Word's maximum failed (see the next section).
+- **SharePoint Server 2016** sends a Storage Index in every Query Changes answer of the recordings (30 of 30, the
+  three partitions, from the open to the polls), with knowledge one Serial Number ahead of the client's.
+- **The service** sends the Storage Index in every complete answer, known to the client or not. Word then opened
+  from its cache, with no second query. The replay did not show the difference: it compares the content of the cells,
+  not the data elements of each answer.
+
+### A download over Word's maximum fails
+
+- **Spec:** [MS-FSSHTTPB] 2.2.2.1.3: the Maximum Data Elements is "the limit of data elements at which the server
+  starts breaking up the results into partial results", and 2.2.3.1.2 has the partial result flag. Neither says what
+  a partial result holds, nor what the client does next.
+- **Word** asks for 3,670,016 bytes at most. To a partial answer of OfficeHost (the flag, 3.3 MB of Object Groups, the
+  leaves first, and the knowledge of the client with the elements sent; with the Storage Index too, in an experiment),
+  Word sent no other query: it exited coauthoring, and the open failed, or Word fell back to a GET of the file and
+  opened it read-only. Answering the whole 13 MB at once, in an experiment, Word opened it.
+- **Not fixed:** a document of more than about 3.5 MB that Word has not cached does not open. What SharePoint answers
+  beyond the maximum is to be recorded: the shadow on SharePoint Server 2016, Office's cache cleared, a large brief
+  opened.
+
 ### Protected View, then a second open
 
 - **Word:** on a host in the Internet zone, the open (join, queries) ends with `ExitCoauthoring`
@@ -507,7 +534,7 @@ Query Changes, 4 Put Changes) and Word's saves before them:
   return complete knowledge (Excel once sent `0x09`). Then three zero bytes: an empty content version coherency check,
   no author logins, the reserved byte. Additional flags `0x8004`: C, check for id reuse, and bit 15, which the spec
   reserves. No lock id, the client's knowledge, no diagnostic. A save Word splits (see "SharePoint Server 2016") has
-  `0x4B` for its parts (B, partial, besides) and `0x0D` for the last (A, C partial last, D).
+  `0x4B` for its parts (B, partial, besides) and `0x0D` for the last (A, C partial last, D), with G on some only.
 
 SharePoint Server SE answered each case of `PutChangesTests` (a save as Office's, with one thing changed), and OfficeHost
 now answers the same:
@@ -665,7 +692,10 @@ answers otherwise than SE, which OfficeHost follows, now known differences (`Sha
   cell knowledge, and the file properties without `Etag`; the last as a save. The spec says nothing of how a server
   ties the parts together. OfficeHost failed each part (`InvalidObject`: it wrote the file of each put), and now keeps
   their data elements by file, user and partition (`PartialPuts`), for an hour, answers them as SharePoint does, and
-  applies them with the last (`FssHttpServiceTests.Save_InParts`).
+  applies them with the last (`FssHttpServiceTests.Save_InParts`). Against the sample (2026-11-05), Word saved three
+  pictures of 4.3 MB in four parts of 3.1, 3.1, 3.1 and 3.6 MB, flags `0x4B`, `0x0B`, `0x0B` and last `0x4D` (G,
+  return complete knowledge, only on some): each answered `Success`, the `Etag` only after the last, and the file had
+  the pictures byte for byte.
 - **Word's coauthoring** went otherwise than against SE: in a first recording, seven pairs of
   `GetChangesFile_MarkCoauthTransitionCompleteAndDownload` and `PollingSubscriptionNotConnected_TransitionToCoauthInHostMode`
   within 1.5 seconds of the open; in the second, one pair, then ExitCoauthoring and ReleaseLock, and the open again.

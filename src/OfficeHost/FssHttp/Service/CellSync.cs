@@ -154,9 +154,10 @@ static class CellSync
     /// The data elements the client does not know of, by their Serial Numbers, up to the Maximum Data Elements of the
     /// <paramref name="query"/> in bytes (at least one), leaves first: Object Data BLOBs and Object Groups, then the manifests, then the Storage Index.
     /// When they do not all fit, the response is partial, and its knowledge is that of the client with the elements
-    /// sent; otherwise it is the whole knowledge of the storage.
+    /// sent; otherwise it is the whole knowledge of the storage, and the Storage Index is sent even when the client
+    /// knows it. Changes is whether the client lacked any of the data elements.
     /// </summary>
-    public static (QueryChangesResponse Response, List<DataElement> Elements) Query(QueryChangesRequest query, CellStorage storage)
+    public static (QueryChangesResponse Response, List<DataElement> Elements, bool Changes) Query(QueryChangesRequest query, CellStorage storage)
     {
         var known = SerialNumberSet.Of(query.Knowledge);
         var missing = storage.Elements.Values
@@ -181,6 +182,15 @@ static class CellSync
         }
 
         var partial = sent.Count < missing.Count;
+        // the Storage Index in every complete answer, even to a client that knows it, as SharePoint Server 2016 answers:
+        // without it Word does not open the file from its cache, but queries it all again (docs/fsshttp-notes.md)
+        if (!partial &&
+            sent.All(_ => _.Id != storage.StorageIndexId) &&
+            storage.Elements.TryGetValue(storage.StorageIndexId, out var index))
+        {
+            sent.Add(index);
+        }
+
         Knowledge knowledge;
         byte flags = 0;
         if (partial)
@@ -198,7 +208,7 @@ static class CellSync
             knowledge = SerialNumberSet.Full(storage);
         }
 
-        return (new(query.RequestId, storage.StorageIndexId, flags, knowledge), sent);
+        return (new(query.RequestId, storage.StorageIndexId, flags, knowledge), sent, missing.Count > 0);
     }
 
     static int Order(DataElement element) =>

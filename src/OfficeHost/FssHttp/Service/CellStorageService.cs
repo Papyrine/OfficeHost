@@ -359,6 +359,8 @@ class CellStorageService(
 
         var subResponses = new List<SubResponse>();
         var elements = new Dictionary<ExtendedGuid, DataElement>();
+        // whether a query sent the client anything it lacked: the Storage Index of every answer is not a change
+        var changes = false;
         var package = request.DataElements?.Elements ?? [];
         foreach (var subRequest in request.SubRequests)
         {
@@ -389,8 +391,9 @@ class CellStorageService(
                     break;
                 case QueryChangesRequest query:
                     var cell = await Partition(site, partition, cancel);
-                    var (response, sent) = CellSync.Query(query, cell.State.Storage!);
+                    var (response, sent, changed) = CellSync.Query(query, cell.State.Storage!);
                     subResponses.Add(response);
+                    changes |= changed;
                     foreach (var element in sent)
                     {
                         elements.TryAdd(element.Id, element);
@@ -431,7 +434,7 @@ class CellStorageService(
                 new XAttribute("LastModifiedTime", file.LastModified.ToFileTime()),
                 new XAttribute("ModifiedBy", site.Access.UserName ?? site.Access.UserId));
             // with a query that sends changes, not with one that has none, nor with a put
-            if (elements.Count > 0 &&
+            if (changes &&
                 !request.SubRequests.Any(_ => _ is PutChangesRequest))
             {
                 data.Add(new XAttribute("HaveOnlyDemotionChanges", "False"));
