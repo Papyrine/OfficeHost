@@ -1,7 +1,6 @@
 #  <img src="/src/icon.png" height="30px"> OfficeHost
 
-[![Build](https://github.com/Papyrine/OfficeHost/actions/workflows/build.yml/badge.svg)](https://github.com/Papyrine/OfficeHost/actions/workflows/build.yml)
-[![NuGet Status](https://img.shields.io/nuget/v/OfficeHost.svg?label=OfficeHost)](https://www.nuget.org/packages/OfficeHost/)
+[![Build](https://github.com/Papyrine/OfficeHost/actions/workflows/build.yml/badge.svg)](https://github.com/Papyrine/OfficeHost/actions/workflows/build.yml) [![NuGet Status](https://img.shields.io/nuget/v/OfficeHost.svg?label=OfficeHost)](https://www.nuget.org/packages/OfficeHost/)
 
 The host side of the Office document protocols as a library for ASP.NET Core. Add it to a web application, and the files of any storage the application has open, edit and save in:
 
@@ -259,14 +258,12 @@ The sample also serves [Morph](https://github.com/Papyrine/Morph), a second WOPI
 
 ## Access
 
-`OfficeAccess` is what a token grants: a user's access to a file, which the application decides when it launches the
-editor.
+`OfficeAccess` is what a token grants: a user's access to a file, which the application decides when it launches the editor.
 
 * `CanWrite`: lock, save and delete the file. Without it the file opens read only.
 * `CanWriteRelative`: Save As, creating files next to this one, or replacing an unlocked one other than this one.
 * `CanRename`: rename the file.
-* `ViewOnly`: no download, print or copy, as the WOPI client enforces it: without `RequireProof`, the token alone can
-  still download the file.
+* `ViewOnly`: no download, print or copy, as the WOPI client enforces it: without `RequireProof`, the token alone can still download the file.
 * `IsAnonymous`, `UserName`: how the editor shows the user.
 
 The built-in tokens carry the access, signed with `SigningKey`, so they need no storage, but cannot be revoked before they expire; `PreviousSigningKeys` rotates the key without ending the sessions. They are short (about 70 characters, longer with long ids or user names), as desktop Office holds the token in the URL of the file and refuses a Save As to a URL of more than 255 characters; a custom `IOfficeTokens` should keep its tokens short too. To keep tokens in a database, or tie them to the application's sessions, register an `IOfficeTokens`.
