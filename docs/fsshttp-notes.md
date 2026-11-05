@@ -506,7 +506,8 @@ Query Changes, 4 Put Changes) and Word's saves before them:
 - **Put Changes:** flags `0x49`: A, imply null expected if no mapping; D, favor coherency failure over not found; G,
   return complete knowledge (Excel once sent `0x09`). Then three zero bytes: an empty content version coherency check,
   no author logins, the reserved byte. Additional flags `0x8004`: C, check for id reuse, and bit 15, which the spec
-  reserves. No lock id, the client's knowledge, no diagnostic.
+  reserves. No lock id, the client's knowledge, no diagnostic. A save Word splits (see "SharePoint Server 2016") has
+  `0x4B` for its parts (B, partial, besides) and `0x0D` for the last (A, C partial last, D).
 
 SharePoint Server SE answered each case of `PutChangesTests` (a save as Office's, with one thing changed), and OfficeHost
 now answers the same:
@@ -656,6 +657,15 @@ answers otherwise than SE, which OfficeHost follows, now known differences (`Sha
   `InvalidCoauthSession`, where SE answers `Success`. Word opened the document again just after, with a join.
 - **No editors table** in the answer to the query of the editors partition when no one is editing, where OfficeHost
   sends an empty one.
+- **A save of more than about 3 MB of changes is split** into partial Put Changes ([MS-FSSHTTPB] 2.2.2.1.4, Partial
+  and Partial Last), seen with pictures added to a document: 3.1 MB, 3.1 MB, then 1.2 MB, within 5 seconds. Each part
+  has Object Groups only, and a Storage Index of its own that maps nothing, with no expected one (flags `0x4B`). The
+  last (`0x0D`) has the other Object Groups, the manifests, and the Storage Index of the save with the expected one.
+  SharePoint answers each part as a Put Changes that applied nothing: Data Elements Added empty, knowledge without
+  cell knowledge, and the file properties without `Etag`; the last as a save. The spec says nothing of how a server
+  ties the parts together. OfficeHost failed each part (`InvalidObject`: it wrote the file of each put), and now keeps
+  their data elements by file, user and partition (`PartialPuts`), for an hour, answers them as SharePoint does, and
+  applies them with the last (`FssHttpServiceTests.Save_InParts`).
 - **Word's coauthoring** went otherwise than against SE: in a first recording, seven pairs of
   `GetChangesFile_MarkCoauthTransitionCompleteAndDownload` and `PollingSubscriptionNotConnected_TransitionToCoauthInHostMode`
   within 1.5 seconds of the open; in the second, one pair, then ExitCoauthoring and ReleaseLock, and the open again.

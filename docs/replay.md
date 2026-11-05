@@ -125,6 +125,10 @@ Then:
   the file Office put, not with Office's bytes.
 - **A put of another partition** (Office's metadata), or of a whole file expecting nothing (a Save As), has the
   client's ids only, and goes as it was.
+- **A part of a save Office split** (a partial Put Changes, of more than about 3 MB of changes) has Object Groups
+  only, which no Storage Index reaches yet: it goes as it was, labelled `(partial)`, and is compared as any other.
+  Its data elements join the client's copy under the Storage Index it has; OfficeHost keeps its own. The last part is
+  made again as a whole save, from the client's copy with them.
 - **After each Cell,** the two copies are compared rather than the two answers: the file (its hash), or the editors of
   the editors table. Each answer holds only what was new to its client, so the copies are what the clients have.
 

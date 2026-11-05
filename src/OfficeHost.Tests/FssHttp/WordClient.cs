@@ -197,9 +197,19 @@ class WordClient(TestServerHost host, string accessToken, string? clientId = nul
     /// Puts a new version of the file as Word does: the new data elements with null Serial Numbers, a Storage Index of a
     /// new id, and the Storage Index it expects, under a new id too, with Serial Numbers of its own for the mappings.
     /// With <paramref name="exclusive"/>, the lock id is that of an exclusive lock, as Excel saves: BypassLockID alone.
+    /// With <paramref name="parts"/>, the save is split as Word splits a large one (docs/fsshttp-notes.md, "SharePoint
+    /// Server 2016"): the Object Groups in that many parts, each but the last a partial Put Changes of them alone with a
+    /// Storage Index that maps nothing and no expected one (flags 0x4B), answered to <paramref name="part"/>, then the
+    /// rest as the last (0x0D, Partial Last). Without <paramref name="sendParts"/>, only the last is sent, as if the
+    /// others were lost.
     /// </summary>
-    public async Task<SubResponse> Save(byte[] file, string? lockId = SchemaLockId, bool exclusive = false)
+    public async Task<SubResponse> Save(byte[] file, string? lockId = SchemaLockId, bool exclusive = false, int parts = 1, Func<SubResponse, Task>? part = null, bool sendParts = true)
     {
+        if (parts > 1)
+        {
+            return await SaveInParts(file, lockId, parts, part, sendParts);
+        }
+
         var update = FileCell.Write(file, Content, ids, ChunkingOptions.Default);
         var index = update.Storage.StorageIndex with
         {
@@ -250,6 +260,90 @@ class WordClient(TestServerHost host, string accessToken, string? clientId = nul
 
         return response;
     }
+
+    async Task<SubResponse> SaveInParts(byte[] file, string? lockId, int parts, Func<SubResponse, Task>? part, bool sendParts)
+    {
+        var update = FileCell.Write(file, Content, ids, ChunkingOptions.Default);
+        var index = update.Storage.StorageIndex with
+        {
+            Id = ids.NewId()
+        };
+        var expected = Content!.StorageIndex with
+        {
+            Id = ids.NewId(),
+            Entries = Content.StorageIndex.Entries.Select(Remap).ToList()
+        };
+        var package = update.Added
+            .Where(_ => _ is not StorageIndex)
+            .Append(index)
+            .Append(expected)
+            .Select(_ => _ with { SerialNumber = SerialNumber.Null })
+            .ToList();
+        var groups = package.OfType<ObjectGroup>().ToList();
+        var size = Math.Max(1, (groups.Count + parts - 1) / parts);
+        var partial = groups.Chunk(size).Take(parts - 1).ToList();
+        foreach (var chunk in partial)
+        {
+            var nothing = new StorageIndex(ids.NewId(), SerialNumber.Null, []);
+            var response = await Put(new(1, nothing.Id, ExtendedGuid.Null, 0x4B, new byte[3], new byte[] { 4, 0, 0 }, ClientKnowledge: Knowledge), [.. chunk, nothing]);
+            if (response is not PutChangesResponse)
+            {
+                return response;
+            }
+
+            if (part != null)
+            {
+                await part(response);
+            }
+        }
+
+        var sent = partial.SelectMany(_ => _).Select(_ => _.Id).ToHashSet();
+        var last = await Put(new(1, index.Id, expected.Id, 0x0D, new byte[3], new byte[] { 4, 0, 0 }, ClientKnowledge: Knowledge), package.Where(_ => !sent.Contains(_.Id)).ToList());
+        if (last is PutChangesResponse succeeded)
+        {
+            Content = update.Storage.With([index], index.Id);
+            Knowledge = succeeded.Knowledge;
+        }
+
+        return last;
+
+        async Task<SubResponse> Put(PutChangesRequest put, List<DataElement> elements)
+        {
+            if (!sendParts &&
+                put.Partial)
+            {
+                return new PutChangesResponse(put.RequestId, Knowledge!);
+            }
+
+            var request = new FssHttpBRequest(new(Guid.NewGuid(), "msword", "win", 1), [put], new(elements)).ToArray();
+            var attributes = new List<XAttribute>
+            {
+                new("Coalesce", "true"),
+                new("CoauthVersioning", "true"),
+                new("GetFileProps", "true")
+            };
+            if (lockId != null)
+            {
+                attributes.Add(new("BypassLockID", lockId));
+                attributes.Add(new("SchemaLockID", lockId));
+            }
+
+            var result = (await Send(Cell("1", request, attributes.ToArray()))).Single();
+            LastData = result.Data;
+            if (result.ErrorCode != "Success" &&
+                result.Binary == null)
+            {
+                return new FailedSubResponse(1, RequestType.PutChanges, new(ResponseErrorType.Protocol, 0, result.ErrorCode));
+            }
+
+            return result.FssHttpB.SubResponses.Single();
+        }
+    }
+
+    /// <summary>
+    /// The SubResponseData of the last Put Changes of <see cref="SaveInParts"/>, with the properties of the file.
+    /// </summary>
+    public XElement? LastData { get; private set; }
 
     /// <summary>
     /// A Save As as Word sends it to the URL of the new name (docs/fsshttp-notes.md): one Request whose Cell puts the

@@ -46,8 +46,9 @@ specifics.
   `FssHttp/Cells/`: `CellState`, the state of a partition of a file serialized for the `IFssHttpStore`, and `FssHttpCells`,
   which keeps the content partition in step with the file in the `IOfficeStorage`.
   `FssHttp/Service/`: the desktop sites of `MapFssHttp` (`FssHttpHandler`: OPTIONS, cellstorage.svc, sharedaccess.asmx,
-  GET), SOAP and MTOM (`SoapMessage`), the sub-requests (`CellStorageService`), Query and Put Changes (`CellSync`), and
-  the coauthoring tracker with its lock in the `IOfficeLockStore` (`CoauthSessions`).
+  GET), SOAP and MTOM (`SoapMessage`), the sub-requests (`CellStorageService`), Query and Put Changes (`CellSync`), the
+  parts of a save Word splits (`PartialPuts`), and the coauthoring tracker with its lock in the `IOfficeLockStore`
+  (`CoauthSessions`).
 - `OfficeHost.SqlServer` (own package): the SQL Server stores (`SqlServerStorage`, `SqlServerLockStore`,
   `SqlServerFssHttpStore`, `SqlServerUserInfoStore`, `AddOfficeHostSqlServer`), with no DDL. `OfficeHost.SqlServer.Install`
   (own package): `OfficeHostSqlServerInstaller` creates the tables, sharing their names through the linked

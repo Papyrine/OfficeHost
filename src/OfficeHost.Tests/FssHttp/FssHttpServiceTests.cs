@@ -178,6 +178,57 @@ public class FssHttpServiceTests
     }
 
     /// <summary>
+    /// A save Word splits, as one of more than about 3 MB of changes (docs/fsshttp-notes.md, "SharePoint Server 2016"):
+    /// each partial Put Changes is answered as SharePoint answers it, as one that applied nothing, and leaves the file as
+    /// it was; the last applies them all, and another client gets the new file. A last part whose parts never came
+    /// fails, and changes nothing.
+    /// </summary>
+    [Test]
+    public async Task Save_InParts()
+    {
+        var (host, fileId, token) = await Start();
+        await using var _ = host;
+        var word = new WordClient(host, token);
+        await word.Send(word.Join());
+        await word.Sync();
+        var before = await FileOf(host);
+        var large = Zips.Create(
+            ("word/document.xml", Zips.Text("in parts")),
+            ("word/media/image1.png", Zips.Random(300_000, 2)),
+            ("word/media/image2.png", Zips.Random(300_000, 3)),
+            ("word/media/image3.png", Zips.Random(300_000, 4)));
+
+        var parts = 0;
+        var saved = await word.Save(
+            large,
+            parts: 3,
+            part: async response =>
+            {
+                parts++;
+                await Assert.That(((PutChangesResponse) response).DataElementsAdded).IsEmpty();
+                await Assert.That((await FileOf(host)).SameAs(before)).IsTrue();
+                // the file properties, but no Etag: the file has no new version yet
+                await Assert.That(word.LastData!.Attribute("Etag")).IsNull();
+                await Assert.That(word.LastData!.Attribute("LastModifiedTime")).IsNotNull();
+            });
+        await Assert.That(parts).IsEqualTo(2);
+        await Assert.That(saved).IsTypeOf<PutChangesResponse>();
+        await Assert.That((await FileOf(host)).SameAs(large)).IsTrue();
+        await Assert.That(await host.Service<PartialPuts>().Get(fileId, "alice", FssHttpCells.ContentPartition)).IsEmpty();
+
+        var other = new WordClient(host, token);
+        await other.Sync();
+        await Assert.That(other.File.SameAs(large)).IsTrue();
+
+        var lost = await word.Save(
+            Zips.Create(("word/document.xml", Zips.Text("lost")), ("word/media/image1.png", Zips.Random(300_000, 5))),
+            parts: 3,
+            sendParts: false);
+        await Assert.That(((FailedSubResponse) lost).Error).IsEqualTo(ResponseError.Cell(CellErrorCode.ReferencedDataElementNotFound));
+        await Assert.That((await FileOf(host)).SameAs(large)).IsTrue();
+    }
+
+    /// <summary>
     /// Two clients coauthoring (docs/fsshttp-spike.md, sixth capture): the second join starts a transition, which makes
     /// IsOnlyClient false for the first, until it marks it complete; both poll the status; a save of one comes to the
     /// other with its next query; a stale save fails coherency, and goes through after a query, as Word merges.

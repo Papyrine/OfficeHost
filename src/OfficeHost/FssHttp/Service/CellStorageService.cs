@@ -43,6 +43,7 @@ class CellStorageService(
     CoauthSessions sessions,
     FssHttpTargets targets,
     SaveAsFiles saveAs,
+    PartialPuts partialPuts,
     IFssHttpStore store,
     IOptions<OfficeHostOptions> options,
     ILogger<CellStorageService> log)
@@ -364,7 +365,8 @@ class CellStorageService(
             var partition = subRequest.TargetPartition ?? defaultPartition;
             // the partitions OfficeHost keeps its own state in are not cells
             if (partition == CoauthSessions.SessionPartition ||
-                partition == SaveAsFiles.Partition)
+                partition == SaveAsFiles.Partition ||
+                partition == PartialPuts.Partition)
             {
                 subResponses.Add(new FailedSubResponse(subRequest.RequestId, subRequest.Type, ResponseError.Cell(CellErrorCode.InvalidPartition)));
                 continue;
@@ -418,8 +420,13 @@ class CellStorageService(
             defaultPartition == FssHttpCells.ContentPartition)
         {
             file = await storage.GetFile(site.FileId, cancel) ?? file;
+            // no Etag with a part of a save, as on SharePoint Server 2016: the file has no new version yet
+            if (!request.SubRequests.Any(_ => _ is PutChangesRequest { Partial: true }))
+            {
+                data.Add(new XAttribute("Etag", Etag(site, file)));
+            }
+
             data.Add(
-                new XAttribute("Etag", Etag(site, file)),
                 new XAttribute("CreateTime", file.LastModified.ToFileTime()),
                 new XAttribute("LastModifiedTime", file.LastModified.ToFileTime()),
                 new XAttribute("ModifiedBy", site.Access.UserName ?? site.Access.UserId));
@@ -509,6 +516,26 @@ class CellStorageService(
             return ("FileAlreadyLockedOnServer", null);
         }
 
+        // a part of a save Word split (Partial, PartialPuts): its data elements wait for the last part, and it is answered
+        // as SharePoint answers it, as a Put Changes that applied nothing, with the knowledge of the cell as it is
+        if (put.Partial)
+        {
+            await partialPuts.Add(site.FileId, site.Access.UserId, partition, package.Where(_ => _ is not StorageIndex).ToList(), cancel);
+            var current = partition == FssHttpCells.ContentPartition
+                ? await cells.GetContent(site.FileId, cancel) ?? throw new InvalidDataException($"No file {site.FileId}")
+                : await cells.Get(site.FileId, partition, cancel);
+            var knowledge = current.State.Storage is { } cellStorage ? SerialNumberSet.Full(cellStorage) : Knowledge.Empty;
+            return (null, new PutChangesResponse(put.RequestId, knowledge, true, ExtendedGuid.Null, []));
+        }
+
+        // the last part: with the data elements of the parts before it
+        if (put.PartialLast &&
+            await partialPuts.Get(site.FileId, site.Access.UserId, partition, cancel) is { Count: > 0 } waiting)
+        {
+            var sent = package.Select(_ => _.Id).ToHashSet();
+            package = waiting.Where(_ => !sent.Contains(_.Id)).Concat(package).ToList();
+        }
+
         for (var attempt = 0; attempt < 8; attempt++)
         {
             StoredCell cell;
@@ -532,6 +559,7 @@ class CellStorageService(
             {
                 if (await cells.TryUpdate(site.FileId, partition, cell.Version, outcome.State, cancel) != null)
                 {
+                    await Applied();
                     return (null, outcome.Response);
                 }
 
@@ -562,10 +590,20 @@ class CellStorageService(
                 await WopiHandler.NotifySaved(options.Value, log, new(file, site.Access, [site.Access.UserId], false, false));
             }
 
+            await Applied();
             return (null, outcome.Response);
         }
 
         return (null, new FailedSubResponse(put.RequestId, RequestType.PutChanges, ResponseError.Cell(CellErrorCode.CoherencyFailure)));
+
+        // the parts of a save, once its last part applied them; kept when it fails, for Word to put it again
+        async Task Applied()
+        {
+            if (put.PartialLast)
+            {
+                await partialPuts.Remove(site.FileId, site.Access.UserId, partition, cancel);
+            }
+        }
     }
 
     static string? Attribute(XElement? element, string name) => (string?) element?.Attribute(name);
