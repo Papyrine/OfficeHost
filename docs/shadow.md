@@ -1,15 +1,10 @@
 # Shadow: OfficeHost compared with SharePoint on live traffic
 
-A consumer of OfficeHost can run a **shadow** of a SharePoint Server farm: SharePoint goes on serving desktop Office as it
-does, and a copy of each exchange goes to a shadow deployment of the consumer's own OfficeHost application, which
-replays it, compares OfficeHost's answer with SharePoint's, and logs what it finds. For diagnostics and learning: to
-gain confidence in OfficeHost, in the application's use of it, and in its choice of storage, before moving users.
+A consumer of OfficeHost can run a **shadow** of a SharePoint Server farm: SharePoint goes on serving desktop Office as it does, and a copy of each exchange goes to a shadow deployment of the consumer's own OfficeHost application, which replays it, compares OfficeHost's answer with SharePoint's, and logs what it finds. For diagnostics and learning: to gain confidence in OfficeHost, in the application's use of it, and in its choice of storage, before moving users.
 
 It is made of two packages:
-- **OfficeHost.SharePoint**: a module for SharePoint Server 2016, 2019 and Subscription Edition (.NET Framework 4.6.2),
-  deployed as a farm solution by the script that comes with it. Tested on Subscription Edition (the lab).
-- **OfficeHost.Shadow**: what the application adds to become a shadow: an endpoint the module posts to, and the replay
-  and comparison of [replay.md](replay.md), live.
+- **OfficeHost.SharePoint**: a module for SharePoint Server 2016, 2019 and Subscription Edition (.NET Framework 4.6.2), deployed as a farm solution by the script that comes with it. Tested on Subscription Edition (the lab).
+- **OfficeHost.Shadow**: what the application adds to become a shadow: an endpoint the module posts to, and the replay and comparison of [replay.md](replay.md), live.
 
 
 ## How it works
@@ -71,10 +66,7 @@ sequenceDiagram
     Note over P: Same, KnownDifference, NotCompared,<br/>Different, OfficeHostFailed … at its log level
 ```
 
-The shadow replays to OfficeHost in process (the handler of `MapFssHttp`), not over HTTP: no network between them,
-and none of the application's middleware. OfficeHost's clock is the time SharePoint received each exchange, so
-coauthoring sessions and locks expire as they did on SharePoint, however late the shadow replays.
-
+The shadow replays to OfficeHost in process (the handler of `MapFssHttp`), not over HTTP: no network between them, and none of the application's middleware. OfficeHost's clock is the time SharePoint received each exchange, so coauthoring sessions and locks expire as they did on SharePoint, however late the shadow replays. 
 
 ## The guarantees to SharePoint
 
