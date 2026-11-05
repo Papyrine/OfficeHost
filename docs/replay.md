@@ -130,6 +130,11 @@ Then:
   only, which no Storage Index reaches yet: it goes as it was, labelled `(partial)`, and is compared as any other.
   Its data elements join the client's copy under the Storage Index it has; OfficeHost keeps its own. The last part is
   made again as a whole save, from the client's copy with them.
+- **A download in parts** (partial Query Changes answers, of a document over Office's maximum) is compared answer for
+  answer, though OfficeHost chunks the file otherwise than SharePoint, and its parts hold other data elements. When
+  OfficeHost needs more answers than SharePoint, its answer to Office's last query is still partial, without the
+  `Etag` that SharePoint's has: a difference of the replay, where Office would query again. Office against the sample
+  shows whether a download completes.
 - **After each Cell,** the two copies are compared rather than the two answers: the file (its hash), or the editors of
   the editors table. Each answer holds only what was new to its client, so the copies are what the clients have.
 

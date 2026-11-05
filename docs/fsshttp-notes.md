@@ -323,7 +323,8 @@ It opened the document, enabled editing, saved twice and closed, and the file ha
   1.2 MB, within a second. The two partial ones have the flag, a null Storage Index Extended GUID, Object Groups only
   (of 1 MB at most), and as cell knowledge the Serial Numbers of the Object Groups sent so far, one by one (and
   `0..0`); their file properties have no `Etag`. The last has the other Object Groups, the manifests and the Storage
-  Index, its Extended GUID, the whole knowledge, and the `Etag`.
+  Index, its Extended GUID, the whole knowledge, and the `Etag`. A document of 38 MB, the same way: 12 partial
+  answers of 3.1 to 3.6 MB and a last of 0.6 MB, within 14 seconds.
 - **The service** named its Storage Index in a partial answer, and sent the `Etag`: Word sent no other query, exited
   coauthoring, and the open failed, or Word fell back to a GET of the file and opened it read-only (with the Storage
   Index sent too, in an experiment, the same). It now answers as SharePoint: no Storage Index named in a partial
