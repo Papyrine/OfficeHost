@@ -249,7 +249,7 @@ The sample also serves [Morph](https://github.com/Papyrine/Morph), a second WOPI
 | `ServerVersion` | the library's | The `X-WOPI-ServerVersion` of the responses. |
 | `HostEditUrl`, `HostViewUrl` | | The pages of the application that open a file, returned by CheckFileInfo and PutRelativeFile. |
 | `OnCheckFileInfo` | | Adds or changes CheckFileInfo properties: `CloseUrl`, breadcrumbs, branding, CSPP+ properties. |
-| `OnFileSaved` | | Called after a save, by a WOPI client or desktop Office, with the editors: to keep versions or audit. |
+| `OnFileSaved` | | Called after a save, by a WOPI client or desktop Office, with the user who saved and the editors: to keep versions or audit. |
 | `UrlPlaceholder` | | The values of the placeholders of the action URLs, as `UI_LLCC` or `BUSINESS_USER`; all are dropped without it. |
 | `ShareUrl` | | The URL to share a file by, for GetShareUrl; WOPI clients offer no sharing without it. |
 | `DesktopPath` | `/fsshttp` | The path of the sites of desktop Office, `MapFssHttp`. |
@@ -265,6 +265,8 @@ The sample also serves [Morph](https://github.com/Papyrine/Morph), a second WOPI
 * `CanRename`: rename the file.
 * `ViewOnly`: no download, print or copy, as the WOPI client enforces it: without `RequireProof`, the token alone can still download the file.
 * `IsAnonymous`, `UserName`: how the editor shows the user.
+
+The hooks run in the requests of the WOPI client or of desktop Office, which carry no sign-in of the application: `OnCheckFileInfo` and `OnFileSaved` get the `OfficeUser` of the token instead (`Id` and `Name` as the application set `UserId` and `UserName`, and the `Client`, WOPI or desktop), and the `OfficeAccess` the token granted, so the application never has to find and validate the token itself.
 
 The built-in tokens carry the access, signed with `SigningKey`, so they need no storage, but cannot be revoked before they expire; `PreviousSigningKeys` rotates the key without ending the sessions. They are short (about 70 characters, longer with long ids or user names), as desktop Office holds the token in the URL of the file and refuses a Save As to a URL of more than 255 characters; a custom `IOfficeTokens` should keep its tokens short too. To keep tokens in a database, or tie them to the application's sessions, register an `IOfficeTokens`.
 

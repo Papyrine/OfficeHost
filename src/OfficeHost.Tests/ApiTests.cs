@@ -447,9 +447,11 @@ public class ApiTests
     [Test]
     public async Task CheckFileInfo_Customized()
     {
+        OfficeUser? user = null;
         await using var host = await TestServerHost.Start(
             _ => _.OnCheckFileInfo = context =>
             {
+                user = context.User;
                 context.Properties["CloseUrl"] = $"https://app/folder?file={context.File.Name}";
                 context.Properties["UserCanWrite"] = false;
                 return Task.CompletedTask;
@@ -458,6 +460,8 @@ public class ApiTests
         var (fileId, token) = await host.Open("/test.docx");
         using var response = await host.Client.GetAsync($"/wopi/files/{fileId}?access_token={token}");
         var info = JsonNode.Parse(await response.Content.ReadAsStringAsync())!;
+        // the user of the token, as the hook runs in the request of the WOPI client
+        await Assert.That(user).IsEqualTo(new OfficeUser("alice", "Alice", OfficeClient.Wopi));
         await Assert.That((string?) info["CloseUrl"]).IsEqualTo("https://app/folder?file=test.docx");
         await Assert.That((bool?) info["UserCanWrite"]).IsFalse();
         await Assert.That((string?) info["HostEditUrl"]).IsEqualTo($"https://app/edit/{fileId}");

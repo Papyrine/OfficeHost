@@ -323,6 +323,9 @@ public class HardeningTests
         await Assert.That(saved.StatusCode).IsEqualTo(HttpStatusCode.OK);
         var save = saves.Single();
         await Assert.That(save.File.Id).IsEqualTo(fileId);
+        // the user of the token, so that the application needs no token of its own to find who saved
+        await Assert.That(save.User).IsEqualTo(new OfficeUser("alice", "Alice", OfficeClient.Wopi));
+        await Assert.That(save.Access.UserId).IsEqualTo("alice");
         await Assert.That(save.Editors).IsEquivalentTo(["alice", "bob"]);
         await Assert.That(save.IsAutosave).IsTrue();
         await Assert.That(save.IsExitSave).IsFalse();

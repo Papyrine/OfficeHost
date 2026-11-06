@@ -9,6 +9,11 @@ record FssHttpSite(OfficeAccess Access, string WebUrl, string Token, DateTimeOff
     public string FileId => Access.FileId;
 
     /// <summary>
+    /// The user the request acts as: that of the token, from desktop Office.
+    /// </summary>
+    public OfficeUser User => OfficeUser.From(Access, OfficeClient.Desktop);
+
+    /// <summary>
     /// The site of a Save As that replaces a file the site cannot reach otherwise: its content is written, not read.
     /// </summary>
     public bool Replacing { get; init; }
@@ -559,7 +564,7 @@ class CellStorageService(
                 await storage.GetFile(site.FileId, cancel) is { } file &&
                 file.Version == written.State.FileVersion)
             {
-                await WopiHandler.NotifySaved(options.Value, log, new(file, site.Access, [site.Access.UserId], false, false));
+                await WopiHandler.NotifySaved(options.Value, log, new(file, site.Access, site.User, [site.Access.UserId], false, false));
             }
 
             return (null, outcome.Response);

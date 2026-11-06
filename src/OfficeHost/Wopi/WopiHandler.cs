@@ -373,6 +373,7 @@ sealed class WopiHandler(
         var saved = new FileSavedContext(
             file,
             access,
+            OfficeUser.From(access, OfficeClient.Wopi),
             editors,
             string.Equals(request.Header("X-COOL-WOPI-IsAutosave"), "true", StringComparison.OrdinalIgnoreCase),
             string.Equals(request.Header("X-COOL-WOPI-IsExitSave"), "true", StringComparison.OrdinalIgnoreCase));
