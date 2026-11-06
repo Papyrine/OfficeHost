@@ -170,6 +170,7 @@ class FssHttpHandler(
                 {
                     Clients = _.Clients.Select(client => client with { Expires = sessions.Now.AddSeconds(client.TimeoutSeconds) }).ToList()
                 }),
+                site.User,
                 cancel);
             session = result.Session;
         }

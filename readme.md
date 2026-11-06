@@ -324,7 +324,7 @@ public interface IOfficeStorage
 
 `FileSystemStorage` keeps the files in a folder, for development, tests and single machines. It gives each file an id on first use (`GetFileId("reports/q3.docx")`), kept in a hidden `.wopi` folder so that ids survive renames, and writes through a temporary file so that a save never leaves a partial file.
 
-Locks are kept by an `IOfficeLockStore`. The default `MemoryLockStore` suits a single instance of the application; several instances need a shared store, such as one over Redis or a database, with an atomic compare and exchange.
+Locks are kept by an `IOfficeLockStore`. The default `MemoryLockStore` suits a single instance of the application; several instances need a shared store, such as one over Redis or a database, with an atomic compare and exchange. The lock operations pass the `OfficeUser` of the request (the overload of `CompareExchange` with a user, which a store of the two original members gets through its default implementation), and the built-in stores keep it as the `Holder` of the lock `Get` returns, for the application to show who is editing a file; `SqlServerLockStore` keeps it in the HolderId, HolderName and HolderClient columns, to read from the database.
 
 PutUserInfo, where the editors keep per-user data such as the tips a user has seen, is supported when an `IOfficeUserInfoStore` is registered.
 

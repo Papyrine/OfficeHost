@@ -330,7 +330,10 @@ public class FssHttpServiceTests
         // nothing to release is a Success, as SharePoint Server SE answers
         await Assert.That((await Exclusive("ReleaseLock")).ErrorCode).IsEqualTo("Success");
         await Assert.That((await Exclusive("GetLock")).ErrorCode).IsEqualTo("Success");
-        await Assert.That((await host.Service<IOfficeLockStore>().Get(fileId))!.Id).IsEqualTo("fsshttp-exclusive:{E}");
+        var exclusive = (await host.Service<IOfficeLockStore>().Get(fileId))!;
+        await Assert.That(exclusive.Id).IsEqualTo("fsshttp-exclusive:{E}");
+        // the lock store hears who locks, as from desktop Office
+        await Assert.That(exclusive.Holder).IsEqualTo(new OfficeUser("alice", "Alice", OfficeClient.Desktop));
         await Assert.That((await Exclusive("RefreshLock")).ErrorCode).IsEqualTo("Success");
         await Assert.That((await Exclusive("GetLock", "{F}")).ErrorCode).IsEqualTo("FileAlreadyLockedOnServer");
         await Assert.That((await Exclusive("CheckLockAvailability", "{F}")).ErrorCode).IsEqualTo("FileAlreadyLockedOnServer");

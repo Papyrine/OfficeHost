@@ -319,6 +319,8 @@ public class HardeningTests
             await Assert.That(locked.StatusCode).IsEqualTo(HttpStatusCode.OK);
         }
 
+        // the lock store hears who locks, for the application to show who is editing
+        await Assert.That((await host.Service<IOfficeLockStore>().Get(fileId))!.Holder).IsEqualTo(new OfficeUser("alice", "Alice", OfficeClient.Wopi));
         using var saved = await host.PutFile(fileId, token, "saved", ("X-WOPI-Lock", "L"), ("X-WOPI-Editors", "alice, bob"), ("X-COOL-WOPI-IsAutosave", "true"));
         await Assert.That(saved.StatusCode).IsEqualTo(HttpStatusCode.OK);
         var save = saves.Single();

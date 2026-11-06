@@ -98,7 +98,43 @@ public class SqlServerInstallTests(SqlDatabase database)
         var locks = new SqlServerLockStore(connectionString, TimeProvider.System, schema);
         var expires = DateTimeOffset.UtcNow.AddMinutes(30);
         await locks.CompareExchange("Doc", null, new("upper", expires));
-        await Assert.That(await locks.CompareExchange("doc", null, new("lower", expires))).IsNull();
+        await Assert.That(await locks.CompareExchange("doc", null, new("lower", expires), new OfficeUser("bob", "Bob", OfficeClient.Desktop))).IsNull();
         await Assert.That((await locks.Get("Doc"))!.Id).IsEqualTo("upper");
+        await Assert.That((await locks.Get("doc"))!.Holder).IsEqualTo(new OfficeUser("bob", "Bob", OfficeClient.Desktop));
+    }
+
+    /// <summary>
+    /// Tables of version 2 get the holder of a lock, keeping their rows: the locks of before have none.
+    /// </summary>
+    [Test]
+    public async Task Install_FromVersion2()
+    {
+        var schema = $"v2{Guid.NewGuid():N}";
+        await using (var connection = new SqlConnection(connectionString))
+        {
+            await connection.OpenAsync();
+            await using var create = new SqlCommand(
+                $"""
+                 exec('create schema [{schema}]');
+                 create table [{schema}].[OfficeHostFiles] (Id nvarchar(450) collate Latin1_General_100_BIN2 not null constraint [PK_OfficeHostFiles] primary key, Folder nvarchar(400) not null, Name nvarchar(255) not null, OwnerId nvarchar(450) not null, Content varbinary(max) not null, Size as datalength(Content), Version uniqueidentifier not null, LastModified datetimeoffset not null);
+                 create unique index IX_OfficeHostFiles_Folder_Name on [{schema}].[OfficeHostFiles] (Folder, Name);
+                 create table [{schema}].[OfficeHostLocks] (FileId nvarchar(450) collate Latin1_General_100_BIN2 not null constraint [PK_OfficeHostLocks] primary key, LockId nvarchar(1024) collate Latin1_General_100_BIN2 not null, Expires datetimeoffset not null);
+                 create table [{schema}].[OfficeHostFssHttpStates] (FileId nvarchar(450) collate Latin1_General_100_BIN2 not null, Partition uniqueidentifier not null, Version nvarchar(max) collate Latin1_General_100_BIN2 not null, Data varbinary(max) not null, constraint [PK_OfficeHostFssHttpStates] primary key (FileId, Partition));
+                 create table [{schema}].[OfficeHostUserInfo] (UserId nvarchar(450) collate Latin1_General_100_BIN2 not null constraint [PK_OfficeHostUserInfo] primary key, Info nvarchar(max) not null);
+                 create table [{schema}].[OfficeHostSchemaVersion] (Version int not null);
+                 insert into [{schema}].[OfficeHostSchemaVersion] (Version) values (2);
+                 insert into [{schema}].[OfficeHostLocks] (FileId, LockId, Expires) values ('kept', 'L', '2100-01-01');
+                 """,
+                connection);
+            await create.ExecuteNonQueryAsync();
+        }
+
+        await OfficeHostSqlServerInstaller.Install(connectionString, schema);
+        await OfficeHostSqlServerInstaller.Install(connectionString, schema);
+        var locks = new SqlServerLockStore(connectionString, TimeProvider.System, schema);
+        await Assert.That(await locks.Get("kept")).IsEqualTo(new OfficeLock("L", new(2100, 1, 1, 0, 0, 0, TimeSpan.Zero)));
+        var alice = new OfficeUser("alice", "Alice", OfficeClient.Wopi);
+        await Assert.That(await locks.CompareExchange("new", null, new("M", DateTimeOffset.UtcNow.AddMinutes(30)), alice)).IsNull();
+        await Assert.That((await locks.Get("new"))!.Holder).IsEqualTo(alice);
     }
 }

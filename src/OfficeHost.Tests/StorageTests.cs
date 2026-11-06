@@ -285,6 +285,56 @@ public class StorageTests : IDisposable
     }
 
     /// <summary>
+    /// The store keeps who took or refreshed a lock, for the application to show who is editing: the user given, or
+    /// else the holder the value names, as when a lock is put back.
+    /// </summary>
+    [Test]
+    public async Task Locks_Holder()
+    {
+        var locks = new MemoryLockStore(TimeProvider.System);
+        var expires = DateTimeOffset.UtcNow.AddMinutes(30);
+        var alice = new OfficeUser("alice", "Alice", OfficeClient.Wopi);
+        var bob = new OfficeUser("bob", "Bob", OfficeClient.Desktop);
+        await locks.CompareExchange("f", null, new("L", expires), alice);
+        await Assert.That((await locks.Get("f"))!.Holder).IsEqualTo(alice);
+
+        // a refresh by another user passes the lock on
+        var previous = await locks.CompareExchange("f", "L", new("L", expires), bob);
+        await Assert.That(previous!.Holder).IsEqualTo(alice);
+        await Assert.That((await locks.Get("f"))!.Holder).IsEqualTo(bob);
+
+        // no user: the holder of the value, as a lock put back keeps its holder
+        await locks.CompareExchange("f", "L", previous, null);
+        await Assert.That((await locks.Get("f"))!.Holder).IsEqualTo(alice);
+        await locks.CompareExchange("f", "L", new("L2", expires));
+        await Assert.That((await locks.Get("f"))!.Holder).IsNull();
+    }
+
+    /// <summary>
+    /// A store of before the user was passed, with the two members of then, still works: the user is dropped.
+    /// </summary>
+    [Test]
+    public async Task Locks_StoreWithoutUser()
+    {
+        IOfficeLockStore locks = new OldLockStore();
+        var expires = DateTimeOffset.UtcNow.AddMinutes(30);
+        await Assert.That(await locks.CompareExchange("f", null, new("L", expires), new OfficeUser("alice", "Alice", OfficeClient.Wopi))).IsNull();
+        await Assert.That(await locks.Get("f")).IsEqualTo(new OfficeLock("L", expires));
+    }
+
+    sealed class OldLockStore :
+        IOfficeLockStore
+    {
+        MemoryLockStore inner = new(TimeProvider.System);
+
+        public Task<OfficeLock?> Get(string fileId, Cancel cancel = default) =>
+            inner.Get(fileId, cancel);
+
+        public Task<OfficeLock?> CompareExchange(string fileId, string? comparand, OfficeLock? value, Cancel cancel = default) =>
+            inner.CompareExchange(fileId, comparand, value, cancel);
+    }
+
+    /// <summary>
     /// Of concurrent lock attempts on an unlocked file, exactly one wins.
     /// </summary>
     [Test]

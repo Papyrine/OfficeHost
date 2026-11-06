@@ -81,6 +81,38 @@ public class SqlServerTests(SqlDatabase database) :
     }
 
     /// <summary>
+    /// The holder of a lock is kept with it, for the application to show who is editing: the user given, or else the
+    /// holder the value names, and none for a lock taken without one.
+    /// </summary>
+    [Test]
+    public async Task Locks_Holder()
+    {
+        var time = new ManualTime();
+        var locks = new SqlServerLockStore(connectionString, time);
+        var fileId = folder;
+        var expires = time.GetUtcNow().AddMinutes(30);
+        var alice = new OfficeUser("alice", "Alice", OfficeClient.Wopi);
+        var bob = new OfficeUser("bob", null, OfficeClient.Desktop);
+        await Assert.That(await locks.CompareExchange(fileId, null, new("a", expires), alice)).IsNull();
+        await Assert.That(await locks.Get(fileId)).IsEqualTo(new OfficeLock("a", expires) { Holder = alice });
+
+        var previous = await locks.CompareExchange(fileId, "a", new("a", expires), bob);
+        await Assert.That(previous!.Holder).IsEqualTo(alice);
+        await Assert.That((await locks.Get(fileId))!.Holder).IsEqualTo(bob);
+
+        // no user: the holder of the value
+        await locks.CompareExchange(fileId, "a", previous, null);
+        await Assert.That((await locks.Get(fileId))!.Holder).IsEqualTo(alice);
+        await locks.CompareExchange(fileId, "a", new("b", expires));
+        await Assert.That((await locks.Get(fileId))!.Holder).IsNull();
+
+        // the holder goes with the lock
+        await locks.CompareExchange(fileId, "b", null, bob);
+        await Assert.That(await locks.Get(fileId)).IsNull();
+        await Assert.That(() => locks.CompareExchange(fileId, null, new("c", expires), alice with { Id = new('u', 451) })).Throws<ArgumentException>();
+    }
+
+    /// <summary>
     /// Lock ids are compared as they are, whatever the collation of the database, and a comparand longer than a lock id
     /// is not cut into one.
     /// </summary>
