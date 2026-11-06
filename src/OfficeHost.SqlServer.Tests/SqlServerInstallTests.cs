@@ -86,7 +86,7 @@ public class SqlServerInstallTests(SqlDatabase database)
         }
 
         var storage = new SqlServerStorage(connectionString, schema);
-        var file = (await storage.Add("folder", "kept.docx", "owner", new MemoryStream("kept"u8.ToArray())))!;
+        var file = await storage.Add("folder", "kept.docx", "owner", new MemoryStream("kept"u8.ToArray()));
         await OfficeHostSqlServerInstaller.Install(connectionString, schema);
         await OfficeHostSqlServerInstaller.Install(connectionString, schema);
         await using (var stream = await storage.OpenRead(file.Id))

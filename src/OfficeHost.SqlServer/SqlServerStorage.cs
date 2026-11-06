@@ -31,11 +31,22 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
     const int noFile = 50001;
 
     /// <summary>
-    /// Adds a file, returning it with its id. Returns null when the folder has a file of that name.
+    /// Adds a file, returning it with its id. Throws when the folder has a file of that name: <see cref="TryAdd"/>
+    /// returns null instead.
+    /// </summary>
+    /// <param name="folder">The folder of the file, of which siblings are the files of the same folder.</param>
+    /// <exception cref="IOException">The folder has a file of that name.</exception>
+    /// <exception cref="ArgumentException">The folder, the name or the owner id is longer than the table holds.</exception>
+    public async Task<OfficeFile> Add(string folder, string name, string ownerId, Stream content, Cancel cancel = default) =>
+        await TryAdd(folder, name, ownerId, content, cancel) ??
+        throw new IOException($"The folder {folder} already has a file named {name}");
+
+    /// <summary>
+    /// Adds a file, returning it with its id, or null when the folder has a file of that name.
     /// </summary>
     /// <param name="folder">The folder of the file, of which siblings are the files of the same folder.</param>
     /// <exception cref="ArgumentException">The folder, the name or the owner id is longer than the table holds.</exception>
-    public Task<OfficeFile?> Add(string folder, string name, string ownerId, Stream content, Cancel cancel = default) =>
+    public Task<OfficeFile?> TryAdd(string folder, string name, string ownerId, Stream content, Cancel cancel = default) =>
         DeadlockRetry.Once(content, _ => AddAttempt(folder, name, ownerId, _, cancel), cancel);
 
     async Task<OfficeFile?> AddAttempt(string folder, string name, string ownerId, Stream content, Cancel cancel)

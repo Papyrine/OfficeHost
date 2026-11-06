@@ -169,7 +169,7 @@ class SqlServerShadowDocuments(SqlServerStorage storage, IShadowDocumentMap map)
     {
         var folder = $"{document.Url.Host}/{document.Folder}";
         var file = await storage.Add(folder, document.Name, "shadow", content, cancel);
-        await map.Set(document.Key, file!.Id, cancel);
+        await map.Set(document.Key, file.Id, cancel);
         return file.Id;
     }
 }

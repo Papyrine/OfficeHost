@@ -12,7 +12,26 @@ public class SqlServerTests(SqlDatabase database) :
     protected override IOfficeStorage Storage => new SqlServerStorage(connectionString);
 
     protected override Task<OfficeFile?> Add(string folder, string name, Stream content) =>
-        new SqlServerStorage(connectionString).Add(folder, name, "owner", content);
+        new SqlServerStorage(connectionString).TryAdd(folder, name, "owner", content);
+
+    /// <summary>
+    /// A name the folder already has fails <see cref="SqlServerStorage.Add"/>, naming both, where
+    /// <see cref="SqlServerStorage.TryAdd"/> returns null.
+    /// </summary>
+    [Test]
+    public async Task Add_NameExists()
+    {
+        var storage = new SqlServerStorage(connectionString);
+        var file = await storage.Add(folder, "taken.docx", "owner", Content("1"));
+        await Assert.That(file.Name).IsEqualTo("taken.docx");
+        var exception = await Assert.That(async () =>
+        {
+            await storage.Add(folder, "TAKEN.docx", "owner", Content("2"));
+        }).Throws<IOException>();
+        await Assert.That(exception!.Message).IsEqualTo($"The folder {folder} already has a file named TAKEN.docx");
+        await Assert.That(await storage.TryAdd(folder, "TAKEN.docx", "owner", Content("2"))).IsNull();
+        await Assert.That(await Read(await storage.OpenRead(file.Id))).IsEqualTo("1");
+    }
 
     [Test]
     public Task Script() =>
@@ -140,7 +159,7 @@ public class SqlServerTests(SqlDatabase database) :
     {
         var storage = new SqlServerStorage(connectionString);
         var bytes = RandomNumberGenerator.GetBytes(9 * 1024 * 1024 + 7);
-        var file = (await storage.Add(folder, "large.bin", "owner", new MemoryStream(bytes)))!;
+        var file = await storage.Add(folder, "large.bin", "owner", new MemoryStream(bytes));
         await using (var read = await storage.OpenRead(file.Id))
         {
             using var copy = new MemoryStream();
@@ -162,7 +181,7 @@ public class SqlServerTests(SqlDatabase database) :
     public async Task Add_NameTooLong()
     {
         var storage = new SqlServerStorage(connectionString);
-        await Assert.That(() => storage.Add(folder, new('n', 256), "owner", Content("x"))).Throws<ArgumentException>();
+        await Assert.That(() => storage.TryAdd(folder, new('n', 256), "owner", Content("x"))).Throws<ArgumentException>();
     }
 
     [Test]
@@ -243,7 +262,7 @@ public class SqlServerTests(SqlDatabase database) :
 
         await Assert.That(app.Services.GetRequiredService<IOfficeLockStore>()).IsTypeOf<SqlServerLockStore>();
         var storage = app.Services.GetRequiredService<SqlServerStorage>();
-        var file = (await storage.Add(folder, "test.docx", "owner", Content("12345")))!;
+        var file = await storage.Add(folder, "test.docx", "owner", Content("12345"));
         var token = await app.Services.GetRequiredService<IOfficeTokens>()
             .Issue(new(file.Id, "user") { CanWrite = true });
         using var client = app.GetTestClient();

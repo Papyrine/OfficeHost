@@ -333,7 +333,7 @@ The state of desktop coauthoring (the data elements Office syncs, the coauthorin
 
 ### SQL Server
 
-The [OfficeHost.SqlServer](https://www.nuget.org/packages/OfficeHost.SqlServer/) package keeps everything in SQL Server, shared by all the instances of the application: `SqlServerStorage` (the files, in folders the application names, added with `Add(folder, name, ownerId, content)`, which gives the id), `SqlServerLockStore`, `SqlServerFssHttpStore` and `SqlServerUserInfoStore`. Each can be used alone, or `AddOfficeHostSqlServer` registers them all. The tables are created by [OfficeHost.SqlServer.Install](https://www.nuget.org/packages/OfficeHost.SqlServer.Install/), so the application needs no rights to change the schema; `OfficeHostSqlServerInstaller.GetScript()` gives the script to apply by hand. Both take a schema, `dbo` by default.
+The [OfficeHost.SqlServer](https://www.nuget.org/packages/OfficeHost.SqlServer/) package keeps everything in SQL Server, shared by all the instances of the application: `SqlServerStorage` (the files, in folders the application names, added with `Add(folder, name, ownerId, content)`, which gives the id and throws when the folder has a file of that name, or `TryAdd`, which returns null then), `SqlServerLockStore`, `SqlServerFssHttpStore` and `SqlServerUserInfoStore`. Each can be used alone, or `AddOfficeHostSqlServer` registers them all. The tables are created by [OfficeHost.SqlServer.Install](https://www.nuget.org/packages/OfficeHost.SqlServer.Install/), so the application needs no rights to change the schema; `OfficeHostSqlServerInstaller.GetScript()` gives the script to apply by hand. Both take a schema, `dbo` by default.
 
 <!-- snippet: SqlServer -->
 <a id='snippet-SqlServer'></a>
@@ -344,7 +344,7 @@ await OfficeHostSqlServerInstaller.Install(connectionString);
 // in the application, before or after AddOfficeHost
 builder.Services.AddOfficeHostSqlServer(connectionString);
 ```
-<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerTests.cs#L201-L207' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServer' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerTests.cs#L249-L255' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServer' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 
@@ -373,6 +373,9 @@ erDiagram
     nvarchar(450) FileId pk
     nvarchar(1024) LockId
     datetimeoffset Expires
+    nvarchar(450)(nullable) HolderId
+    nvarchar(max)(nullable) HolderName
+    nvarchar(16)(nullable) HolderClient
   }
   OfficeHostSchemaVersion["**OfficeHostSchemaVersion**"] {
     int Version
