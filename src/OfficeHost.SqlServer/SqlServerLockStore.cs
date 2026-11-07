@@ -20,7 +20,9 @@ public sealed class SqlServerLockStore(string connectionString, TimeProvider tim
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancel);
-        await using var command = new SqlCommand($"select {columns} from {table} where FileId = @fileId and Expires > @now", connection);
+        await using var command = new SqlCommand(
+            $"select {columns} from {table} where FileId = @fileId and Expires > @now",
+            connection);
         command.Parameters.AddWithValue("@fileId", fileId);
         command.Parameters.AddWithValue("@now", time.GetUtcNow());
         return await ReadLock(command, cancel);
@@ -88,14 +90,15 @@ public sealed class SqlServerLockStore(string connectionString, TimeProvider tim
              select @id, @expires, @holderId, @holderName, @holderClient where @id is not null;
              """,
             connection);
-        command.Parameters.AddWithValue("@fileId", fileId);
-        command.Parameters.AddWithValue("@now", time.GetUtcNow());
-        command.Parameters.Add("@comparand", SqlDbType.NVarChar, maxLockLength).Value = (object?) comparand ?? DBNull.Value;
-        command.Parameters.Add("@value", SqlDbType.NVarChar, maxLockLength).Value = (object?) value?.Id ?? DBNull.Value;
-        command.Parameters.Add("@valueExpires", SqlDbType.DateTimeOffset).Value = (object?) value?.Expires ?? DBNull.Value;
-        command.Parameters.Add("@valueHolderId", SqlDbType.NVarChar, maxIdLength).Value = (object?) holder?.Id ?? DBNull.Value;
-        command.Parameters.Add("@valueHolderName", SqlDbType.NVarChar, -1).Value = (object?) holder?.Name ?? DBNull.Value;
-        command.Parameters.Add("@valueHolderClient", SqlDbType.NVarChar, 16).Value = (object?) holder?.Client.ToString() ?? DBNull.Value;
+        var parameters = command.Parameters;
+        parameters.AddWithValue("@fileId", fileId);
+        parameters.AddWithValue("@now", time.GetUtcNow());
+        parameters.Add("@comparand", SqlDbType.NVarChar, maxLockLength).Value = (object?) comparand ?? DBNull.Value;
+        parameters.Add("@value", SqlDbType.NVarChar, maxLockLength).Value = (object?) value?.Id ?? DBNull.Value;
+        parameters.Add("@valueExpires", SqlDbType.DateTimeOffset).Value = (object?) value?.Expires ?? DBNull.Value;
+        parameters.Add("@valueHolderId", SqlDbType.NVarChar, maxIdLength).Value = (object?) holder?.Id ?? DBNull.Value;
+        parameters.Add("@valueHolderName", SqlDbType.NVarChar, -1).Value = (object?) holder?.Name ?? DBNull.Value;
+        parameters.Add("@valueHolderClient", SqlDbType.NVarChar, 16).Value = (object?) holder?.Client.ToString() ?? DBNull.Value;
         return await ReadLock(command, cancel);
     }
 

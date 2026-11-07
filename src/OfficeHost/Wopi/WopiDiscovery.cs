@@ -128,8 +128,15 @@ sealed class WopiDiscovery(IHttpClientFactory httpFactory, TimeProvider time, IL
             log.LogInformation("Fetched the WOPI discovery {Url}: {Actions} actions, proof keys {Current} {Old}", url, document.Actions.Count, document.Keys.Current != null, document.Keys.Old != null);
             return document;
         }
-        catch (Exception exception) when (exception is HttpRequestException or IOException or TaskCanceledException or FormatException or CryptographicException or XmlException &&
-                                          !cancel.IsCancellationRequested)
+        catch (Exception exception)
+            when (exception is
+                      HttpRequestException or
+                      IOException or
+                      TaskCanceledException or
+                      FormatException or
+                      CryptographicException or
+                      XmlException &&
+                  !cancel.IsCancellationRequested)
         {
             log.LogError(exception, "Failed to fetch the WOPI discovery {Url}", url);
             client.Cached = new(previous?.Document, previous?.Fetched ?? now, now);

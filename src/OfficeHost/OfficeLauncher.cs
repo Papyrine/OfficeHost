@@ -176,9 +176,9 @@ public sealed partial class OfficeLauncher
                 continue;
             }
 
-            var match = document.Actions.FirstOrDefault(
-                _ => _.Name == action &&
-                     string.Equals(_.Extension, extension, StringComparison.OrdinalIgnoreCase));
+            var match = document.Actions
+                .FirstOrDefault(_ => _.Name == action &&
+                                     string.Equals(_.Extension, extension, StringComparison.OrdinalIgnoreCase));
             if (match != null)
             {
                 return match.UrlSrc;

@@ -15,7 +15,9 @@ public sealed class SqlServerFssHttpStore(string connectionString, string schema
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancel);
-        await using var command = new SqlCommand($"select Version, Data from {table} where FileId = @fileId and Partition = @partition", connection);
+        await using var command = new SqlCommand(
+            $"select Version, Data from {table} where FileId = @fileId and Partition = @partition",
+            connection);
         command.Parameters.AddWithValue("@fileId", fileId);
         command.Parameters.AddWithValue("@partition", partition);
         await using var reader = await command.ExecuteReaderAsync(cancel);
@@ -34,7 +36,9 @@ public sealed class SqlServerFssHttpStore(string connectionString, string schema
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancel);
-        await using var command = new SqlCommand($"select Version from {table} where FileId = @fileId and Partition = @partition", connection);
+        await using var command = new SqlCommand(
+            $"select Version from {table} where FileId = @fileId and Partition = @partition",
+            connection);
         command.Parameters.AddWithValue("@fileId", fileId);
         command.Parameters.AddWithValue("@partition", partition);
         return (string?) await command.ExecuteScalarAsync(cancel);
@@ -50,21 +54,23 @@ public sealed class SqlServerFssHttpStore(string connectionString, string schema
         var sql = $"update {table} set Version = @version, Data = @data where FileId = @fileId and Partition = @partition and Version = @comparand";
         if (comparand == null)
         {
-            sql = $"""
-                   insert into {table} (FileId, Partition, Version, Data)
-                   select @fileId, @partition, @version, @data
-                   where not exists (select 1 from {table} with (updlock, holdlock) where FileId = @fileId and Partition = @partition);
-                   """;
+            sql =
+                $"""
+                 insert into {table} (FileId, Partition, Version, Data)
+                 select @fileId, @partition, @version, @data
+                 where not exists (select 1 from {table} with (updlock, holdlock) where FileId = @fileId and Partition = @partition);
+                 """;
         }
 
         await using var command = new SqlCommand(sql, connection);
-        command.Parameters.AddWithValue("@fileId", fileId);
-        command.Parameters.AddWithValue("@partition", partition);
-        command.Parameters.Add("@version", SqlDbType.NVarChar, -1).Value = value.Version;
+        var parameters = command.Parameters;
+        parameters.AddWithValue("@fileId", fileId);
+        parameters.AddWithValue("@partition", partition);
+        parameters.Add("@version", SqlDbType.NVarChar, -1).Value = value.Version;
         // the state as it is, without a copy: that of the content is the size of the file
-        command.Parameters.Add("@data", SqlDbType.VarBinary, -1).Value = Data(value.Data);
+        parameters.Add("@data", SqlDbType.VarBinary, -1).Value = Data(value.Data);
         command.CommandTimeout = 0;
-        command.Parameters.Add("@comparand", SqlDbType.NVarChar, -1).Value = (object?) comparand ?? DBNull.Value;
+        parameters.Add("@comparand", SqlDbType.NVarChar, -1).Value = (object?) comparand ?? DBNull.Value;
         try
         {
             return await command.ExecuteNonQueryAsync(cancel) == 1;
@@ -99,7 +105,9 @@ public sealed class SqlServerFssHttpStore(string connectionString, string schema
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancel);
-        await using var command = new SqlCommand($"delete from {table} where FileId = @fileId", connection);
+        await using var command = new SqlCommand(
+            $"delete from {table} where FileId = @fileId",
+            connection);
         command.Parameters.AddWithValue("@fileId", fileId);
         await command.ExecuteNonQueryAsync(cancel);
     }

@@ -42,45 +42,46 @@ public static class OfficeHostSqlServerInstaller
         var states = SqlServerTables.Name(schema, SqlServerTables.FssHttpStates);
         var userInfo = SqlServerTables.Name(schema, SqlServerTables.UserInfo);
         var versions = SqlServerTables.Name(schema, SqlServerTables.SchemaVersion);
-        return $"""
-                set xact_abort on;
-                begin transaction;
-                -- installs in the database take turns, whatever their schema: the DDL of two at once deadlocks on the
-                -- system catalog
-                exec sp_getapplock @Resource = N'OfficeHost.Install', @LockMode = 'Exclusive', @LockOwner = 'Transaction';
+        return
+            $"""
+             set xact_abort on;
+             begin transaction;
+             -- installs in the database take turns, whatever their schema: the DDL of two at once deadlocks on the
+             -- system catalog
+             exec sp_getapplock @Resource = N'OfficeHost.Install', @LockMode = 'Exclusive', @LockOwner = 'Transaction';
 
-                if schema_id({Literal(schema)}) is null
-                    exec({Literal($"create schema {quoted}")});
+             if schema_id({Literal(schema)}) is null
+                 exec({Literal($"create schema {quoted}")});
 
-                if object_id({Literal(versions)}) is null
-                    create table {versions} (Version int not null);
+             if object_id({Literal(versions)}) is null
+                 create table {versions} (Version int not null);
 
-                declare @version int = (select max(Version) from {versions});
-                -- the tables of before the version table are version 1
-                if @version is null and object_id({Literal(files)}) is not null
-                    set @version = 1;
+             declare @version int = (select max(Version) from {versions});
+             -- the tables of before the version table are version 1
+             if @version is null and object_id({Literal(files)}) is not null
+                 set @version = 1;
 
-                -- new tables are made as they are now; older ones are brought up to date
-                if @version is null
-                begin
-                {Tables(files, locks, states, userInfo)}
-                end;
+             -- new tables are made as they are now; older ones are brought up to date
+             if @version is null
+             begin
+             {Tables(files, locks, states, userInfo)}
+             end;
 
-                if @version = 1
-                begin
-                {Version2(files, locks, states, userInfo)}
-                set @version = 2;
-                end;
+             if @version = 1
+             begin
+             {Version2(files, locks, states, userInfo)}
+             set @version = 2;
+             end;
 
-                if @version = 2
-                begin
-                {Version3(locks)}
-                end;
+             if @version = 2
+             begin
+             {Version3(locks)}
+             end;
 
-                delete from {versions};
-                insert into {versions} (Version) values ({Version});
-                commit;
-                """;
+             delete from {versions};
+             insert into {versions} (Version) values ({Version});
+             commit;
+             """;
     }
 
     /// <summary>
@@ -149,9 +150,7 @@ public static class OfficeHostSqlServerInstaller
     /// <c>SqlServerLockStore</c> writes and an application reads to show who is editing. Null for the locks of before.
     /// </summary>
     static string Version3(string locks) =>
-        $"""
-         exec({Literal($"alter table {locks} add HolderId nvarchar(450) null, HolderName nvarchar(max) null, HolderClient nvarchar(16) null")});
-         """;
+        $"exec({Literal($"alter table {locks} add HolderId nvarchar(450) null, HolderName nvarchar(max) null, HolderClient nvarchar(16) null")});";
 
     /// <summary>
     /// Changes the collation of a column of the primary key: the key is dropped, by the name SQL Server gave it, and
@@ -160,12 +159,13 @@ public static class OfficeHostSqlServerInstaller
     static string Rekey(string tableName, string table, string column, string key)
     {
         var variable = $"@{tableName}Drop";
-        return $"""
-                declare {variable} nvarchar(max) = {Literal($"alter table {table} drop constraint ")} + quotename((select name from sys.key_constraints where parent_object_id = object_id({Literal(table)}) and type = 'PK'));
-                exec({variable});
-                exec({Literal($"alter table {table} alter column {column} collate {binary} not null")});
-                exec({Literal($"alter table {table} add constraint {Key(tableName)} primary key ({key})")});
-                """;
+        return
+            $"""
+             declare {variable} nvarchar(max) = {Literal($"alter table {table} drop constraint ")} + quotename((select name from sys.key_constraints where parent_object_id = object_id({Literal(table)}) and type = 'PK'));
+             exec({variable});
+             exec({Literal($"alter table {table} alter column {column} collate {binary} not null")});
+             exec({Literal($"alter table {table} add constraint {Key(tableName)} primary key ({key})")});
+             """;
     }
 
     static string Literal(string value) =>

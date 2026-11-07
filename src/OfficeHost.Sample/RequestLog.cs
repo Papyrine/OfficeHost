@@ -212,7 +212,8 @@ static class RequestLog
         var builder = new StringBuilder();
         foreach (var value in name.Trim('/'))
         {
-            if (char.IsLetterOrDigit(value) || value is '.' or '-' or '_' or '~')
+            if (char.IsLetterOrDigit(value) ||
+                value is '.' or '-' or '_' or '~')
             {
                 builder.Append(value);
             }

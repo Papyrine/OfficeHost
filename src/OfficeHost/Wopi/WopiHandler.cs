@@ -754,7 +754,8 @@ sealed class WopiHandler(
         }
 
         if (current != null &&
-            (current.Id != requestedLock || CoauthSessions.IsSessionLock(current.Id)))
+            (current.Id != requestedLock ||
+             CoauthSessions.IsSessionLock(current.Id)))
         {
             return WopiResult.Conflict(current.Id, "The file is locked with another lock");
         }
@@ -873,8 +874,12 @@ sealed class WopiHandler(
             }
 
             log.LogInformation("Created {FileId} {Name} from {Source}", created.Id, created.Name, fileId);
-            await Saved(context, created, access with { FileId = created.Id });
-            var newToken = await tokens.Issue(access with { FileId = created.Id }, cancel);
+            var officeAccess = access with
+            {
+                FileId = created.Id
+            };
+            await Saved(context, created, officeAccess);
+            var newToken = await tokens.Issue(officeAccess, cancel);
             var properties = new JsonObject
             {
                 ["Name"] = created.Name,

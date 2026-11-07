@@ -138,7 +138,10 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
     async Task<OfficeFile?> GetFileAttempt(string fileId, Cancel cancel)
     {
         await using var connection = await Open(cancel);
-        await using var command = Command($"select {columns} from {table} where Id = @id", connection, fileId);
+        await using var command = Command(
+            $"select {columns} from {table} where Id = @id",
+            connection,
+            fileId);
         return await ReadFile(command, cancel);
     }
 
@@ -179,7 +182,10 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
     async Task<Stream> OpenReadAttempt(string fileId, Cancel cancel)
     {
         await using var connection = await Open(cancel);
-        await using var command = Command($"select Version, datalength(Content) from {table} where Id = @id", connection, fileId);
+        await using var command = Command(
+            $"select Version, datalength(Content) from {table} where Id = @id",
+            connection,
+            fileId);
         await using var reader = await command.ExecuteReaderAsync(cancel);
         if (!await reader.ReadAsync(cancel))
         {
@@ -261,7 +267,10 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
     async Task<OfficeFile?> RenameAttempt(string fileId, string name, Cancel cancel)
     {
         await using var connection = await Open(cancel);
-        await using var command = Command($"update {table} set Name = @name output {inserted} where Id = @id", connection, fileId);
+        await using var command = Command(
+            $"update {table} set Name = @name output {inserted} where Id = @id",
+            connection,
+            fileId);
         AddText(command, "@name", name, maxNameLength);
         try
         {
@@ -281,7 +290,10 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
     async Task DeleteAttempt(string fileId, Cancel cancel)
     {
         await using var connection = await Open(cancel);
-        await using var command = Command($"delete from {table} where Id = @id", connection, fileId);
+        await using var command = Command(
+            $"delete from {table} where Id = @id",
+            connection,
+            fileId);
         if (await command.ExecuteNonQueryAsync(cancel) == 0)
         {
             throw new FileNotFoundException($"No file {fileId}");
