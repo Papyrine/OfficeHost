@@ -137,7 +137,7 @@ if (shadow)
     services.AddOfficeHostShadow();
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L49-L68' title='Snippet source file'>snippet source</a> | <a href='#snippet-Shadow' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L51-L70' title='Snippet source file'>snippet source</a> | <a href='#snippet-Shadow' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 <!-- snippet: MapShadow -->
@@ -149,7 +149,7 @@ if (shadow)
     app.MapOfficeHostShadow();
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L71-L77' title='Snippet source file'>snippet source</a> | <a href='#snippet-MapShadow' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L73-L79' title='Snippet source file'>snippet source</a> | <a href='#snippet-MapShadow' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 `AddOfficeHost` is needed too, configured as the application's production deployment would be: the point is to test it. `IShadowDocuments` exists because `IOfficeStorage` has no way to create a file at a path.

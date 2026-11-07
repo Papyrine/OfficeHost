@@ -117,7 +117,34 @@ public partial class SampleTests : IAsyncDisposable
         await Assert.That((bool?) info["UserCanWrite"]).IsEqualTo(canWrite);
         await Assert.That((string?) info["UserFriendlyName"]).IsEqualTo("Demo User");
         await Assert.That((string?) info["CloseUrl"]).IsEqualTo("http://localhost:5000");
-        await Assert.That((string?) info["HostEditUrl"]).IsEqualTo($"http://localhost:5000/edit/{Uri.EscapeDataString(fileId)}");
+        await Assert.That((string?) info["HostEditUrl"]).IsEqualTo($"http://localhost:5000/edit/{Uri.EscapeDataString(fileId)}?user=demo");
+    }
+
+    /// <summary>
+    /// The file list opens a file as Bob too, in Collabora and in desktop Office, so that two people can coauthor the
+    /// demo. Collabora's pages take the user of ?user= as the desktop page does, and the WOPI client links back to the
+    /// file as that user.
+    /// </summary>
+    [Test]
+    public async Task Launch_SecondUser()
+    {
+        using var client = factory.CreateClient();
+        var files = await client.GetStringAsync("/");
+        var fileId = await WelcomeId(client);
+        var id = Uri.EscapeDataString(fileId);
+        await Assert.That(files).Contains($"""<a href="/edit/{id}?user=bob">as Bob</a>""");
+        await Assert.That(files).Contains($"""<a href="/desktop/{id}?user=bob">as Bob</a>""");
+
+        var page = await client.GetStringAsync($"/edit/{id}?user=bob");
+        var token = WebUtility.HtmlDecode(LaunchForm().Match(page).Groups[2].Value);
+        using var response = await client.GetAsync($"/wopi/files/{fileId}?access_token={Uri.EscapeDataString(token)}");
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        var info = JsonNode.Parse(await response.Content.ReadAsStringAsync())!;
+        await Assert.That((string?) info["UserId"]).IsEqualTo("bob");
+        await Assert.That((string?) info["UserFriendlyName"]).IsEqualTo("Bob User");
+        await Assert.That((bool?) info["UserCanWrite"]).IsTrue();
+        await Assert.That((string?) info["HostEditUrl"]).IsEqualTo($"http://localhost:5000/edit/{id}?user=bob");
+        await Assert.That((string?) info["HostViewUrl"]).IsEqualTo($"http://localhost:5000/view/{id}?user=bob");
     }
 
     /// <summary>

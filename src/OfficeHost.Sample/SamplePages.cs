@@ -44,10 +44,10 @@ static class SamplePages
                 $"""
                  <tr>
                    <td>{WebUtility.HtmlEncode(name)}</td>
-                   <td><a href="/edit/{id}">Edit in Collabora</a></td>
+                   <td><a href="/edit/{id}">Edit in Collabora</a> (<a href="/edit/{id}?user=bob">as Bob</a>)</td>
                    <td><a href="/view/{id}">View in Collabora</a></td>
                    <td>{morph}</td>
-                   <td><a href="/desktop/{id}">Open in desktop Office</a></td>
+                   <td><a href="/desktop/{id}">Open in desktop Office</a> (<a href="/desktop/{id}?user=bob">as Bob</a>)</td>
                  </tr>
                  """);
         }
@@ -58,6 +58,7 @@ static class SamplePages
              <main>
                <h1>Files</h1>
                <p>The files of <code>{WebUtility.HtmlEncode(storage.Root)}</code>. Add files to the folder to see them here.</p>
+               <p>To coauthor a file, open it a second time as Bob: in another tab for Collabora, from another Windows account or machine for desktop Office. Morph does not coauthor: while one user edits a file, it opens read only for the others.</p>
                <form method="post" action="/new">
                  <select name="type" aria-label="Type">
                    <option value="docx">Word document</option>
