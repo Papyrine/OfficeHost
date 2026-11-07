@@ -135,7 +135,8 @@ class CoauthSessions(IFssHttpStore store, IOfficeLockStore locks, TimeProvider t
     /// <see cref="IOfficeLockStore"/> that the session does not hold (a WOPI lock) fails with "FileAlreadyLockedOnServer"
     /// when the new session needs one.
     /// </summary>
-    public async Task<SessionResult> Change(string fileId, Func<Session, SessionResult> change, Cancel cancel = default)
+    /// <param name="user">The user whose request changes the session, kept as the holder of the lock it takes.</param>
+    public async Task<SessionResult> Change(string fileId, Func<Session, SessionResult> change, OfficeUser? user, Cancel cancel = default)
     {
         for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
@@ -164,7 +165,7 @@ class CoauthSessions(IFssHttpStore store, IOfficeLockStore locks, TimeProvider t
                 (existing?.Id != wanted?.Id ||
                  existing?.Expires != wanted?.Expires))
             {
-                var previous = await locks.CompareExchange(fileId, existing?.Id, wanted, cancel);
+                var previous = await locks.CompareExchange(fileId, existing?.Id, wanted, user, cancel);
                 if (previous?.Id != existing?.Id)
                 {
                     continue;
@@ -189,7 +190,7 @@ class CoauthSessions(IFssHttpStore store, IOfficeLockStore locks, TimeProvider t
             // the lock is put back, so that it does not stand for a session that was not stored, unless it changed again
             if (lockChanged)
             {
-                await locks.CompareExchange(fileId, wanted?.Id, existing, Cancel.None);
+                await locks.CompareExchange(fileId, wanted?.Id, existing, existing?.Holder, Cancel.None);
             }
         }
 

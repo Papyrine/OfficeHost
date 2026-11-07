@@ -249,7 +249,7 @@ The sample also serves [Morph](https://github.com/Papyrine/Morph), a second WOPI
 | `ServerVersion` | the library's | The `X-WOPI-ServerVersion` of the responses. |
 | `HostEditUrl`, `HostViewUrl` | | The pages of the application that open a file, returned by CheckFileInfo and PutRelativeFile. |
 | `OnCheckFileInfo` | | Adds or changes CheckFileInfo properties: `CloseUrl`, breadcrumbs, branding, CSPP+ properties. |
-| `OnFileSaved` | | Called after a save, by a WOPI client or desktop Office, with the editors: to keep versions or audit. |
+| `OnFileSaved` | | Called after a save, by a WOPI client or desktop Office, with the user who saved and the editors: to keep versions or audit. |
 | `UrlPlaceholder` | | The values of the placeholders of the action URLs, as `UI_LLCC` or `BUSINESS_USER`; all are dropped without it. |
 | `ShareUrl` | | The URL to share a file by, for GetShareUrl; WOPI clients offer no sharing without it. |
 | `DesktopPath` | `/fsshttp` | The path of the sites of desktop Office, `MapFssHttp`. |
@@ -265,6 +265,8 @@ The sample also serves [Morph](https://github.com/Papyrine/Morph), a second WOPI
 * `CanRename`: rename the file.
 * `ViewOnly`: no download, print or copy, as the WOPI client enforces it: without `RequireProof`, the token alone can still download the file.
 * `IsAnonymous`, `UserName`: how the editor shows the user.
+
+The hooks run in the requests of the WOPI client or of desktop Office, which carry no sign-in of the application: `OnCheckFileInfo` and `OnFileSaved` get the `OfficeUser` of the token instead (`Id` and `Name` as the application set `UserId` and `UserName`, and the `Client`, WOPI or desktop), and the `OfficeAccess` the token granted, so the application never has to find and validate the token itself.
 
 The built-in tokens carry the access, signed with `SigningKey`, so they need no storage, but cannot be revoked before they expire; `PreviousSigningKeys` rotates the key without ending the sessions. They are short (about 70 characters, longer with long ids or user names), as desktop Office holds the token in the URL of the file and refuses a Save As to a URL of more than 255 characters; a custom `IOfficeTokens` should keep its tokens short too. To keep tokens in a database, or tie them to the application's sessions, register an `IOfficeTokens`.
 
@@ -322,7 +324,7 @@ public interface IOfficeStorage
 
 `FileSystemStorage` keeps the files in a folder, for development, tests and single machines. It gives each file an id on first use (`GetFileId("reports/q3.docx")`), kept in a hidden `.wopi` folder so that ids survive renames, and writes through a temporary file so that a save never leaves a partial file.
 
-Locks are kept by an `IOfficeLockStore`. The default `MemoryLockStore` suits a single instance of the application; several instances need a shared store, such as one over Redis or a database, with an atomic compare and exchange.
+Locks are kept by an `IOfficeLockStore`. The default `MemoryLockStore` suits a single instance of the application; several instances need a shared store, such as one over Redis or a database, with an atomic compare and exchange. The lock operations pass the `OfficeUser` of the request (the overload of `CompareExchange` with a user, which a store of the two original members gets through its default implementation), and the built-in stores keep it as the `Holder` of the lock `Get` returns, for the application to show who is editing a file; `SqlServerLockStore` keeps it in the HolderId, HolderName and HolderClient columns, to read from the database.
 
 PutUserInfo, where the editors keep per-user data such as the tips a user has seen, is supported when an `IOfficeUserInfoStore` is registered.
 
@@ -331,7 +333,7 @@ The state of desktop coauthoring (the data elements Office syncs, the coauthorin
 
 ### SQL Server
 
-The [OfficeHost.SqlServer](https://www.nuget.org/packages/OfficeHost.SqlServer/) package keeps everything in SQL Server, shared by all the instances of the application: `SqlServerStorage` (the files, in folders the application names, added with `Add(folder, name, ownerId, content)`, which gives the id), `SqlServerLockStore`, `SqlServerFssHttpStore` and `SqlServerUserInfoStore`. Each can be used alone, or `AddOfficeHostSqlServer` registers them all. The tables are created by [OfficeHost.SqlServer.Install](https://www.nuget.org/packages/OfficeHost.SqlServer.Install/), so the application needs no rights to change the schema; `OfficeHostSqlServerInstaller.GetScript()` gives the script to apply by hand. Both take a schema, `dbo` by default.
+The [OfficeHost.SqlServer](https://www.nuget.org/packages/OfficeHost.SqlServer/) package keeps everything in SQL Server, shared by all the instances of the application: `SqlServerStorage` (the files, in folders the application names, added with `Add(folder, name, ownerId, content)`, which gives the id and throws when the folder has a file of that name, or `TryAdd`, which returns null then), `SqlServerLockStore`, `SqlServerFssHttpStore` and `SqlServerUserInfoStore`. Each can be used alone, or `AddOfficeHostSqlServer` registers them all. The tables are created by [OfficeHost.SqlServer.Install](https://www.nuget.org/packages/OfficeHost.SqlServer.Install/), so the application needs no rights to change the schema; `OfficeHostSqlServerInstaller.GetScript()` gives the script to apply by hand. Both take a schema, `dbo` by default.
 
 <!-- snippet: SqlServer -->
 <a id='snippet-SqlServer'></a>
@@ -342,7 +344,7 @@ await OfficeHostSqlServerInstaller.Install(connectionString);
 // in the application, before or after AddOfficeHost
 builder.Services.AddOfficeHostSqlServer(connectionString);
 ```
-<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerTests.cs#L201-L207' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServer' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerTests.cs#L252-L258' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServer' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 
@@ -371,6 +373,9 @@ erDiagram
     nvarchar(450) FileId pk
     nvarchar(1024) LockId
     datetimeoffset Expires
+    nvarchar(450)(nullable) HolderId
+    nvarchar(max)(nullable) HolderName
+    nvarchar(16)(nullable) HolderClient
   }
   OfficeHostSchemaVersion["**OfficeHostSchemaVersion**"] {
     int Version

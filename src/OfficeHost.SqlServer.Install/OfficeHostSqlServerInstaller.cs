@@ -9,9 +9,9 @@ public static class OfficeHostSqlServerInstaller
 {
     /// <summary>
     /// The version of the tables the script makes: 1, the tables; 2, ids, lock ids and versions compared as they are, in
-    /// a binary collation, whatever that of the database.
+    /// a binary collation, whatever that of the database; 3, the holder of a lock.
     /// </summary>
-    public const int Version = 2;
+    public const int Version = 3;
 
     const string binary = "Latin1_General_100_BIN2";
 
@@ -69,6 +69,12 @@ public static class OfficeHostSqlServerInstaller
                 if @version = 1
                 begin
                 {Version2(files, locks, states, userInfo)}
+                set @version = 2;
+                end;
+
+                if @version = 2
+                begin
+                {Version3(locks)}
                 end;
 
                 delete from {versions};
@@ -101,7 +107,10 @@ public static class OfficeHostSqlServerInstaller
              create table {locks} (
                  FileId nvarchar(450) collate {binary} not null constraint {Key(SqlServerTables.Locks)} primary key,
                  LockId nvarchar(1024) collate {binary} not null,
-                 Expires datetimeoffset not null);
+                 Expires datetimeoffset not null,
+                 HolderId nvarchar(450) null,
+                 HolderName nvarchar(max) null,
+                 HolderClient nvarchar(16) null);
 
          if object_id({Literal(states)}) is null
              create table {states} (
@@ -133,6 +142,15 @@ public static class OfficeHostSqlServerInstaller
          {Rekey(SqlServerTables.FssHttpStates, states, "FileId nvarchar(450)", "FileId, Partition")}
          exec({Literal($"alter table {states} alter column Version nvarchar(max) collate {binary} not null")});
          {Rekey(SqlServerTables.UserInfo, userInfo, "UserId nvarchar(450)", "UserId")}
+         """;
+
+    /// <summary>
+    /// Version 3 from version 2: the holder of a lock, the user whose request last took or refreshed it, which
+    /// <c>SqlServerLockStore</c> writes and an application reads to show who is editing. Null for the locks of before.
+    /// </summary>
+    static string Version3(string locks) =>
+        $"""
+         exec({Literal($"alter table {locks} add HolderId nvarchar(450) null, HolderName nvarchar(max) null, HolderClient nvarchar(16) null")});
          """;
 
     /// <summary>

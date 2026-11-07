@@ -21,6 +21,9 @@ erDiagram
     nvarchar(450) FileId pk
     nvarchar(1024) LockId
     datetimeoffset Expires
+    nvarchar(450)(nullable) HolderId
+    nvarchar(max)(nullable) HolderName
+    nvarchar(16)(nullable) HolderClient
   }
   OfficeHostSchemaVersion["**OfficeHostSchemaVersion**"] {
     int Version

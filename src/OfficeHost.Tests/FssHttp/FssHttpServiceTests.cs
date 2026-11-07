@@ -8,9 +8,9 @@ public class FssHttpServiceTests
         ("word/document.xml", Zips.Text(text)),
         ("large.bin", Zips.Random(10_000, 1)));
 
-    static async Task<(TestServerHost Host, string FileId, string Token)> Start(byte[]? content = null, Mode mode = Mode.Edit, TimeProvider? time = null)
+    static async Task<(TestServerHost Host, string FileId, string Token)> Start(byte[]? content = null, Mode mode = Mode.Edit, TimeProvider? time = null, Action<OfficeHostOptions>? configure = null)
     {
-        var host = await TestServerHost.Start(time: time);
+        var host = await TestServerHost.Start(configure, time);
         await File.WriteAllBytesAsync(host.PathOf("doc.docx"), content ?? Zip("hello"));
         var (fileId, token) = await host.Open("doc.docx", mode);
         return (host, fileId, token);
@@ -18,6 +18,31 @@ public class FssHttpServiceTests
 
     static Task<byte[]> FileOf(TestServerHost host) =>
         File.ReadAllBytesAsync(host.PathOf("doc.docx"));
+
+    /// <summary>
+    /// A save from desktop Office tells <see cref="OfficeHostOptions.OnFileSaved"/> the user of the token, as from
+    /// desktop Office: the site has no request of the application for the hook to find the user in.
+    /// </summary>
+    [Test]
+    public async Task OnFileSaved_Desktop()
+    {
+        var saves = new List<FileSavedContext>();
+        var (host, fileId, token) = await Start(configure: _ => _.OnFileSaved = saved =>
+        {
+            saves.Add(saved);
+            return Task.CompletedTask;
+        });
+        await using var _ = host;
+        var word = new WordClient(host, token);
+        await word.Send(word.Join());
+        await word.Sync();
+        await Assert.That(await word.Save(Zip("saved"))).IsTypeOf<PutChangesResponse>();
+        var save = saves.Single();
+        await Assert.That(save.File.Id).IsEqualTo(fileId);
+        await Assert.That(save.User).IsEqualTo(new OfficeUser("alice", "Alice", OfficeClient.Desktop));
+        await Assert.That(save.Editors).IsEquivalentTo(["alice"]);
+        await Assert.That(save.IsAutosave).IsFalse();
+    }
 
     [Test]
     public async Task Options()
@@ -305,7 +330,10 @@ public class FssHttpServiceTests
         // nothing to release is a Success, as SharePoint Server SE answers
         await Assert.That((await Exclusive("ReleaseLock")).ErrorCode).IsEqualTo("Success");
         await Assert.That((await Exclusive("GetLock")).ErrorCode).IsEqualTo("Success");
-        await Assert.That((await host.Service<IOfficeLockStore>().Get(fileId))!.Id).IsEqualTo("fsshttp-exclusive:{E}");
+        var exclusive = (await host.Service<IOfficeLockStore>().Get(fileId))!;
+        await Assert.That(exclusive.Id).IsEqualTo("fsshttp-exclusive:{E}");
+        // the lock store hears who locks, as from desktop Office
+        await Assert.That(exclusive.Holder).IsEqualTo(new OfficeUser("alice", "Alice", OfficeClient.Desktop));
         await Assert.That((await Exclusive("RefreshLock")).ErrorCode).IsEqualTo("Success");
         await Assert.That((await Exclusive("GetLock", "{F}")).ErrorCode).IsEqualTo("FileAlreadyLockedOnServer");
         await Assert.That((await Exclusive("CheckLockAvailability", "{F}")).ErrorCode).IsEqualTo("FileAlreadyLockedOnServer");

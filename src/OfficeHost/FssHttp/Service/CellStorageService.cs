@@ -9,6 +9,11 @@ record FssHttpSite(OfficeAccess Access, string WebUrl, string Token, DateTimeOff
     public string FileId => Access.FileId;
 
     /// <summary>
+    /// The user the request acts as: that of the token, from desktop Office.
+    /// </summary>
+    public OfficeUser User => OfficeUser.From(Access, OfficeClient.Desktop);
+
+    /// <summary>
     /// The site of a Save As that replaces a file the site cannot reach otherwise: its content is written, not read.
     /// </summary>
     public bool Replacing { get; init; }
@@ -559,7 +564,7 @@ class CellStorageService(
                 await storage.GetFile(site.FileId, cancel) is { } file &&
                 file.Version == written.State.FileVersion)
             {
-                await WopiHandler.NotifySaved(options.Value, log, new(file, site.Access, [site.Access.UserId], false, false));
+                await WopiHandler.NotifySaved(options.Value, log, new(file, site.Access, site.User, [site.Access.UserId], false, false));
             }
 
             return (null, outcome.Response);
@@ -728,7 +733,7 @@ class CellStorageService(
     /// </summary>
     async Task<SessionResult> Change(FssHttpSite site, Func<Session, SessionResult> change, string? clientId, Cancel cancel)
     {
-        var result = await sessions.Change(site.FileId, change, cancel);
+        var result = await sessions.Change(site.FileId, change, site.User, cancel);
         if (result.ErrorCode != "ExitCoauthSessionAsConvertToExclusiveFailed" ||
             clientId == null)
         {
@@ -742,6 +747,7 @@ class CellStorageService(
                 Clients = _.Clients.Where(_ => _.ClientId != clientId).ToList(),
                 Editors = _.Editors.Where(_ => _.ClientId != clientId).ToList()
             }),
+            site.User,
             cancel);
         return result;
     }
@@ -1071,7 +1077,7 @@ class CellStorageService(
         var value = Attribute(requestData, "Value") ?? "";
         return (await sessions.Change(
             site.FileId,
-            _ =>
+            change: _ =>
             {
                 var editor = _.Editors.FirstOrDefault(_ => _.ClientId == clientId);
                 var others = _.Editors.Where(_ => _.ClientId != clientId);
@@ -1144,7 +1150,8 @@ class CellStorageService(
                         return new("InvalidArgument", _);
                 }
             },
-            cancel)).ErrorCode;
+            user: site.User,
+            cancel: cancel)).ErrorCode;
     }
 
     /// <summary>

@@ -18,7 +18,10 @@ public sealed class MemoryLockStore(TimeProvider time) :
         }
     }
 
-    public Task<OfficeLock?> CompareExchange(string fileId, string? comparand, OfficeLock? value, Cancel cancel = default)
+    public Task<OfficeLock?> CompareExchange(string fileId, string? comparand, OfficeLock? value, Cancel cancel = default) =>
+        CompareExchange(fileId, comparand, value, null, cancel);
+
+    public Task<OfficeLock?> CompareExchange(string fileId, string? comparand, OfficeLock? value, OfficeUser? user, Cancel cancel = default)
     {
         lock (sync)
         {
@@ -32,7 +35,10 @@ public sealed class MemoryLockStore(TimeProvider time) :
                 }
                 else
                 {
-                    locks[fileId] = value;
+                    locks[fileId] = value with
+                    {
+                        Holder = user ?? value.Holder
+                    };
                 }
             }
 

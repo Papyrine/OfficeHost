@@ -119,16 +119,28 @@ public class OfficeHostOptions
 }
 
 /// <summary>
-/// A save, given to <see cref="OfficeHostOptions.OnFileSaved"/>.
+/// A save, given to <see cref="OfficeHostOptions.OnFileSaved"/>. The hook runs in the request of the client, not in
+/// one of the application's, so the context carries the user: the <see cref="User"/> of the token, and the
+/// <see cref="Access"/> it granted.
 /// </summary>
 /// <param name="File">The file as saved.</param>
 /// <param name="Access">The access of the user who saved it.</param>
+/// <param name="User">The user who saved it, and whether from a WOPI client or desktop Office.</param>
 /// <param name="Editors">The users who edited the file since its last save, as the WOPI client tells them
 /// (X-WOPI-Editors), or the user who saved it.</param>
 /// <param name="IsAutosave">Whether the WOPI client saved on its own, not because the user asked (Collabora Online's
 /// X-COOL-WOPI-IsAutosave); false when unknown.</param>
 /// <param name="IsExitSave">Whether the save is that of the user closing the document (X-COOL-WOPI-IsExitSave).</param>
-public record FileSavedContext(OfficeFile File, OfficeAccess Access, IReadOnlyList<string> Editors, bool IsAutosave, bool IsExitSave);
+public record FileSavedContext(OfficeFile File, OfficeAccess Access, OfficeUser User, IReadOnlyList<string> Editors, bool IsAutosave, bool IsExitSave)
+{
+    /// <summary>
+    /// A save by a WOPI client, as the user of the access.
+    /// </summary>
+    public FileSavedContext(OfficeFile file, OfficeAccess access, IReadOnlyList<string> editors, bool isAutosave, bool isExitSave) :
+        this(file, access, OfficeUser.From(access, OfficeClient.Wopi), editors, isAutosave, isExitSave)
+    {
+    }
+}
 
 /// <summary>
 /// The CheckFileInfo response being built, given to <see cref="OfficeHostOptions.OnCheckFileInfo"/>.
@@ -140,6 +152,11 @@ public class CheckFileInfoContext(HttpContext httpContext, OfficeFile file, Offi
     public OfficeFile File { get; } = file;
 
     public OfficeAccess Access { get; } = access;
+
+    /// <summary>
+    /// The user the WOPI client asks for, as the token names them: CheckFileInfo is called by WOPI clients only.
+    /// </summary>
+    public OfficeUser User { get; } = OfficeUser.From(access, OfficeClient.Wopi);
 
     /// <summary>
     /// The properties of the response, as [MS-WOPI] 3.3.5.1.2.2 names them.
