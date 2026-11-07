@@ -16,7 +16,7 @@ OfficeHost is the host: it runs in the application, over the application's stora
 * desktop Word, Excel and PowerPoint, which open a file from OfficeHost as from a SharePoint site.
 
 ```mermaid
-flowchart LR
+flowchart TD
   browser([Browser])
   subgraph app["The application"]
     pages["The application's pages<br>MapOfficePages, OfficeLauncher"]
