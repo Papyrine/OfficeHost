@@ -37,7 +37,7 @@ static class SamplePages
             var morph = "";
             if (name.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
             {
-                morph = $"""<a href="/edit-in-morph/{id}">Edit using Morph</a>""";
+                morph = $"""<a href="/edit-in-morph/{id}">Edit using Morph</a> (<a href="/edit-in-morph/{id}?user=bob">as Bob</a>)""";
             }
 
             rows.Append(
@@ -58,7 +58,7 @@ static class SamplePages
              <main>
                <h1>Files</h1>
                <p>The files of <code>{WebUtility.HtmlEncode(storage.Root)}</code>. Add files to the folder to see them here.</p>
-               <p>To coauthor a file, open it a second time as Bob: in another tab for Collabora, from another Windows account or machine for desktop Office. Morph does not coauthor: while one user edits a file, it opens read only for the others.</p>
+               <p>To coauthor a file, open it a second time as Bob: in another tab for Collabora or Morph, from another Windows account or machine for desktop Office.</p>
                <form method="post" action="/new">
                  <select name="type" aria-label="Type">
                    <option value="docx">Word document</option>

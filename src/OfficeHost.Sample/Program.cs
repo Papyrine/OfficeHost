@@ -43,8 +43,9 @@ services.AddOfficeHost(
         };
     });
 
-// Morph (Morph.Wopi): its discovery, the page a file opens in, and the proxy its editor, the WebAssembly app of
-// OfficeHost.Sample.Morph, calls the WOPI endpoints through. Morph opens files only for the WOPISrc of the sample
+// Morph (Morph.Wopi): its discovery, the page a file opens in, and the proxy and coauthoring sessions its editor,
+// the WebAssembly app of OfficeHost.Sample.Morph, reaches the WOPI endpoints through. A session holds the file's
+// lock, merges the edits of everyone in it, and saves the file. Morph opens files only for the WOPISrc of the sample
 var wopiUrl = new Uri(builder.Configuration["OfficeHost:BaseUrl"] ?? appUrl);
 services.AddMorphWopi(options => options.TrustedHosts.Add(wopiUrl.GetLeftPart(UriPartial.Authority)));
 
@@ -84,7 +85,8 @@ app.MapOfficeHost();
 app.MapOfficePages(Access, OnError, collaboraDiscovery);
 // the sites desktop Office edits and coauthors files through: /fsshttp/{token}/{name}
 app.MapFssHttp();
-// Morph's editor, and its endpoints: /hosting/discovery, /morph/wopi/edit and /morph/wopi/view, /morph/wopi/proxy
+// Morph's editor, and its endpoints: /hosting/discovery, /morph/wopi/edit and /morph/wopi/view, /morph/wopi/proxy,
+// /morph/wopi/session
 app.MapStaticAssets();
 app.MapMorphWopi();
 // the page that opens a Word document in Morph

@@ -121,8 +121,8 @@ public partial class SampleTests : IAsyncDisposable
     }
 
     /// <summary>
-    /// The file list opens a file as Bob too, in Collabora and in desktop Office, so that two people can coauthor the
-    /// demo. Collabora's pages take the user of ?user= as the desktop page does, and the WOPI client links back to the
+    /// The file list opens a file as Bob too, in Collabora, Morph (EditInMorph) and desktop Office, so that two people
+    /// can coauthor the demo. Collabora's pages take the user of ?user= as the desktop page does, and the WOPI client links back to the
     /// file as that user.
     /// </summary>
     [Test]
@@ -148,22 +148,27 @@ public partial class SampleTests : IAsyncDisposable
     }
 
     /// <summary>
-    /// A Word document opens in Morph from its own page, rather than in the first WOPI client.
+    /// A Word document opens in Morph from its own page, rather than in the first WOPI client, as Bob too, so that two
+    /// people can coauthor it in Morph.
     /// </summary>
     [Test]
-    public async Task EditInMorph()
+    [Arguments("", "demo")]
+    [Arguments("?user=bob", "bob")]
+    public async Task EditInMorph(string query, string userId)
     {
         using var client = factory.CreateClient();
         var files = await client.GetStringAsync("/");
         var fileId = await WelcomeId(client);
-        await Assert.That(files).Contains($"""<a href="/edit-in-morph/{Uri.EscapeDataString(fileId)}">Edit using Morph</a>""");
-        var page = await client.GetStringAsync($"/edit-in-morph/{Uri.EscapeDataString(fileId)}");
+        var id = Uri.EscapeDataString(fileId);
+        await Assert.That(files).Contains($"""<a href="/edit-in-morph/{id}">Edit using Morph</a> (<a href="/edit-in-morph/{id}?user=bob">as Bob</a>)""");
+        var page = await client.GetStringAsync($"/edit-in-morph/{id}{query}");
         var form = LaunchForm().Match(page);
         var wopiSrc = $"http://host.docker.internal:5000/wopi/files/{fileId}";
         await Assert.That(WebUtility.HtmlDecode(form.Groups[1].Value)).IsEqualTo($"http://localhost:5000/morph/wopi/edit?WOPISrc={Uri.EscapeDataString(wopiSrc)}");
         var token = WebUtility.HtmlDecode(form.Groups[2].Value);
         var access = (await factory.Services.GetRequiredService<IOfficeTokens>().Validate(token))!.Access;
         await Assert.That(access.CanWrite).IsTrue();
+        await Assert.That(access.UserId).IsEqualTo(userId);
     }
 
     /// <summary>

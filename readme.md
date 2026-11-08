@@ -152,8 +152,9 @@ services.AddOfficeHost(
         };
     });
 
-// Morph (Morph.Wopi): its discovery, the page a file opens in, and the proxy its editor, the WebAssembly app of
-// OfficeHost.Sample.Morph, calls the WOPI endpoints through. Morph opens files only for the WOPISrc of the sample
+// Morph (Morph.Wopi): its discovery, the page a file opens in, and the proxy and coauthoring sessions its editor,
+// the WebAssembly app of OfficeHost.Sample.Morph, reaches the WOPI endpoints through. A session holds the file's
+// lock, merges the edits of everyone in it, and saves the file. Morph opens files only for the WOPISrc of the sample
 var wopiUrl = new Uri(builder.Configuration["OfficeHost:BaseUrl"] ?? appUrl);
 services.AddMorphWopi(options => options.TrustedHosts.Add(wopiUrl.GetLeftPart(UriPartial.Authority)));
 
@@ -189,7 +190,8 @@ app.MapOfficeHost();
 app.MapOfficePages(Access, OnError, collaboraDiscovery);
 // the sites desktop Office edits and coauthors files through: /fsshttp/{token}/{name}
 app.MapFssHttp();
-// Morph's editor, and its endpoints: /hosting/discovery, /morph/wopi/edit and /morph/wopi/view, /morph/wopi/proxy
+// Morph's editor, and its endpoints: /hosting/discovery, /morph/wopi/edit and /morph/wopi/view, /morph/wopi/proxy,
+// /morph/wopi/session
 app.MapStaticAssets();
 app.MapMorphWopi();
 // the page that opens a Word document in Morph
@@ -220,7 +222,7 @@ app.MapGet(
         return Results.Content(SamplePages.Desktop(link), "text/html");
     });
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L15-L117' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L15-L119' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 `MapOfficePages` maps the pages that open a file in a WOPI client, `/edit/{fileId}` and `/view/{fileId}`, and `/editnew/{fileId}` for a new document. The application gives it the access of the user to the file, which only it can decide from its own users and permissions, or null to refuse it with a 403, and optionally its own results for the errors:
@@ -271,7 +273,7 @@ static IResult? OnError(HttpContext context, Exception exception)
     return null;
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L149-L192' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L151-L194' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The page is `OfficeLaunch.HostPage()`: a form posts the access token to the editor, in a full-page iframe. An application that puts the editor in a page of its own calls `OfficeLauncher.Launch` itself, and takes the form, the iframe and the script from `HostPageHtml()`. A missing file is a 404, a WOPI client that cannot be reached a 503, and an action no WOPI client offers for the file a 400.
@@ -301,7 +303,7 @@ app.MapPost(
         return Results.Redirect(page);
     });
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L119-L137' title='Snippet source file'>snippet source</a> | <a href='#snippet-NewDocument' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L121-L139' title='Snippet source file'>snippet source</a> | <a href='#snippet-NewDocument' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 Desktop Office can also Save As: with `CanWriteRelative`, as for the Save As of the WOPI clients, the file is created next to the one being edited, and edited on through the same link.
@@ -321,11 +323,11 @@ Then run the sample, and open http://localhost:5000:
 dotnet run --project src/OfficeHost.Sample
 ```
 
-It starts with a `Welcome.docx` in `src/OfficeHost.Sample/files`; add files there to open them too, or make a new Word document, Excel workbook or PowerPoint presentation from the top of the list. Edit opens a file with write access, View read only. Desktop Office needs HTTPS: the `desktop` launch profile (`dotnet run --project src/OfficeHost.Sample --launch-profile desktop`) serves it, and `/desktop/{fileId}` opens a file in Word, Excel or PowerPoint. To coauthor a file, open it a second time with "as Bob": in another tab for Collabora, which shows each user where the others are, and from another Windows account or machine for desktop Office (see [fsshttp-checklist.md](docs/fsshttp-checklist.md)). Every page takes the user from `?user=`, `demo` without one. The URLs and the signing key are in its `appsettings.json`: `OfficeHost:BaseUrl` is how Collabora reaches the sample (`host.docker.internal` from the container), and `Sample:AppUrl` how the browser does.
+It starts with a `Welcome.docx` in `src/OfficeHost.Sample/files`; add files there to open them too, or make a new Word document, Excel workbook or PowerPoint presentation from the top of the list. Edit opens a file with write access, View read only. Desktop Office needs HTTPS: the `desktop` launch profile (`dotnet run --project src/OfficeHost.Sample --launch-profile desktop`) serves it, and `/desktop/{fileId}` opens a file in Word, Excel or PowerPoint. To coauthor a file, open it a second time with "as Bob": in another tab for Collabora or Morph, which show each user where the others are, and from another Windows account or machine for desktop Office (see [fsshttp-checklist.md](docs/fsshttp-checklist.md)). Every page takes the user from `?user=`, `demo` without one. The URLs and the signing key are in its `appsettings.json`: `OfficeHost:BaseUrl` is how Collabora reaches the sample (`host.docker.internal` from the container), and `Sample:AppUrl` how the browser does.
 
-The sample also serves [Morph](https://github.com/Papyrine/Morph), a second WOPI client whose editor runs in the browser as Blazor WebAssembly ([Morph.Wopi](https://www.nuget.org/packages/Morph.Wopi/), with the editor in [src/OfficeHost.Sample.Morph](src/OfficeHost.Sample.Morph)): Edit using Morph opens a Word document in it, with no container. Its discovery is in `DiscoveryUrls` too, so that its proofs are checked, and the pages of `MapOfficePages` are given Collabora's, so that Edit and View open a file in Collabora only. Morph calls the WOPI endpoints from the server at `OfficeHost:BaseUrl`, so `host.docker.internal` has to resolve on the machine, as Docker Desktop makes it. Morph does not coauthor: its editor locks the file, so a second user gets it read only.
+The sample also serves [Morph](https://github.com/Papyrine/Morph), a second WOPI client whose editor runs in the browser as Blazor WebAssembly ([Morph.Wopi](https://www.nuget.org/packages/Morph.Wopi/), with the editor in [src/OfficeHost.Sample.Morph](src/OfficeHost.Sample.Morph)): Edit using Morph opens a Word document in it, with no container. Its discovery is in `DiscoveryUrls` too, so that its proofs are checked, and the pages of `MapOfficePages` are given Collabora's, so that Edit and View open a file in Collabora only. Morph calls the WOPI endpoints from the server at `OfficeHost:BaseUrl`, so `host.docker.internal` has to resolve on the machine, as Docker Desktop makes it. Morph coauthors too (from 1.24.0): the pages editing a file join a session in Morph.Wopi, which holds the file's lock, merges their edits paragraph by paragraph, shows each where the others are, and saves the file.
 
-The sample runs both sides of WOPI: OfficeHost, the host, and Morph.Wopi, the server side of a WOPI client. They meet only through WOPI, as Collabora does from its container: Morph's editor calls the WOPI endpoints through its proxy, which signs the requests with Morph's proof key. OfficeHost itself does not depend on Morph.
+The sample runs both sides of WOPI: OfficeHost, the host, and Morph.Wopi, the server side of a WOPI client. They meet only through WOPI, as Collabora does from its container: Morph's editor reaches the file through Morph.Wopi's coauthoring session and its proxy, on the server, which call the WOPI endpoints signed with Morph's proof key. OfficeHost itself does not depend on Morph.
 
 ```mermaid
 flowchart LR
@@ -340,6 +342,7 @@ flowchart LR
       discovery["/hosting/discovery"]
       editor["/morph/wopi/edit and /view<br>the editor, in WebAssembly"]
       proxy["/morph/wopi/proxy"]
+      session["/morph/wopi/session<br>the coauthoring sessions"]
     end
     files[("files: FileSystemStorage<br>fsshttp-state: FileSystemFssHttpStore")]
   end
@@ -352,9 +355,11 @@ flowchart LR
   pages -- "reads the discovery" --> discovery
   browser -- "the editor, in an iframe" --> collabora
   browser -- "the editor, in an iframe" --> editor
-  browser -- "the editor's WOPI calls" --> proxy
+  browser -- "the file's info" --> proxy
+  browser -- "edits and presence" --> session
   collabora -- "WOPI, at OfficeHost:BaseUrl" --> wopi
   proxy -- "WOPI, at OfficeHost:BaseUrl" --> wopi
+  session -- "WOPI: the lock and the saves" --> wopi
   desktop -- "MS-FSSHTTP" --> fsshttp
   wopi --> files
   fsshttp --> files
@@ -569,7 +574,7 @@ if (shadow)
     services.AddOfficeHostShadow();
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L51-L70' title='Snippet source file'>snippet source</a> | <a href='#snippet-Shadow' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L52-L71' title='Snippet source file'>snippet source</a> | <a href='#snippet-Shadow' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 How it works, its guarantees to SharePoint, its configuration and limits are in [docs/shadow.md](docs/shadow.md). The same engine replays recordings offline: [docs/replay.md](docs/replay.md).
