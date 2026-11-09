@@ -74,6 +74,8 @@ sequenceDiagram
   Note over H: each request: the token (IOfficeTokens),<br>the proof (X-WOPI-Proof), the lock (IOfficeLockStore)
 ```
 
+Several users editing a file share one session of the WOPI client, which merges their edits and holds one lock: see [wopi-concurrency.md](docs/wopi-concurrency.md).
+
 
 ### In desktop Office:
 
