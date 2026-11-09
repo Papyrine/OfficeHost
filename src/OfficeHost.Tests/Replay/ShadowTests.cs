@@ -396,4 +396,76 @@ public class ShadowTests
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Accepted);
         await Assert.That(string.Join(',', response.Headers.GetValues(ShadowProtocol.Sample))).IsEqualTo("25");
     }
+
+    /// <summary>
+    /// SharePoint as the content of the shadow sees it: 403 to a request that does not say it takes no sign-in page, as
+    /// SharePoint 2016 answered the shadow.
+    /// </summary>
+    sealed class SharePoint(HttpResponseMessage answer) : HttpMessageHandler
+    {
+        public HttpRequestMessage? Request { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, Cancel cancel)
+        {
+            Request = request;
+            if (!request.Headers.TryGetValues("X-FORMS_BASED_AUTH_ACCEPTED", out var accepted) ||
+                accepted.Single() != "f")
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden));
+            }
+
+            answer.RequestMessage = request;
+            return Task.FromResult(answer);
+        }
+    }
+
+    static readonly ShadowDocument document = new(new("https://sharepoint/sites/team/Shared%20Documents/doc.docx"));
+
+    /// <summary>
+    /// The document, as a client that takes no sign-in page, with its version.
+    /// </summary>
+    [Test]
+    public async Task Content_FromSharePoint()
+    {
+        var answer = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent([1, 2, 3])
+        };
+        answer.Content.Headers.ContentType = new("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        answer.Headers.ETag = new("\"{081B7E7C-0D9F-4000-8780-6BDF5DDA5293},14\"");
+        var sharePoint = new SharePoint(answer);
+        using var client = new HttpClient(sharePoint);
+
+        var content = await new SharePointShadowContent(client).Get(document);
+
+        await Assert.That(content!.Content).IsEquivalentTo(new byte[] { 1, 2, 3 });
+        await Assert.That(content.Version).IsEqualTo(14);
+        await Assert.That(sharePoint.Request!.Headers.UserAgent.ToString()).IsNotEmpty();
+    }
+
+    /// <summary>
+    /// A page of SharePoint's (an error, a sign-in) instead of the document is no content.
+    /// </summary>
+    [Test]
+    public async Task Content_Page()
+    {
+        var answer = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("<html>Sorry, something went wrong</html>", Encoding.UTF8, "text/html")
+        };
+        using var client = new HttpClient(new SharePoint(answer));
+
+        await Assert.That(() => new SharePointShadowContent(client).Get(document)).Throws<HttpRequestException>();
+    }
+
+    /// <summary>
+    /// A document SharePoint no longer has.
+    /// </summary>
+    [Test]
+    public async Task Content_NotFound()
+    {
+        using var client = new HttpClient(new SharePoint(new(HttpStatusCode.NotFound)));
+
+        await Assert.That(await new SharePointShadowContent(client).Get(document)).IsNull();
+    }
 }

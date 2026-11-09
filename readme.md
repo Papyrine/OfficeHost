@@ -83,7 +83,8 @@ if (shadow)
 {
     // the documents of SharePoint as files of the folder, under their host and path
     services.AddSingleton<IShadowDocuments>(new FileSystemShadowDocuments(storage));
-    // the documents Office opened from its cache, from SharePoint, as the application's account
+    // the documents Office opened from its cache, or downloaded in parts, from SharePoint, as the
+    // application's account
     services.AddHttpClient<IShadowContent, SharePointShadowContent>()
         .ConfigurePrimaryHttpMessageHandler(
             () => new HttpClientHandler
@@ -143,7 +144,7 @@ app.MapGet(
         return Results.Content(SamplePages.Desktop(link), "text/html");
     });
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L15-L121' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L15-L122' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 `MapOfficePages` maps the pages that open a file in a WOPI client, `/edit/{fileId}` and `/view/{fileId}`, and `/editnew/{fileId}` for a new document. The application gives it the access of the user to the file, which only it can decide from its own users and permissions, or null to refuse it with a 403, and optionally its own results for the errors:
@@ -180,7 +181,7 @@ static IResult? OnError(HttpContext context, Exception exception)
     return null;
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L153-L182' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L154-L183' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The page is `OfficeLaunch.HostPage()`: a form posts the access token to the editor, in a full-page iframe. An application that puts the editor in a page of its own calls `OfficeLauncher.Launch` itself, and takes the form, the iframe and the script from `HostPageHtml()`. A missing file is a 404, a WOPI client that cannot be reached a 503, and an action no WOPI client offers for the file a 400.
@@ -210,7 +211,7 @@ app.MapPost(
         return Results.Redirect(page);
     });
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L123-L141' title='Snippet source file'>snippet source</a> | <a href='#snippet-NewDocument' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L124-L142' title='Snippet source file'>snippet source</a> | <a href='#snippet-NewDocument' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 Desktop Office can also Save As: with `CanWriteRelative`, as for the Save As of the WOPI clients, the file is created next to the one being edited, and edited on through the same link.
@@ -234,6 +235,8 @@ It starts with a `Welcome.docx` in `src/OfficeHost.Sample/files`; add files ther
 
 The sample also serves [Morph](https://github.com/Papyrine/Morph), a second WOPI client whose editor runs in the browser as Blazor WebAssembly ([Morph.Wopi](https://www.nuget.org/packages/Morph.Wopi/), with the editor in [src/OfficeHost.Sample.Morph](src/OfficeHost.Sample.Morph)): Edit using Morph opens a Word document in it, with no container. Its discovery is in `DiscoveryUrls` too, so that its proofs are checked, and the pages of `MapOfficePages` are given Collabora's, so that Edit and View open a file in Collabora only. Morph calls the WOPI endpoints from the server at `OfficeHost:BaseUrl`, so `host.docker.internal` has to resolve on the machine, as Docker Desktop makes it.
 
+
+[src/OfficeHost.Sample.Shadow](src/OfficeHost.Sample.Shadow) is a second sample: a shadow of a SharePoint farm on SQL Server, which replays desktop Office's traffic with SharePoint to OfficeHost and logs how the answers compare ([docs/shadow.md](docs/shadow.md)).
 
 ## Options
 
@@ -430,7 +433,8 @@ if (shadow)
 {
     // the documents of SharePoint as files of the folder, under their host and path
     services.AddSingleton<IShadowDocuments>(new FileSystemShadowDocuments(storage));
-    // the documents Office opened from its cache, from SharePoint, as the application's account
+    // the documents Office opened from its cache, or downloaded in parts, from SharePoint, as the
+    // application's account
     services.AddHttpClient<IShadowContent, SharePointShadowContent>()
         .ConfigurePrimaryHttpMessageHandler(
             () => new HttpClientHandler
@@ -440,7 +444,7 @@ if (shadow)
     services.AddOfficeHostShadow();
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L49-L68' title='Snippet source file'>snippet source</a> | <a href='#snippet-Shadow' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L49-L69' title='Snippet source file'>snippet source</a> | <a href='#snippet-Shadow' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 How it works, its guarantees to SharePoint, its configuration and limits are in [docs/shadow.md](docs/shadow.md). The same engine replays recordings offline: [docs/replay.md](docs/replay.md).

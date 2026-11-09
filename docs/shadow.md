@@ -169,7 +169,8 @@ if (shadow)
 {
     // the documents of SharePoint as files of the folder, under their host and path
     services.AddSingleton<IShadowDocuments>(new FileSystemShadowDocuments(storage));
-    // the documents Office opened from its cache, from SharePoint, as the application's account
+    // the documents Office opened from its cache, or downloaded in parts, from SharePoint, as the
+    // application's account
     services.AddHttpClient<IShadowContent, SharePointShadowContent>()
         .ConfigurePrimaryHttpMessageHandler(
             () => new HttpClientHandler
@@ -179,7 +180,7 @@ if (shadow)
     services.AddOfficeHostShadow();
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L49-L68' title='Snippet source file'>snippet source</a> | <a href='#snippet-Shadow' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L49-L69' title='Snippet source file'>snippet source</a> | <a href='#snippet-Shadow' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 <!-- snippet: MapShadow -->
@@ -191,39 +192,114 @@ if (shadow)
     app.MapOfficeHostShadow();
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L71-L77' title='Snippet source file'>snippet source</a> | <a href='#snippet-MapShadow' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L72-L78' title='Snippet source file'>snippet source</a> | <a href='#snippet-MapShadow' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 `AddOfficeHost` is needed too, configured as the application's production deployment would be: the point is to test
 it. `IShadowDocuments` exists because `IOfficeStorage` has no way to create a file at a path.
 
 `IShadowDocuments` finds or adds the file of a document. For `FileSystemStorage`, `FileSystemShadowDocuments` keeps each
-document at its host and path under the root. For SQL Server or Azure Blob Storage, their `Add(folder, name, ownerId,
-content)` and a map of document keys to file ids, kept in the application's own database:
+document at its host and path under the root. For SQL Server, the shadow sample keeps it in the folder of its host and
+path, found there by `SqlServerStorage.GetFile(folder, name)`; Azure Blob Storage would need a map of document keys to
+file ids in the application's own database:
 
 <!-- snippet: SqlServerShadowDocuments -->
 <a id='snippet-SqlServerShadowDocuments'></a>
 ```cs
-class SqlServerShadowDocuments(SqlServerStorage storage, IShadowDocumentMap map) :
+class SqlServerShadowDocuments(SqlServerStorage storage) :
     IShadowDocuments
 {
-    public Task<string?> Find(ShadowDocument document, Cancel cancel) =>
-        map.Get(document.Key, cancel);
+    public async Task<string?> Find(ShadowDocument document, Cancel cancel) =>
+        (await storage.GetFile(FolderOf(document), document.Name, cancel))?.Id;
 
     public async Task<string> Add(ShadowDocument document, Stream content, Cancel cancel)
     {
-        var folder = $"{document.Url.Host}/{document.Folder}";
-        var file = await storage.Add(folder, document.Name, "shadow", content, cancel);
-        await map.Set(document.Key, file!.Id, cancel);
+        var file = await storage.Add(FolderOf(document), document.Name, "shadow", content, cancel) ??
+                   throw new InvalidOperationException($"The storage has a file of {document.Url} already");
         return file.Id;
     }
+
+    static string FolderOf(ShadowDocument document) =>
+        $"{document.Url.Host}/{document.Folder}";
 }
 ```
-<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerShadowDocuments.cs#L12-L27' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServerShadowDocuments' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample.Shadow/SqlServerShadowDocuments.cs#L6-L23' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServerShadowDocuments' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 A document made by a Save As in SharePoint is made by OfficeHost too, next to the file it was saved from, so `Find`
-must find a file by the folder and name of its document (`FileSystemShadowDocuments` does).
+must find a file by the folder and name of its document (both of these do).
+
+### The shadow sample: SQL Server, as a Windows service
+
+`src/OfficeHost.Sample.Shadow` is a shadow and nothing else: no WOPI client, no page that opens a file. OfficeHost's
+files, locks and coauthoring state are in a SQL Server database of the shadow's own, which it creates when missing, with
+the tables of `OfficeHost.SqlServer.Install`. It runs as a console application, or as a Windows service:
+
+<!-- snippet: ShadowSqlServer -->
+<a id='snippet-ShadowSqlServer'></a>
+```cs
+// the files, locks and coauthoring state of OfficeHost in SQL Server, as the application would keep them
+services.AddOfficeHostSqlServer(connectionString, schema);
+services.AddOfficeHost(options => configuration.GetSection("OfficeHost").Bind(options));
+// the documents of SharePoint as files of the database, in the folder of their host and path
+services.AddSingleton<IShadowDocuments>(_ => new SqlServerShadowDocuments(_.GetRequiredService<SqlServerStorage>()));
+// the documents Office opened from its cache, or downloaded in parts, from SharePoint, as the service's account
+services.AddHttpClient<IShadowContent, SharePointShadowContent>()
+    .ConfigurePrimaryHttpMessageHandler(
+        () => new HttpClientHandler
+        {
+            UseDefaultCredentials = true
+        });
+services.AddOfficeHostShadow();
+```
+<sup><a href='/src/OfficeHost.Sample.Shadow/Program.cs#L18-L32' title='Snippet source file'>snippet source</a> | <a href='#snippet-ShadowSqlServer' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+| Setting | Default | |
+|---|---|---|
+| `ConnectionStrings:OfficeHost` | LocalDB, `OfficeHostShadow` | The shadow's own database: never SharePoint's, nor the application's in production. |
+| `Shadow:Schema` | `dbo` | The schema of the tables. |
+| `Shadow:InstallDatabase` | true | Creates the database when missing, and the tables. False when the account cannot: then run the script of `OfficeHostSqlServerInstaller.GetScript`. |
+| `OfficeHost:SigningKey` | a development key | A secret of your own. |
+| `OfficeHostShadow:*` | | As above: at least `ApiKey`, and `RecordingFolder` to keep what it receives. |
+| `Urls`, or `Kestrel:Endpoints` | `http://localhost:5002` | Where the module posts. |
+| `Logging:EventLog` | source `OfficeHost Shadow` | The differences, failures and summaries, to the Application event log. |
+
+To try it, `dotnet run --project src/OfficeHost.Sample.Shadow --launch-profile shadow` (LocalDB, `https://localhost:5003`,
+a summary every 30 seconds), then send it a recording as the module would have sent it live:
+
+```bash
+pwsh src/OfficeHost.Sample.Shadow/Send-Recording.ps1 -Folder C:\Recordings\word -ApiKey "the key of the shadow sample, do not use it elsewhere" -SkipCertificateCheck
+```
+
+On a server of the farm, as an administrator:
+
+1. Publish it, with its runtime: `dotnet publish src/OfficeHost.Sample.Shadow -c Release -r win-x64 --self-contained -o
+   artifacts/shadow-sample`, and copy the folder to the server (`C:\OfficeHost\shadow-sample`).
+2. Next to it, an `appsettings.Production.json` of the server's: the connection string, a signing key, the API key,
+   the recording folder, and the URL. On the server itself, the module can post over the loopback,
+   `http://localhost:5002`, which never leaves the machine; from another server, HTTPS (a `Kestrel:Endpoints` entry
+   with a certificate of the machine's store).
+3. The account of the service: allowed to log on as a service, `db_owner` of the database (or `dbcreator` to have it
+   created), and able to read the documents in SharePoint, for those Office opened from its cache or downloaded in
+   parts (`SharePointShadowContent`).
+4. The event log source, then the service:
+
+   ```bash
+   New-EventLog -LogName Application -Source 'OfficeHost Shadow'
+   ```
+
+   ```bash
+   New-Service -Name OfficeHostShadow -DisplayName 'OfficeHost Shadow' -BinaryPathName 'C:\OfficeHost\shadow-sample\OfficeHost.Sample.Shadow.exe' -Credential (Get-Credential) -StartupType Automatic
+   ```
+
+   ```bash
+   Start-Service OfficeHostShadow
+   ```
+
+5. Check that it answers, `Invoke-WebRequest http://localhost:5002`, then point the module at it with
+   `Install-OfficeHostShadow.ps1 -Sink http://localhost:5002/officehost-shadow/exchanges -ApiKey <key>` (below). To stop,
+   point the module at a folder again, or `-Remove` it, then stop the service.
 
 ### The module: SharePoint
 
@@ -419,7 +495,9 @@ credentials, cookies or the request digest. IsOnlyClient is always copied (it na
 - The key is in web.config, visible to the farm's administrators: it only lets one post to the ingest of the shadow,
   and the shadow logs what it receives. Rotate it with the script.
 - `SharePointShadowContent` reads documents as the account the shadow runs as (or the credentials of its handler):
-  give it read access only.
+  give it read access only. It says it takes no sign-in page (`X-FORMS_BASED_AUTH_ACCEPTED: f`, as the SharePoint REST
+  clients do): without it SharePoint 2016 answered the shadow's GET 403, a client with no user agent of a browser being
+  one that may expect a sign-in page. A page instead of the document (an error, a sign-in) is a failure, not content.
 
 
 ## Tested
