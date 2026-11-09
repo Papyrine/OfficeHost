@@ -236,7 +236,7 @@ static class CellSync
     }
 
     /// <summary>
-    /// Applies a Put Changes, as SharePoint Server SE does (docs/fsshttp-notes.md):
+    /// Applies a Put Changes, as SharePoint Server SE does (docs/fsshttp-notes.md, docs/fsshttp-concurrency.md):
     /// - a Storage Index, or an expected Storage Index other than the current one, that is not in the package, or a data
     ///   element the new Storage Index reaches that neither the package nor the storage has, is a referenced data
     ///   element not found;
@@ -328,7 +328,7 @@ static class CellSync
     /// Whether the mappings the new Storage Index updates are as the client expects ([MS-FSSHTTPB] 2.2.2.1.4): for each
     /// of them, the storage maps it as the expected Storage Index does, or, when that has no such mapping and the client
     /// implies null, not at all. Word sends the Storage Index it expects in the package, under an identifier of its own,
-    /// with the mappings of the Storage Index it got but Serial Numbers of its own (docs/fsshttp-notes.md): the targets
+    /// with the mappings of the Storage Index it got but Serial Numbers of its own (docs/fsshttp-concurrency.md): the targets
     /// are compared, not the Serial Numbers.
     /// </summary>
     static bool Coherent(PutChangesRequest put, StorageIndex index, StorageIndex? expected, StorageIndex current)

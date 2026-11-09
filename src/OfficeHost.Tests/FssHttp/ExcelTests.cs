@@ -1,5 +1,5 @@
 /// <summary>
-/// Desktop Excel, as it went against SharePoint Server and the sample (docs/fsshttp-notes.md): it opens without a lock,
+/// Desktop Excel, as it went against SharePoint Server and the sample (docs/fsshttp-concurrency.md): it opens without a lock,
 /// takes an exclusive lock at the first edit, with a LockStatus that runs only if the lock fails, saves with the lock
 /// id as BypassLockID alone, and releases the lock on close.
 /// </summary>

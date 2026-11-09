@@ -1,6 +1,6 @@
 /// <summary>
 /// Put Changes with the options Office sets ([MS-FSSHTTPB] 2.2.2.1.4: flags 0x49, additional flags 0x8004) and without
-/// them, answered as SharePoint Server SE answered the same requests (docs/fsshttp-notes.md).
+/// them, answered as SharePoint Server SE answered the same requests (docs/fsshttp-notes.md, docs/fsshttp-concurrency.md).
 /// </summary>
 public class PutChangesTests
 {

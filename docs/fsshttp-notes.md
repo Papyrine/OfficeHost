@@ -2,6 +2,8 @@
 
 Each entry gives the spec section, what Word did, and the evidence: a run of the spike (docs/fsshttp-spike.md), whose logs are in `src/OfficeHost.Sample/spike-logs`, or a run of the library through the `desktop` launch profile of the sample, whose logs are in `src/OfficeHost.Sample/request-logs` (before Phase 5, in `spike-logs` too). The client is Word 16.0.20326 (Microsoft 365) on Windows 11 10.0.26200.
 
+Several editors, the locks and the coherency of a save (coauthoring, Excel's exclusive lock) are in [fsshttp-concurrency.md](fsshttp-concurrency.md).
+
 
 ## Discovery
 
@@ -97,25 +99,6 @@ Each entry gives the spec section, what Word did, and the evidence: a run of the
 - **Spec:** [MS-FSSHTTP] 2.3.1.27 to 2.3.1.29 define `DocProps` and `FolderProps` as key/value properties without naming them.
 - **SharePoint Server:** `DocProps` holds the `vti_*` metadata of the file, mixed with the library's columns. That includes the lock (`vti_sourcecontrollockid`, `…locktype`, `…lockexpires`, `…multiuserchkoutby`), the version (`vti_contenttag`, `vti_contentversionisdirty`, `vti_TimeOfLastCobaltVersionCreation`), and the file (`vti_filesize`, `vti_timelastmodified`, `vti_author`, `vti_modifiedby`, `vti_replid`). The full list is in fsshttp-spike.md.
 
-### Coauthoring is a poll, not the refresh the spec describes
-
-- **Spec:** [MS-FSSHTTP] 3.1.4.3.3 (Refresh Coauthoring Session) keeps a client in the session before its `Timeout`, and 3.1.4.3.7 (Get Coauthoring Session) reports who is in it.
-- **Word, two users on SharePoint Server:**
-  - **The poll:** every 8 seconds, `Scenario: PollingSubscriptionNotConnected_TransitionToCoauthInHostMode`, three Cell queries plus Coauth `GetCoauthoringStatus`, 159 times in 21 minutes. There was no `RefreshCoauthoring`, EditorsTable refresh or SchemaLock refresh in the 27 minutes after the open (`Timeout="2580"`): Word refreshes 40 minutes after the join (see "Word refreshes its lock 40 minutes after the join", below).
-  - **When the second user arrived:** Word sent `MarkTransitionComplete` with the Cell queries (`Scenario: GetChangesFile_MarkCoauthTransitionCompleteAndDownload`).
-  - **Before saving:** Word uploaded the metadata partition alone (`Scenario: Coauthoring_RequestUploadOnSecondaryMetadataPartition`).
-- **Alone:** Word polls `sharedaccess.asmx` `IsOnlyClient` instead ([MS-SHDACCWS]).
-
-### A remote change is pulled by the poll, merged at the next save
-
-- **Word:** the poll's Cell queries carry Word's knowledge. After the other user's save, one answer brought their changes (and Etag version + 1), and Word's later queries changed with its knowledge. Word showed the changes as pending updates, and merged them into the document at its next save. That save's PutChanges did not fail coherency: Word merges before it uploads.
-
-### Closing exits coauthoring
-
-- **Spec:** [MS-FSSHTTP] 3.1.4.3.2 (Exit Coauthoring Session), 3.1.4.4.2 (Release Lock).
-- **Word:** closing the document sent one request: Coauth `ExitCoauthoring` (with `SchemaLockID` and `ClientID`), and SchemaLock `ReleaseLock` `OnNotSupported` it. The same pair was sent twice when the open failed against the spike.
-
-
 ## FSSHTTPB
 
 The Cell sub-requests of Word below are in the tests as `FssHttpBVectors.WordRequests` (src/OfficeHost.Tests/FssHttp), taken from run 7 of the spike. They are queries, with no document content.
@@ -198,11 +181,7 @@ The evidence here is the three Put Changes requests of Word's saves to SharePoin
 
 Word 16.0.20326, on the `desktop` launch profile of the sample (`https://localhost:5001`), with every request logged. It opened the document, enabled editing, saved twice and closed, and the file had both edits.
 
-### The expected Storage Index of a Put Changes is Word's own copy
-
-- **Spec:** [MS-FSSHTTPB] 2.2.2.1.4 has the Expected Storage Index Extended GUID "that the client expects the server to have", without saying how the server compares it.
-- **Word:** the id is a new one (`{GUID},1`), and the Data Element Package holds a Storage Index with that id: the mappings of the Storage Index Word got from the server, with their data element ids, but with mapping Serial Numbers of a GUID of Word's. Comparing the ids fails every save with a coherency failure, and Word then downloads the whole file again. The service compares the targets of the mappings the new Storage Index updates, key by key (see "Put Changes options" below).
-- So that a change made outside Word still fails coherency, a revision written from a file gets a new Cell Manifest, as Word makes one per save.
+The expected Storage Index of its saves, and the refresh of its lock, are in fsshttp-concurrency.md.
 
 ### Protected View, then a second open
 
@@ -217,52 +196,14 @@ Word 16.0.20326, on the `desktop` launch profile of the sample (`https://localho
 
 The 199-byte stream of Word's second root (`{EDF48BAC-…},2`, above) starts with `1A 5A 3A 30 00 00 00 00`, the Editors Table Zip Stream Header of [MS-FSSHTTPB] 2.2.3.1.2.1.1: a DEFLATE-compressed XML of Word's.
 
-### Word refreshes its lock 40 minutes after the join
-
-- **Spec:** [MS-FSSHTTP] 3.1.4.3.3 has a client refresh its coauthoring session before its `Timeout`, without saying when.
-- **Word, alone, editing and then idle for 65 minutes** (step 10 of [fsshttp-checklist.md](fsshttp-checklist.md)):
-  - **The polls:** `IsOnlyClient` of `sharedaccess.asmx` every 30 seconds (`Scenario: PollingSubscriptionNotConnected_AmIAlone`), 140 in the hour, after a burst every 8 seconds once the document is open. The burst was 1 poll against OfficeHost and 4 (32 seconds) against SharePoint Server (the lab of docs/sharepoint-lab.md), whose `IsOnlyClient` answers are the same: the rate is Word's, not the server's. During SharePoint's burst Word was still calling its REST API (`GetSharingInformation`, a 404 against OfficeHost). At 21, 49 and 58 minutes, a pair of Cell queries of the content and the metadata (`Scenario: GetChangesFile_PowerAndPresenceStateChange`).
-  - **The refresh:** 2400 seconds after the join, 180 seconds before its `Timeout="2580"`, one request (`Scenario: RefreshLock_LockRefresh`): Coauth `RefreshCoauthoring` with `Timeout="2580"`, SchemaLock `RefreshLock` `OnNotSupported` it, and the three `UpdateEditorMetadata` of the join again.
-  - **The save** after the hour succeeded, with the same `BypassLockID`.
-- This fits the SharePoint captures, which ended 27 minutes after the open. The service keeps a client for at least an hour from its last request, so the refresh only extends what the polls already do.
-
-### A restart of the server: Word goes on without joining again
-
-- **Word:** with the sample stopped for a minute and started again (step 9), Word did not join again or open the file again. Its `IsOnlyClient` polls went on, then two Cell queries (`GetChangesFile_PowerAndPresenceStateChange`) and a save, which succeeded.
-- **The service:** the coauthoring tracker was on disk (`FileSystemFssHttpStore`), the lock of the sample's `MemoryLockStore` was not. The first poll after the restart refreshed the client, which wrote its lock again. Until then, a WOPI client could have locked the file, and Word's save would have failed with `FileAlreadyLockedOnServer`: an application keeps its `IOfficeLockStore` as long as its `IFssHttpStore`.
-
-
 ## Excel
 
-Excel 16.0.20326 (`UserAgentClient="msexcl"`), opening a workbook with the edit button of the application on SharePoint Server, changing a cell, saving and closing (captured with `src/fsshttp-capture.ps1 -HostName`); then the same against the `desktop` launch profile of the sample.
-
-### Excel takes an exclusive lock at the first edit, and does not coauthor
-
-- **Spec:** [MS-FSSHTTP] 3.1.4.4 (Exclusive Lock) and 3.1.4.3 (Coauth) leave the choice to the client.
-- **Excel, on SharePoint Server and on the sample alike:**
-  - **The open has no lock:** `WhoAmI` and `GetDocMetaInfo` (`Scenario: GetMetadata_EnsureDocMetaInfo`), then `OpenFile_Open`: a Cell query of the content with `GetFileProps`, `GetVersions`, and a Query Access. No Coauth, SchemaLock or editors table, and no polling while the workbook is open.
-  - **The first edit takes the lock:** a second or more after the first keystroke, `Scenario: GetChangesFile_RefreshFile`: ExclusiveLock `GetLock` with an `ExclusiveLockID` of its own and `Timeout="600"`, without `ClientID` or `SchemaLockID`, and a `LockStatus` sub-request that depends on it `OnFail`.
-  - **The save** (`AutoSaveFile_Save`) is a Cell sub-request with `BypassLockID` (the exclusive lock id) and no `SchemaLockID`, and a `GetDocMetaInfo`.
-  - **The close** sends ExclusiveLock `ReleaseLock` alone.
-- An edit through Excel's object model (COM) did not take the lock: the workbook stayed read-only, and saving it wrote a local copy. Check Excel by typing in it.
-- **Without Protected View** (once Office trusts the document), Excel opens it read-only, with "We opened this workbook read-only from the server" and an Edit Workbook button, against SharePoint and OfficeHost alike. Typing in it then takes no lock (the edits stay local); Edit Workbook sends the `GetLock`. Through Protected View, Enable Editing opens it editable, and the first keystroke takes the lock.
+Excel 16.0.20326 (`UserAgentClient="msexcl"`), opening a workbook with the edit button of the application on SharePoint Server, changing a cell, saving and closing (captured with `src/fsshttp-capture.ps1 -HostName`); then the same against the `desktop` launch profile of the sample. Its exclusive lock, and a second user locked out of the workbook, are in fsshttp-concurrency.md ("Excel: the exclusive lock").
 
 ### GetDocMetaInfo has vti_canmaybeedit
 
 - **SharePoint:** among the properties of `GetDocMetaInfo`, `vti_canmaybeedit=true`, and, once locked, `vti_sourcecontrollockid` (the exclusive lock id, without braces, in lower case) with `vti_sourcecontrollocktype=0` and the user in `vti_sourcecontrolcheckedoutby`.
 - **The service** sends `vti_canmaybeedit` (false without write access) and the lock id and type. Excel locked and saved with it; whether Excel needs it was not isolated, as the tests without it were through COM.
-
-### Locked out: the user is named in the ErrorMessage of the refusal
-
-Two users on SharePoint Server: one had the workbook open in Excel and had typed in it, the other (captured) opened it, typed, kept the notification, and clicked Read-Write once the first closed Excel. Then the same against the sample, with the lock taken by a script as user bob, as Excel takes it.
-- **The open** of the second user is as usual, read-only, with "We opened this workbook read-only from the server" and an Edit Workbook button. SharePoint's `GetDocMetaInfo` has the first user's lock: `vti_sourcecontrollockid` and `vti_sourcecontrollocktype=0`.
-- **Typing, or Edit Workbook,** sends the `GetLock` and its `LockStatus`. SharePoint answers:
-  - the `GetLock` with `ErrorCode="FileAlreadyLockedOnServer"` and **`ErrorMessage`, the display name of the user who has the lock**, the optional ErrorMessage of the SubResponse, which the spec does not tie to locks;
-  - the `LockStatus` with `LockType="2"` (the number, where the spec's LockTypes, 2.2.5.9, are names), the lock id in lower case without braces, and `LockedBy`, the display name again.
-- **File In Use** says "This file is locked for editing by <ErrorMessage>". Without the `ErrorMessage` it says "another user", whatever the `LockStatus` (`LockedBy`, and `LockType` as a name or a number) and `GetDocMetaInfo` (`vti_sourcecontrolcheckedoutby`) say: tried each against the sample. The service sends the `ErrorMessage` with every `FileAlreadyLockedOnServer` whose lock it knows the user of, and `LockStatus` as SharePoint does.
-- **The notification** polls every 30 seconds: ExclusiveLock `CheckLockAvailability` (`Scenario: GetLock_CheckForLockAvailibility`) with a lock id of its own, `FileAlreadyLockedOnServer` while the lock is held, by desktop Office or a WOPI client. On the first `Success`, Excel shows "File Now Available" with a Read-Write button.
-- **The exclusive lock is its user's.** Its id is no secret (`GetDocMetaInfo` and `LockStatus` give it, as on SharePoint), so OfficeHost also checks the user: another user who sends it cannot refresh, release or convert the lock, nor save under it (`HardeningTests.ExclusiveLock_OfItsUser`), and a reader cannot release one.
-- **Read-Write leaves the workbook read-only, on SharePoint too.** Against SharePoint it opens the workbook again (`WhoAmI` and `GetDocMetaInfo`, then `OpenFile_Open`) and stays read-only, without a `GetLock` when the user types; a save is a Save As. Against the sample it sends nothing, and the bar says "This workbook is locked for editing by another user". Either way the user closes the workbook and opens it again to edit it.
 
 ### GetVersions
 
@@ -331,21 +272,15 @@ What Office sets, from the 113 Cell sub-requests the sample logged (Word, Excel 
 - **Query Changes:** the flags above, the arguments `3` (include the Storage Manifest and the cell changes) with a null Cell ID, at most 3,670,016 bytes of data elements (the service answers partial results beyond it), the client's knowledge, no versioning and no filters.
 - **Put Changes:** flags `0x49`: A, imply null expected if no mapping; D, favor coherency failure over not found; G, return complete knowledge (Excel once sent `0x09`). Then three zero bytes: an empty content version coherency check, no author logins, the reserved byte. Additional flags `0x8004`: C, check for id reuse, and bit 15, which the spec reserves. No lock id, the client's knowledge, no diagnostic.
 
-SharePoint Server SE answered each case of `PutChangesTests` (a save as Office's, with one thing changed), and OfficeHost now answers the same:
+SharePoint Server SE answered each case of `PutChangesTests` (a save as Office's, with one thing changed), and OfficeHost now answers the same. The cases of the expected Storage Index, and how coherency is checked, are in fsshttp-concurrency.md ("Coherency is key by key").
 
 | Put Changes | SharePoint SE | OfficeHost before |
 |---|---|---|
 | A data element the new Storage Index reaches is in neither the package nor the storage (with D or without) | `CellRequestFail`, Cell error 16 | Cell error 2, invalid object |
-| The expected Storage Index is not in the package (with D or without) | Cell error 16 | 12, coherency failure |
-| No expected Storage Index (null), A | 12 | 12 |
-| No expected Storage Index, no A | applied | 12 |
-| An expected Storage Index with the Storage Manifest mapping alone, A / no A | 12 / applied | 12 / 12 |
-| An expected Storage Index with another Storage Manifest, A or not | 12 | 12 |
 | A data element under the id of another the storage has, C / no C | Cell error 112, Extended GUID collision / applied | applied / applied |
 | A failed Put Changes, in the SubResponse | `CellRequestFail`, the Cell error in the FSSHTTPB | `Success` |
 
-- **D made no difference:** SharePoint answered 16 for a missing data element whether it was set or not.
-- **Coherency is key by key**, as [MS-FSSHTTPB] 2.2.2.1.4 says: each mapping the new Storage Index updates (the Storage Manifest, a cell, a revision) has to be the one the expected Storage Index has for it, or, where that has none and A is set, not mapped on the server. Without A, a mapping the client does not expect is applied unchecked.
+- **D made no difference:** SharePoint answered 16 for a missing data element whether it was set or not, and for an expected Storage Index missing from the package.
 - **The Put Changes response** of SharePoint has 29 bytes the spec does not define, inside the response object after the data elements added: a GUID that was the same on every save of the run, `7A 05 24 00 03 05 44 00`, then a number that grew from save to save. Office saves to OfficeHost without them; the codec keeps them as `Extra`. SharePoint also returns the data elements added without B being set.
 
 ### Word's session replayed (docs/replay.md)
@@ -364,7 +299,7 @@ A second recording added Word with a second client in its session, a Save As, Ex
 - **The Cell of a Save As** (its `ExclusiveLockID`, `Timeout` and a whole file) is answered `LockType="ExclusiveLock"` with its file properties: it holds the lock it took. OfficeHost now answers so.
 - **`GetFileProps` is for the content:** a Cell of the editors table with `GetFileProps="true"` (Word's after a Save As) has no `Etag` or times. OfficeHost now gives the properties to the Cells of the content only.
 - **A second client joining** makes Word's next IsOnlyClient `false`, then Word sends `MarkTransitionComplete` with its three Cell queries, then a poll of three Cell queries and `GetCoauthoringStatus` every 30 seconds while coauthoring, and IsOnlyClient again once alone. OfficeHost answered all of these as SharePoint did.
-- **Excel through COM** opened `Lab.xlsx` read-only (no lock, nothing saved), with SharePoint's `vti_canmaybeedit` true and no lock on the file: Excel's choice, as "Excel takes an exclusive lock at the first edit" says of its object model.
+- **Excel through COM** opened `Lab.xlsx` read-only (no lock, nothing saved), with SharePoint's `vti_canmaybeedit` true and no lock on the file: Excel's choice, as "Excel takes an exclusive lock at the first edit" (fsshttp-concurrency.md) says of its object model.
 - **The same as SharePoint:** the join, the schema lock kept from running, the editor metadata, WhoAmI, ServerTime, the IsOnlyClient polls, the exit and the release of the lock. Different as known: GetVersions (see Versions), the `vti_` properties of GetDocMetaInfo (OfficeHost sends a subset), and the Cells of documents Office had in its cache before the recording, which the replay cannot translate.
 
 A third recording, of documents Office had never opened, with the cells translated (docs/replay.md, "The cells"):

@@ -1292,7 +1292,7 @@ class CellStorageService(
     /// LockStatus (2.3.1.50): the lock of the file, its id and its user, as Excel asks when it cannot take the exclusive
     /// lock, and names the user in its File In Use. A WOPI lock is exclusive, with neither. The LockType is a number, as
     /// SharePoint sends it (0 none, 1 shared, 2 exclusive): Excel ignores the answer with the name of the type
-    /// (docs/fsshttp-notes.md).
+    /// (docs/fsshttp-concurrency.md).
     /// </summary>
     async Task<string> LockStatus(FssHttpSite site, XElement data, Cancel cancel)
     {

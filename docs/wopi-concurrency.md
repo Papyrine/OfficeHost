@@ -1,6 +1,6 @@
 # Several editors over WOPI
 
-How several users editing one file works over [MS-WOPI], and what OfficeHost does about it. For desktop Office, which coauthors through the host, see [fsshttp-notes.md](fsshttp-notes.md) ("A remote change is pulled by the poll, merged at the next save") and rows 17 to 19 of [fsshttp-checklist.md](fsshttp-checklist.md).
+How several users editing one file works over [MS-WOPI], and what OfficeHost does about it. For desktop Office, which coauthors through the host, see [fsshttp-concurrency.md](fsshttp-concurrency.md) and rows 17 to 19 of [fsshttp-checklist.md](fsshttp-checklist.md).
 
 ## The WOPI client coauthors, the host does not
 
