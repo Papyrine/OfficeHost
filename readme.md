@@ -348,7 +348,7 @@ await OfficeHostSqlServerInstaller.Install(connectionString);
 // in the application, before or after AddOfficeHost
 builder.Services.AddOfficeHostSqlServer(connectionString);
 ```
-<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerTests.cs#L201-L207' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServer' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerTests.cs#L198-L204' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServer' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 
