@@ -1,6 +1,6 @@
 # FSSHTTP: where Word differs from the specs
 
-Each entry gives the spec section, what Word did, and the evidence: a run of the spike (docs/fsshttp-spike.md), whose logs are in `src/OfficeHost.Sample/spike-logs`, or a run of the library through the `desktop` launch profile of the sample, whose logs are in `src/OfficeHost.Sample/request-logs` (before Phase 5, in `spike-logs` too). The client is Word 16.0.20326 (Microsoft 365) on Windows 11 10.0.26200.
+Each entry gives the spec section, what Word did, and the evidence: a run of the spike (docs/fsshttp-spike.md), whose logs are in `src/OfficeHost.Sample/spike-logs`, or a run of the library through the `desktop` launch profile of the sample, whose logs are in `src/OfficeHost.Sample/request-logs` (those of the earliest runs in `spike-logs` too). The client is Word 16.0.20326 (Microsoft 365) on Windows 11 10.0.26200.
 
 Several editors, the locks and the coherency of a save (coauthoring, Excel's exclusive lock) are in [fsshttp-concurrency.md](fsshttp-concurrency.md).
 
@@ -154,7 +154,7 @@ The evidence here is the three Put Changes requests of Word's saves to SharePoin
   - each leaf is in one Object Group with its Data Node Object, and each Object Group has Object Group metadata declarations ([MS-FSSHTTPB] 2.2.1.12.6.3), one per object;
   - every leaf has a Data Hash of 20 bytes, whose algorithm the note <3> leaves incomplete ("without the introduction of the length"), so this host keeps those it reads and writes none;
   - a revision has no base revision: its Revision Manifest lists the Object Groups it keeps from earlier saves, by their identifiers, with its new ones. `FileCell.Write` does the same.
-- This host writes the layout of the example, which its tests reproduce data element for data element. Word reads layouts other than its own, as it reads SharePoint's; that is to be confirmed when the service serves files (Phase 4).
+- This host writes the layout of the example, which its tests reproduce data element for data element. Word reads layouts other than its own, as it reads SharePoint's: it opens the revisions the service writes from a file (a new file, or one changed outside Word).
 
 ### A second root: an opaque stream
 
@@ -163,7 +163,7 @@ The evidence here is the three Put Changes requests of Word's saves to SharePoin
 
 ### Serial Numbers and the expected Storage Index
 
-- **Word:** every data element of a Put Changes has the null Serial Number; the server assigns them. The mappings of the Storage Index do have Serial Numbers, of a GUID of Word's. The Data Element Package also holds the Storage Index of `ExpectedStorageIndex`, with its Storage Manifest and Cell Manifest. Both matter to the Put Changes of the service (Phase 4).
+- **Word:** every data element of a Put Changes has the null Serial Number; the server assigns them. The mappings of the Storage Index do have Serial Numbers, of a GUID of Word's. The Data Element Package also holds the Storage Index of `ExpectedStorageIndex`, with its Storage Manifest and Cell Manifest. The service assigns the Serial Numbers, and compares the expected Storage Index with its own (fsshttp-concurrency.md, "Coherency").
 
 ### The order of the 32-bit Extended GUID
 
@@ -212,37 +212,37 @@ Excel 16.0.20326 (`UserAgentClient="msexcl"`), opening a workbook with the edit 
 
 ## SharePoint Server SE against OfficeHost, request by request
 
-`src/sharepoint-lab/Compare-CellStorage.ps1` sends the same sub-requests to the lab (SharePoint Server Subscription Edition 16.0.14326, as `LAB\alice`) and to the sample, and shows where the answers differ. The scenarios come from the server rules of Microsoft's Interop-TestSuites (`MS-FSSHTTP-FSSHTTPB_RequirementSpecification.xml`), where they and OfficeHost disagreed. OfficeHost now answers as SharePoint SE does:
+`src/sharepoint-lab/Compare-CellStorage.ps1` sends the same sub-requests to the lab (SharePoint Server Subscription Edition 16.0.14326, as `LAB\alice`) and to the sample, and shows where the answers differ. The scenarios come from the server rules of Microsoft's Interop-TestSuites (`MS-FSSHTTP-FSSHTTPB_RequirementSpecification.xml`). OfficeHost answers as SharePoint SE does, including these, which the specs do not settle:
 
-| Request | SharePoint SE | OfficeHost before |
-|---|---|---|
-| ExitCoauthoring again, after the session ended | `Success` | `FileNotLockedOnServer` |
-| ExitCoauthoring under another schema lock id | `Success`, and the client stays in the session with its lock | `FileAlreadyLockedOnServer` |
-| GetCoauthoringStatus without a session | `CoauthStatus="None"` | `Alone` |
-| MarkTransitionComplete without a session | `Success` | `InvalidCoauthSession` |
-| ExclusiveLock ReleaseLock without a lock | `Success` | `FileNotLockedOnServer` |
-| `OnExecute` on a sub-request kept from running by a failed `OnSuccess` or `OnFail` | `DependentRequestNotExecuted` | ran it |
+| Request | SharePoint SE and OfficeHost |
+|---|---|
+| ExitCoauthoring again, after the session ended | `Success` |
+| ExitCoauthoring under another schema lock id | `Success`, and the client stays in the session with its lock |
+| GetCoauthoringStatus without a session | `CoauthStatus="None"` |
+| MarkTransitionComplete without a session | `Success` |
+| ExclusiveLock ReleaseLock without a lock | `Success` |
+| `OnExecute` on a sub-request kept from running by a failed `OnSuccess` or `OnFail` | `DependentRequestNotExecuted` |
 
-- **`OnExecute`** still runs after a dependency that ran and failed, and after one kept from running by `OnNotSupported`: Word's open has its Cell queries `OnExecute` a SchemaLock kept so.
-- **Requests Office does not send** (none of the captures has an `Etag` on a Cell sub-request, or `Properties`), now answered as SharePoint SE does:
+- **`OnExecute`** runs after a dependency that ran and failed, and after one kept from running by `OnNotSupported`: Word's open has its Cell queries `OnExecute` a SchemaLock kept so.
+- **Requests Office does not send** (none of the captures has an `Etag` on a Cell sub-request, or `Properties`), answered alike too:
 
-  | Request | SharePoint SE | OfficeHost before |
-  |---|---|---|
-  | A join, schema lock or exclusive lock with a `Timeout` of 120000 or more (119999 is accepted, 30 too) | `LockRequestFail` | `Success`, clamped |
-  | A Cell sub-request with the `Etag` of another version | `CellRequestFail` | ignored the `Etag` |
-  | Properties `PropertyGet` | `Success`, `<PropertyValues/>` | `RequestNotSupported` |
-  | Properties `PropertyEnumerate` | `RequestNotSupported` | the same |
-  | `AmIAlone` | `True` or `False`, capitalized | `true`, `false` |
+  | Request | SharePoint SE and OfficeHost |
+  |---|---|
+  | A join, schema lock or exclusive lock with a `Timeout` of 120000 or more (119999 is accepted, 30 too) | `LockRequestFail` |
+  | A Cell sub-request with the `Etag` of another version | `CellRequestFail` |
+  | Properties `PropertyGet` | `Success`, `<PropertyValues/>` |
+  | Properties `PropertyEnumerate` | `RequestNotSupported` |
+  | `AmIAlone` | `True` or `False`, capitalized |
 
-- **The same already:** `AmIAlone` with the session's `TransitionID` or another one (it answers by the number of clients); twelve coauthors (no limit reached); a Cell query with `ExpectNoFileExists` on an existing file (`Success`).
+- **Also alike:** `AmIAlone` with the session's `TransitionID` or another one (it answers by the number of clients); twelve coauthors (no limit reached); a Cell query with `ExpectNoFileExists` on an existing file (`Success`).
 - **Office quirks reported by cellbridge** (a similar MIT-licensed host): Word rejecting an `ErrorStringSupplementalInfo` in UTF-8 (the codec writes string items in UTF-16, as [MS-FSSHTTPB] 2.2.1.4); Word turning read-only when the content query answers an empty Storage Index (the content partition always holds the file); Word resuming an upload without a Query Changes, with a stale expected Storage Index (a coherency failure, as on SharePoint, after which the client queries).
 - **Where SharePoint fails** (a 302 to its error page, "Object reference not set to an instance of an object"), OfficeHost keeps its answers: a Coauth or ExclusiveLock without its request type (`InvalidArgument`), `AmIAlone` without data, a dependency on an unknown token, a `RequestVersion` of 1.
-- **Still different:** SharePoint supports `GetVersions` (OfficeHost: `RequestNotSupported`, see Versions below), and adds an `ErrorMessage` to the `InvalidArgument` of a join without a schema lock id.
+- **Different:** SharePoint supports `GetVersions` (OfficeHost: `RequestNotSupported`, see Versions below), and adds an `ErrorMessage` to the `InvalidArgument` of a join without a schema lock id.
 
 ### FileOperation Rename
 
 - **Spec:** [MS-FSSHTTP] 2.3.1.34: `FileOperation="Rename"`, `NewFileName`, and an optional `ExclusiveLockID` that lets the client holding the exclusive lock rename.
-- **SharePoint Server SE**, and now OfficeHost (`FileOperationTests`):
+- **SharePoint Server SE and OfficeHost** (`FileOperationTests`):
 
   | Request | Answer |
   |---|---|
@@ -272,32 +272,32 @@ What Office sets, from the 113 Cell sub-requests the sample logged (Word, Excel 
 - **Query Changes:** the flags above, the arguments `3` (include the Storage Manifest and the cell changes) with a null Cell ID, at most 3,670,016 bytes of data elements (the service answers partial results beyond it), the client's knowledge, no versioning and no filters.
 - **Put Changes:** flags `0x49`: A, imply null expected if no mapping; D, favor coherency failure over not found; G, return complete knowledge (Excel once sent `0x09`). Then three zero bytes: an empty content version coherency check, no author logins, the reserved byte. Additional flags `0x8004`: C, check for id reuse, and bit 15, which the spec reserves. No lock id, the client's knowledge, no diagnostic.
 
-SharePoint Server SE answered each case of `PutChangesTests` (a save as Office's, with one thing changed), and OfficeHost now answers the same. The cases of the expected Storage Index, and how coherency is checked, are in fsshttp-concurrency.md ("Coherency is key by key").
+SharePoint Server SE and OfficeHost answer each case of `PutChangesTests` (a save as Office's, with one thing changed) alike. The cases of the expected Storage Index, and how coherency is checked, are in fsshttp-concurrency.md ("Coherency is key by key").
 
-| Put Changes | SharePoint SE | OfficeHost before |
-|---|---|---|
-| A data element the new Storage Index reaches is in neither the package nor the storage (with D or without) | `CellRequestFail`, Cell error 16 | Cell error 2, invalid object |
-| A data element under the id of another the storage has, C / no C | Cell error 112, Extended GUID collision / applied | applied / applied |
-| A failed Put Changes, in the SubResponse | `CellRequestFail`, the Cell error in the FSSHTTPB | `Success` |
+| Put Changes | SharePoint SE and OfficeHost |
+|---|---|
+| A data element the new Storage Index reaches is in neither the package nor the storage (with D or without) | `CellRequestFail`, Cell error 16 |
+| A data element under the id of another the storage has, C / no C | Cell error 112, Extended GUID collision / applied |
+| A failed Put Changes, in the SubResponse | `CellRequestFail`, the Cell error in the FSSHTTPB |
 
 - **D made no difference:** SharePoint answered 16 for a missing data element whether it was set or not, and for an expected Storage Index missing from the package.
 - **The Put Changes response** of SharePoint has 29 bytes the spec does not define, inside the response object after the data elements added: a GUID that was the same on every save of the run, `7A 05 24 00 03 05 44 00`, then a number that grew from save to save. Office saves to OfficeHost without them; the codec keeps them as `Extra`. SharePoint also returns the data elements added without B being set.
 
 ### Word's session replayed (docs/replay.md)
 
-Word 16 (through COM) opened `Lab.docx` of the lab as `LAB\alice`, added a paragraph, saved and closed, with the replay recorder in SharePoint. The replay of that recording to OfficeHost found these, now as SharePoint answers but for the timeout:
+Word 16 (through COM) opened `Lab.docx` of the lab as `LAB\alice`, added a paragraph, saved and closed, with the replay recorder in SharePoint. Its replay to OfficeHost found these; OfficeHost answers them as SharePoint does, but for the timeout:
 
-- **Query Access** has a third access response after the write access response, of stream object type 0xA4, which the spec does not define (the type tables of [MS-FSSHTTPB] 2.2.1.5 have none): E_ACCESSDENIED chained to E_ACCESSDENIED, for alice with Contribute rights. Read and write were allowed. The codec read nothing after the write access response; it now keeps the third as `ExtraAccess` (`FssHttpBVectorTests.SharePoint_QueryAccessResponse`). OfficeHost sends none, and Word opens and saves without it.
+- **Query Access** has a third access response after the write access response, of stream object type 0xA4, which the spec does not define (the type tables of [MS-FSSHTTPB] 2.2.1.5 have none): E_ACCESSDENIED chained to E_ACCESSDENIED, for alice with Contribute rights. Read and write were allowed. The codec keeps the third as `ExtraAccess` (`FssHttpBVectorTests.SharePoint_QueryAccessResponse`). OfficeHost sends none, and Word opens and saves without it.
 - **The editors table has the time of the join:** SharePoint adds `JoinCoauthTime` to the metadata of the editor at its join, a FILETIME in base64 (05:42:18.077 for a join at 05:42:18), before the client's own metadata (Word's open sends `SupportsRename`, `Capabilities` and `Platform` after its query of the editors table). OfficeHost adds it too, outside the client's quota of four pairs.
-- **`HaveOnlyDemotionChanges`** is in the file properties (`GetFileProps`) of a query that sends changes: not of a query that has none (the knowledge only, about 200 bytes), nor of a put. OfficeHost now answers so. Seen on 7 content queries: with it, 589 to 16,432 bytes; without, 149 to 222.
+- **`HaveOnlyDemotionChanges`** is in the file properties (`GetFileProps`) of a query that sends changes: not of a query that has none (the knowledge only, about 200 bytes), nor of a put. OfficeHost answers so. Seen on 7 content queries: with it, 589 to 16,432 bytes; without, 149 to 222.
 - **The editors table's timeout** is the join plus the client's `Timeout` on SharePoint (2,580 seconds), where OfficeHost keeps a client an hour at least and rounds the time up to ten minutes. Not changed: the spec lets the server pick its own from 60 to 3,600 seconds.
 - **IsOnlyClient** came without a user: `sharedaccess.asmx` is served without sign-in on SharePoint.
 
 A second recording added Word with a second client in its session, a Save As, Excel and PowerPoint (docs/replay.md):
 
-- **RefreshCoauthoring** is answered `LockType` and `CoauthStatus`, without the `TransitionID` of a join. OfficeHost sent it with a refresh too; now with a join only.
-- **The Cell of a Save As** (its `ExclusiveLockID`, `Timeout` and a whole file) is answered `LockType="ExclusiveLock"` with its file properties: it holds the lock it took. OfficeHost now answers so.
-- **`GetFileProps` is for the content:** a Cell of the editors table with `GetFileProps="true"` (Word's after a Save As) has no `Etag` or times. OfficeHost now gives the properties to the Cells of the content only.
+- **RefreshCoauthoring** is answered `LockType` and `CoauthStatus`, without the `TransitionID` of a join. OfficeHost sends the `TransitionID` with a join only.
+- **The Cell of a Save As** (its `ExclusiveLockID`, `Timeout` and a whole file) is answered `LockType="ExclusiveLock"` with its file properties: it holds the lock it took. OfficeHost answers so.
+- **`GetFileProps` is for the content:** a Cell of the editors table with `GetFileProps="true"` (Word's after a Save As) has no `Etag` or times. OfficeHost gives the properties to the Cells of the content only.
 - **A second client joining** makes Word's next IsOnlyClient `false`, then Word sends `MarkTransitionComplete` with its three Cell queries, then a poll of three Cell queries and `GetCoauthoringStatus` every 30 seconds while coauthoring, and IsOnlyClient again once alone. OfficeHost answered all of these as SharePoint did.
 - **Excel through COM** opened `Lab.xlsx` read-only (no lock, nothing saved), with SharePoint's `vti_canmaybeedit` true and no lock on the file: Excel's choice, as "Excel takes an exclusive lock at the first edit" (fsshttp-concurrency.md) says of its object model.
 - **The same as SharePoint:** the join, the schema lock kept from running, the editor metadata, WhoAmI, ServerTime, the IsOnlyClient polls, the exit and the release of the lock. Different as known: GetVersions (see Versions), the `vti_` properties of GetDocMetaInfo (OfficeHost sends a subset), and the Cells of documents Office had in its cache before the recording, which the replay cannot translate.
@@ -306,7 +306,7 @@ A third recording, of documents Office had never opened, with the cells translat
 
 - **Word's and PowerPoint's puts** (two saves, a save after opening again, PowerPoint's save) were applied by OfficeHost as by SharePoint, to the same file.
 - **Opening a document again,** after its own saves, Word was sent changes by SharePoint (`HaveOnlyDemotionChanges` `False`) that left the file as it was: something of SharePoint's own in the cell, as a new revision. OfficeHost had nothing new to send, and Word opened, edited and saved as well.
-- **PowerPoint's first request,** `GetMetadata_EnsureDocMetaInfo` on a keep-alive connection, came with no body in two recordings though it declared a `Content-Length`: PowerPoint dropped the connection (IIS: `sc-win32-status` 64), SharePoint answered its error page to no one, and PowerPoint sent the request again 30 ms later, which succeeded. Not seen before the replay recorder (the IIS log of 2026-10-21: 12 requests of PowerPoint, all 200), which then read the request body at authentication; it now reads it after SharePoint's handler, and PowerPoint's next 9 requests, from a new process, were all 200 (docs/replay.md). Not a behaviour of PowerPoint's, then.
+- **PowerPoint's first request,** `GetMetadata_EnsureDocMetaInfo` on a keep-alive connection, came with no body in two recordings though it declared a `Content-Length`: PowerPoint dropped the connection (IIS: `sc-win32-status` 64), SharePoint answered its error page to no one, and PowerPoint sent the request again 30 ms later, which succeeded. It came from the replay recorder reading the request body at authentication: without the recorder (the IIS log of 2026-10-21: 12 requests of PowerPoint, all 200), and with the recorder reading it after SharePoint's handler, as it does (9 requests of PowerPoint, from a new process, all 200), every request had its body (docs/replay.md). Not a behaviour of PowerPoint's.
 - **SharePoint SE serves `cellstorage.svc`** with `/_vti_bin/cobalt.ashx/cellstorageservice`, an ASP.NET handler, not WCF: its IIS log has the 401 of the handshake under the first, and the request signed in under the second.
 
 ### New files
@@ -320,7 +320,7 @@ Word 16.0.20326 against the lab and the sample, driven through COM (`SaveAs2`), 
   3. one cell storage Request to the new URL (`X-RequestStats: Operation=SaveAs`): a Cell sub-request whose Put Changes has the whole file, a new Storage Index and no expected one, flags `0x48` (no imply null), additional flags `0x0004`, with `Coalesce`, `CoauthVersioning`, `GetFileProps`, and `BypassLockID` and `ExclusiveLockID` of a new id with `Timeout="600"`; then, on its success, ExclusiveLock `ConvertToSchemaJoinCoauth` (and `ConvertToSchema` on not supported), the editors table metadata, a Cell query of the editors table, `WhoAmI`, `GetDocMetaInfo`, `GetVersions` and `ServerTime`. SharePoint answers all `Success`: the Cell created the file and took the exclusive lock, which the ExclusiveLock turned into a session;
   4. Word goes on with the new file: IsOnlyClient with its ResourceID as the `id`, its saves, and the lock release of the old one.
 - **OfficeHost** (`NewFileTests`): the name in a document URL of the site (`{site}/{name}`, the Request `Url`, the path of a GET or HEAD) picks the file: the file of the token under its current name, or a file the site made by Save As. With `CanWriteRelative` (and `CanWrite`), as the Save As of WOPI, a Request with a Put Changes to a free name creates the file next to the file of the token (`IOfficeStorage.CreateSibling`), or takes over an unlocked file of that name, which it writes but does not read: its cell is written again with new ids, a query of its content in the Request fails with `StorageWriteOnly`, and the site reaches it only once the Put succeeded (`NewFileTests.SaveAs_OtherFile_NotRead`); the Cell takes the exclusive lock its `ExclusiveLockID` and `Timeout` name. A created file whose Put fails is deleted again. The files a site made are kept with the state of the file of its token (`SaveAsFiles`, a partition of the `IFssHttpStore`), by a hash of the token until it expires, so the site reaches those and no other file of the folder; IsOnlyClient finds them by ResourceID. Only the Open XML formats are created; another name answers `FileNotExistsOrCannotBeCreated`, as does any name without `CanWriteRelative`. A HEAD of a file the site could take over answers 200 without the content, so that Word asks before replacing it.
-- **Against the sample**, with tokens of 12 characters, Word saved as `SavedAs.docx`, then edited and coauthored it through the site. With the built-in tokens as they were, JSON Web Tokens of about 270 characters, it did not: Word refuses a document URL of more than 255 characters ("String is longer than 255 characters"). The built-in tokens are now compact (`SignedToken`, about 70 characters), and Word saved as through them too.
+- **Against the sample**, with tokens of 12 characters, Word saved as `SavedAs.docx`, then edited and coauthored it through the site. Word refuses a document URL of more than 255 characters ("String is longer than 255 characters"), which a JSON Web Token of about 270 characters in the path exceeds: so the built-in tokens are compact (`SignedToken`, about 70 characters), and Word saves as through them too.
 - **The cell partitions** of OfficeHost's own state (the coauthoring session, the Save As files) are refused to Cell sub-requests with `InvalidPartition`: a client could otherwise read or forge them.
 
 ### SharePoint wants a line break before the first MIME boundary

@@ -92,15 +92,15 @@ A save is a Put Changes against what the client last knew of the file. A save fr
 
 ### Coherency is key by key
 
-Office's Put Changes sets flag A (imply null expected if no mapping); the flags are in fsshttp-notes.md ("Query Changes and Put Changes options"). SharePoint Server SE answered these cases of `PutChangesTests` (a save as Office's, with one thing changed), and OfficeHost now answers the same:
+Office's Put Changes sets flag A (imply null expected if no mapping); the flags are in fsshttp-notes.md ("Query Changes and Put Changes options"). SharePoint Server SE and OfficeHost answer these cases of `PutChangesTests` (a save as Office's, with one thing changed) alike:
 
-| Put Changes | SharePoint SE | OfficeHost before |
-|---|---|---|
-| The expected Storage Index is not in the package (with D or without) | Cell error 16 | 12, coherency failure |
-| No expected Storage Index (null), A | 12 | 12 |
-| No expected Storage Index, no A | applied | 12 |
-| An expected Storage Index with the Storage Manifest mapping alone, A / no A | 12 / applied | 12 / 12 |
-| An expected Storage Index with another Storage Manifest, A or not | 12 | 12 |
+| Put Changes | SharePoint SE and OfficeHost |
+|---|---|
+| The expected Storage Index is not in the package (with D or without) | Cell error 16, referenced data element not found |
+| No expected Storage Index (null), A | 12, coherency failure |
+| No expected Storage Index, no A | applied |
+| An expected Storage Index with the Storage Manifest mapping alone, A / no A | 12 / applied |
+| An expected Storage Index with another Storage Manifest, A or not | 12 |
 
 - **Coherency is key by key**, as [MS-FSSHTTPB] 2.2.2.1.4 says: each mapping the new Storage Index updates (the Storage Manifest, a cell, a revision) has to be the one the expected Storage Index has for it, or, where that has none and A is set, not mapped on the server. Without A, a mapping the client does not expect is applied unchecked.
 - **A stale expected Storage Index** (a client resuming an upload without a Query Changes, as cellbridge reports of Word) fails coherency, as on SharePoint, after which the client queries.

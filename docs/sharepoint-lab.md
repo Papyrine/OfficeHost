@@ -66,7 +66,7 @@ In an elevated PowerShell, from the repository:
 
 ## Status
 
-Built on 2026-10-21 on Windows 11 (32 GB, Docker running): SharePoint answers at `http://spse.mshome.net` with NTLM, `MicrosoftSharePointTeamServices: 16.0.0.14326`. The first run needed these, now in the scripts:
+Built on 2026-10-21 on Windows 11 (32 GB, Docker running): SharePoint answers at `http://spse.mshome.net` with NTLM, `MicrosoftSharePointTeamServices: 16.0.0.14326`. The scripts handle what the first run ran into:
 
 - **bcdboot** of the host failed on the image (193): the image's own bcdboot.
 - **Memory:** 16 GB of fixed memory was not free beside Docker: dynamic memory, 8 to 16 GB.
@@ -74,7 +74,7 @@ Built on 2026-10-21 on Windows 11 (32 GB, Docker running): SharePoint answers at
 - **The domain controller:** its DNS pointed at the Default Switch, and Active Directory Web Services was left disabled: the VM's DNS is itself (forwarding to the switch), and ADWS is set to automatic.
 - **SharePoint setup:** 30203 without `/IAcceptTheLicenseTerms` on the command line.
 - **The farm:** created before SQL Server took connections after the restart: it waits for SQL Server. `Install-SPService` timed out once: the configuration after the farm runs again on each run.
-- **The home page** failed with "Sorry, something went wrong", `NoComponentId`, which looked like a failed sign-in. The site's Site Pages list had none of the fields of modern pages (`CanvasContent1`, `ClientSideApplicationId`), though the farm had its client-side web parts. The site opens on its documents instead (`Shared Documents/Forms/AllItems.aspx`): the lab uses nothing else. On a lab built before, the same in the VM: `$web = Get-SPWeb http://spse.mshome.net; $web.RootFolder.WelcomePage = 'Shared Documents/Forms/AllItems.aspx'; $web.RootFolder.Update()`.
+- **The home page** failed with "Sorry, something went wrong", `NoComponentId`, which looked like a failed sign-in. The site's Site Pages list had none of the fields of modern pages (`CanvasContent1`, `ClientSideApplicationId`), though the farm had its client-side web parts. The site opens on its documents instead (`Shared Documents/Forms/AllItems.aspx`): the lab uses nothing else. On a lab whose site still opens on its home page, the same in the VM: `$web = Get-SPWeb http://spse.mshome.net; $web.RootFolder.WelcomePage = 'Shared Documents/Forms/AllItems.aspx'; $web.RootFolder.Update()`.
 
 **First captures** (Word, Excel and PowerPoint 16.0.20326, signed in as `LAB\alice`, which Office asked for once each; PowerPoint is in docs/fsshttp-notes.md): the same as the captures of docs/fsshttp-notes.md. Word joins coauthoring (`Alone`), exits and joins again around Protected View, polls `IsOnlyClient`, saves, and exits; Excel opens with no lock, takes an exclusive lock at the first edit, saves, and releases it. Word's `IsOnlyClient` polls are the same as against OfficeHost: a burst every 8 seconds after the open, then every 30 seconds (docs/fsshttp-notes.md).
 
