@@ -131,13 +131,27 @@ sealed class TapCapture
             return;
         }
 
-        // while not copying, only the start, to name the document of the tombstone
+        // while not copying, only the start, to name the document of the tombstone. The copy takes nothing before the
+        // start names the document, and nothing at all of one that is not sampled
         var body = copying ? new TapBuffer(runtime.Budget, runtime.Settings.MaxExchangeBytes) : null;
-        var tap = new TapInputStream(request.GetBufferlessInputStream(true), body);
+        var tap = new TapInputStream(request.GetBufferlessInputStream(true), body, Named);
         entityBodyStream.SetValue(request, tap);
         contentLength = request.ContentLength;
         requestBody = body;
         input = tap;
+    }
+
+    /// <summary>
+    /// Whether the document that the start of a body names is sampled, or null while it names none yet.
+    /// </summary>
+    bool? Named(string start)
+    {
+        if (TapSampler.Document(start) is not { } named)
+        {
+            return null;
+        }
+
+        return TapSampler.Sampled(TapSampler.Key(named), runtime.Sender.SamplePercent);
     }
 
     /// <summary>
@@ -198,6 +212,11 @@ sealed class TapCapture
             }
 
             sampled = TapSampler.Sampled(TapSampler.Key(document ?? ""), runtime.Sender.SamplePercent);
+            if (input != null)
+            {
+                // as the body was copied, when its start said already
+                sampled = input.Settle(sampled);
+            }
         }
 
         if (!sampled)
@@ -359,6 +378,8 @@ sealed class TapCapture
     /// </summary>
     bool Enqueue()
     {
+        // the request has completed: what its handler reads from here is not copied, the sender has the copy
+        input?.Stop();
         if (decided != 1 ||
             status == 401)
         {
@@ -410,8 +431,7 @@ sealed class TapCapture
         }
 
         if (input != null &&
-            contentLength > 0 &&
-            input.Passed != contentLength)
+            !ReadToTheEnd(input))
         {
             return "SharePoint's handler did not read the request body to its end";
         }
@@ -423,6 +443,20 @@ sealed class TapCapture
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Whether the handler read all of the body: the bytes of its Content-Length, or, without one (a chunked request),
+    /// until a read got none.
+    /// </summary>
+    bool ReadToTheEnd(TapInputStream tap)
+    {
+        if (contentLength > 0)
+        {
+            return tap.Passed == contentLength;
+        }
+
+        return tap.Ended;
     }
 
     void Release()

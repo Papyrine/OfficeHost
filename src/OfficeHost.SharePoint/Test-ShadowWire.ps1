@@ -5,8 +5,8 @@ as it came next to the module's copy of it in the recording folder: whether eith
 
 .DESCRIPTION
 Run on the server of the farm, as a user who can read -Document, while the module records to a folder. Signs in with
-your Windows credential. Prints the bytes and SOAP envelopes of the answer as received, then of the newest copy the
-module wrote. One envelope in each is right.
+your Windows credential. Prints the bytes and SOAP envelopes of the answer as received, then of the copy the module
+wrote of it, found among those of the farm's users by the user agent of this run. One envelope in each is right.
 
 .EXAMPLE
 .\Test-ShadowWire.ps1 -Site https://sharepoint.example/sites/team -Document 'https://sharepoint.example/sites/team/Shared Documents/x.docx'
@@ -33,13 +33,33 @@ $envelope = "<s:Envelope xmlns:s=`"http://schemas.xmlsoap.org/soap/envelope/`"><
 $boundary = "urn:uuid:$([guid]::NewGuid())"
 $body = [Text.Encoding]::UTF8.GetBytes("`r`n--$boundary`r`nContent-ID: <http://tempuri.org/xml/0>`r`nContent-Transfer-Encoding: 8bit`r`nContent-Type: application/xop+xml;charset=utf-8;type=`"text/xml; charset=utf-8`"`r`n`r`n$envelope`r`n--$boundary--`r`n")
 
-$before = @(Get-ChildItem $Recording -Filter '*.response.http' -ErrorAction SilentlyContinue).Count
-$request = [Net.HttpWebRequest]::Create("$($Site.TrimEnd('/'))/_vti_bin/cellstorage.svc/CellStorageService")
+# the head of a copied request, where the module writes its user agent; read while the module may be writing
+function Read-Head([string] $Path) {
+    try {
+        $file = New-Object IO.FileStream($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try {
+            $head = New-Object byte[] 4096
+            $length = $file.Read($head, 0, $head.Length)
+            [Text.Encoding]::GetEncoding(28591).GetString($head, 0, $length)
+        }
+        finally {
+            $file.Dispose()
+        }
+    }
+    catch [IO.IOException] {
+        ''
+    }
+}
+
+# a user agent of this run alone: the farm's users, and earlier runs, have copies in the folder too
+$agent = "Test-ShadowWire/$([guid]::NewGuid().ToString('N'))"
+$since = (Get-Date).AddSeconds(-5)
+$request =[Net.HttpWebRequest]::Create("$($Site.TrimEnd('/'))/_vti_bin/cellstorage.svc/CellStorageService")
 $request.Method = 'POST'
 $request.UseDefaultCredentials = $true
 $request.ContentType = "multipart/related; type=`"application/xop+xml`"; boundary=`"$boundary`"; start=`"<http://tempuri.org/xml/0>`"; start-info=`"text/xml; charset=utf-8`""
 $request.Headers['SOAPAction'] = '"http://schemas.microsoft.com/sharepoint/soap/ICellStorages/ExecuteCellStorageRequest"'
-$request.UserAgent = 'Test-ShadowWire'
+$request.UserAgent = $agent
 $stream = $request.GetRequestStream()
 $stream.Write($body, 0, $body.Length)
 $stream.Close()
@@ -57,18 +77,23 @@ $response.Close()
 $wire = $received.ToArray()
 Write-Host "SharePoint's answer:  $([int] $response.StatusCode), Content-Length $($response.Headers['Content-Length']), $($wire.Length) bytes, $(Count-Envelopes $wire) envelope(s)"
 
-# the module writes from a thread of its own: give it a few seconds
+# the module writes from a thread of its own: give it a few seconds. It writes the response of an exchange, then its
+# request, under the same number: the request with this run's user agent has its response complete next to it
 $copy = $null
 for ($i = 0; $i -lt 20 -and -not $copy; $i++) {
     Start-Sleep -Milliseconds 500
-    $files = @(Get-ChildItem $Recording -Filter '*.response.http' -ErrorAction SilentlyContinue | Sort-Object Name)
-    if ($files.Count -gt $before) {
-        $copy = $files[-1]
+    $requests = @(Get-ChildItem $Recording -Filter '*.request.http' -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -ge $since })
+    foreach ($file in $requests) {
+        if ((Read-Head $file.FullName).Contains("User-Agent: $agent`r`n")) {
+            $copy = Get-Item ($file.FullName -replace '\.request\.http$', '.response.http')
+            break
+        }
     }
 }
 
 if (-not $copy) {
-    Write-Host "The module's copy:    none in $Recording"
+    Write-Host "The module's copy:    none of this request in $Recording"
     return
 }
 

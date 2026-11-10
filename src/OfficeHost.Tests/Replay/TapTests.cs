@@ -86,6 +86,7 @@ public class TapTests
         await Assert.That(read.ToArray().SequenceEqual(body)).IsTrue();
         await Assert.That(copy.ToArray().SequenceEqual(body)).IsTrue();
         await Assert.That(tap.Passed).IsEqualTo(body.Length);
+        await Assert.That(tap.Ended).IsTrue();
         await Assert.That(tap.Failure).IsNull();
         await Assert.That(tap.Start().SequenceEqual(body.Take(64 * 1024))).IsTrue();
         await Assert.That(TapSampler.Document(Encoding.UTF8.GetString(tap.Start())))
@@ -99,12 +100,82 @@ public class TapTests
         await Assert.That(limited.Overflowed).IsTrue();
 
         var stopped = new TapBuffer(budget, 1024 * 1024);
-        var stopping = new TapInputStream(new MemoryStream(body), stopped);
+        var stopping = new TapInputStream(new MemoryStream(body), stopped, _ => true);
         await Assert.That(stopping.Read(buffer, 0, 1000)).IsEqualTo(1000);
+        // a read that asks for nothing is not the end of the body
+        await Assert.That(stopping.Read(buffer, 0, 0)).IsEqualTo(0);
+        await Assert.That(stopping.Ended).IsFalse();
         stopping.Stop();
         stopping.CopyTo(Stream.Null);
         await Assert.That(stopped.Length).IsEqualTo(1000);
         await Assert.That(stopping.Passed).IsEqualTo(body.Length);
+        await Assert.That(stopping.Ended).IsTrue();
+    }
+
+    /// <summary>
+    /// The copy of a body waits for its start to name the document. One that is not sampled is never copied, and takes
+    /// nothing from the budget; one that is has all of it, the start it waited with too. A start that names none is
+    /// copied once it is full, and otherwise when the capture settles it, at the response's first write; what the start
+    /// said stays.
+    /// </summary>
+    [Test]
+    public async Task InputStream_SampledFromItsStart()
+    {
+        var body = Encoding.UTF8.GetBytes($"\r\n--boundary\r\nContent-ID: <http://tempuri.org/xml/0>\r\n\r\n{envelope}\r\n--boundary\r\n\r\n")
+            .Concat(Enumerable.Range(0, 200_000).Select(_ => (byte) _))
+            .ToArray();
+        var budget = new TapBudget(4 * 1024 * 1024);
+        var buffer = new byte[10_000];
+        var asked = 0;
+
+        Func<string, bool?> Named(bool sampled) =>
+            _ =>
+            {
+                asked++;
+                if (TapSampler.Document(_) == null)
+                {
+                    return null;
+                }
+
+                return sampled;
+            };
+
+        var skipped = new TapBuffer(budget, 1024 * 1024);
+        var skipping = new TapInputStream(new MemoryStream(body), skipped, Named(false));
+        // not yet the Request and its Url
+        await Assert.That(skipping.Read(buffer, 0, 10)).IsEqualTo(10);
+        skipping.CopyTo(Stream.Null);
+        await Assert.That(asked).IsEqualTo(2);
+        await Assert.That(skipped.Length).IsEqualTo(0);
+        await Assert.That(budget.Used).IsEqualTo(0);
+        await Assert.That(skipping.Passed).IsEqualTo(body.Length);
+        await Assert.That(skipping.Settle(true)).IsFalse();
+        await Assert.That(skipped.Length).IsEqualTo(0);
+
+        var taken = new TapBuffer(budget, 1024 * 1024);
+        var taking = new TapInputStream(new MemoryStream(body), taken, Named(true));
+        await Assert.That(taking.Read(buffer, 0, 10)).IsEqualTo(10);
+        await Assert.That(taken.Length).IsEqualTo(0);
+        taking.CopyTo(Stream.Null);
+        await Assert.That(taken.ToArray().SequenceEqual(body)).IsTrue();
+        await Assert.That(taking.Settle(false)).IsTrue();
+
+        // a start that names no document, and is not full: the capture says
+        var small = body.Take(5000).ToArray();
+        var settled = new TapBuffer(budget, 1024 * 1024);
+        var settling = new TapInputStream(new MemoryStream(small), settled);
+        settling.CopyTo(Stream.Null);
+        await Assert.That(settled.Length).IsEqualTo(0);
+        await Assert.That(settling.Settle(true)).IsTrue();
+        await Assert.That(settled.ToArray().SequenceEqual(small)).IsTrue();
+        await Assert.That(settling.Settle(false)).IsTrue();
+
+        // and one that is full: copied, until the capture says not to
+        var full = new TapBuffer(budget, 1024 * 1024);
+        var filling = new TapInputStream(new MemoryStream(body), full);
+        filling.CopyTo(Stream.Null);
+        await Assert.That(full.Length).IsEqualTo(body.Length);
+        await Assert.That(filling.Settle(false)).IsFalse();
     }
 
     /// <summary>
