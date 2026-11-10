@@ -199,7 +199,7 @@ if (shadow)
 it. `IShadowDocuments` exists because `IOfficeStorage` has no way to create a file at a path.
 
 `IShadowDocuments` finds or adds the file of a document. For `FileSystemStorage`, `FileSystemShadowDocuments` keeps each
-document at its host and path under the root. For SQL Server, the shadow sample keeps it in the folder of its host and
+document at its host and path under the root. For SQL Server, a class as this one keeps it in the folder of its host and
 path, found there by `SqlServerStorage.GetFile(folder, name)`; Azure Blob Storage would need a map of document keys to
 file ids in the application's own database:
 
@@ -223,21 +223,23 @@ class SqlServerShadowDocuments(SqlServerStorage storage) :
         $"{document.Url.Host}/{document.Folder}";
 }
 ```
-<sup><a href='/src/OfficeHost.Sample.Shadow/SqlServerShadowDocuments.cs#L6-L23' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServerShadowDocuments' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerShadowDocuments.cs#L6-L23' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServerShadowDocuments' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 A document made by a Save As in SharePoint is made by OfficeHost too, next to the file it was saved from, so `Find`
 must find a file by the folder and name of its document (both of these do).
 
-### The shadow sample: SQL Server, as a Windows service
+### A shadow on SQL Server, as a Windows service
 
-`src/OfficeHost.Sample.Shadow` is a shadow and nothing else: no WOPI client, no page that opens a file. OfficeHost's
-files, locks and coauthoring state are in a SQL Server database of the shadow's own, which it creates when missing, with
-the tables of `OfficeHost.SqlServer.Install`. It runs as a console application, or as a Windows service:
+A shadow and nothing else, with no WOPI client and no page that opens a file, is a small application: OfficeHost's
+files, locks and coauthoring state in a SQL Server database of the shadow's own, with the tables of
+`OfficeHost.SqlServer.Install`, and the class above for the documents:
 
-<!-- snippet: ShadowSqlServer -->
-<a id='snippet-ShadowSqlServer'></a>
 ```cs
+// a Windows service when started as one, a console application otherwise (Microsoft.Extensions.Hosting.WindowsServices)
+services.AddWindowsService(options => options.ServiceName = "OfficeHost Shadow");
+// the tables, when the account may create them
+await OfficeHostSqlServerInstaller.Install(connectionString, schema);
 // the files, locks and coauthoring state of OfficeHost in SQL Server, as the application would keep them
 services.AddOfficeHostSqlServer(connectionString, schema);
 services.AddOfficeHost(options => configuration.GetSection("OfficeHost").Bind(options));
@@ -252,54 +254,13 @@ services.AddHttpClient<IShadowContent, SharePointShadowContent>()
         });
 services.AddOfficeHostShadow();
 ```
-<sup><a href='/src/OfficeHost.Sample.Shadow/Program.cs#L18-L32' title='Snippet source file'>snippet source</a> | <a href='#snippet-ShadowSqlServer' title='Start of snippet'>anchor</a></sup>
-<!-- endSnippet -->
 
-| Setting | Default | |
-|---|---|---|
-| `ConnectionStrings:OfficeHost` | LocalDB, `OfficeHostShadow` | The shadow's own database: never SharePoint's, nor the application's in production. |
-| `Shadow:Schema` | `dbo` | The schema of the tables. |
-| `Shadow:InstallDatabase` | true | Creates the database when missing, and the tables. False when the account cannot: then run the script of `OfficeHostSqlServerInstaller.GetScript`. |
-| `OfficeHost:SigningKey` | a development key | A secret of your own. |
-| `OfficeHostShadow:*` | | As above: at least `ApiKey`, and `RecordingFolder` to keep what it receives. |
-| `Urls`, or `Kestrel:Endpoints` | `http://localhost:5002` | Where the module posts. |
-| `Logging:EventLog` | source `OfficeHost Shadow` | The differences, failures and summaries, to the Application event log. |
-
-To try it, `dotnet run --project src/OfficeHost.Sample.Shadow --launch-profile shadow` (LocalDB, `https://localhost:5003`,
-a summary every 30 seconds), then send it a recording as the module would have sent it live:
-
-```bash
-pwsh src/OfficeHost.Sample.Shadow/Send-Recording.ps1 -Folder C:\Recordings\word -ApiKey "the key of the shadow sample, do not use it elsewhere" -SkipCertificateCheck
-```
-
-On a server of the farm, as an administrator:
-
-1. Publish it, with its runtime: `dotnet publish src/OfficeHost.Sample.Shadow -c Release -r win-x64 --self-contained -o
-   artifacts/shadow-sample`, and copy the folder to the server (`C:\OfficeHost\shadow-sample`).
-2. Next to it, an `appsettings.Production.json` of the server's: the connection string, a signing key, the API key,
-   the recording folder, and the URL. On the server itself, the module can post over the loopback,
-   `http://localhost:5002`, which never leaves the machine; from another server, HTTPS (a `Kestrel:Endpoints` entry
-   with a certificate of the machine's store).
-3. The account of the service: allowed to log on as a service, `db_owner` of the database (or `dbcreator` to have it
-   created), and able to read the documents in SharePoint, for those Office opened from its cache or downloaded in
-   parts (`SharePointShadowContent`).
-4. The event log source, then the service:
-
-   ```bash
-   New-EventLog -LogName Application -Source 'OfficeHost Shadow'
-   ```
-
-   ```bash
-   New-Service -Name OfficeHostShadow -DisplayName 'OfficeHost Shadow' -BinaryPathName 'C:\OfficeHost\shadow-sample\OfficeHost.Sample.Shadow.exe' -Credential (Get-Credential) -StartupType Automatic
-   ```
-
-   ```bash
-   Start-Service OfficeHostShadow
-   ```
-
-5. Check that it answers, `Invoke-WebRequest http://localhost:5002`, then point the module at it with
-   `Install-OfficeHostShadow.ps1 -Sink http://localhost:5002/officehost-shadow/exchanges -ApiKey <key>` (below). To stop,
-   point the module at a folder again, or `-Remove` it, then stop the service.
+The database is the shadow's own: never SharePoint's, nor the application's in production. On a server of the farm,
+the module can post over the loopback (`http://localhost:5002`), which never leaves the machine; from another server,
+HTTPS. The account of the service is allowed to log on as a service, owns the database, and can read the documents in
+SharePoint, for those Office opened from its cache or downloaded in parts (`SharePointShadowContent`). Point the module
+at it with `Install-OfficeHostShadow.ps1 -Sink http://localhost:5002/officehost-shadow/exchanges -ApiKey <key>` (below);
+to stop, point the module at a folder again, or `-Remove` it, then stop the service.
 
 ### The module: SharePoint
 

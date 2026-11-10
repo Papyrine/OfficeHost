@@ -27,7 +27,6 @@
     <PackageReference Include="Microsoft.Data.SqlClient" />
     <PackageReference Include="ProjectDefaults" PrivateAssets="all" />
     <Compile Include="..\StorageContract\StorageContractTests.cs" Link="StorageContractTests.cs" />
-    <Compile Include="..\OfficeHost.Sample.Shadow\SqlServerShadowDocuments.cs" Link="SqlServerShadowDocuments.cs" />
     <ProjectReference Include="..\OfficeHost.SqlServer\OfficeHost.SqlServer.csproj" />
     <ProjectReference Include="..\OfficeHost.Shadow\OfficeHost.Shadow.csproj" />
     <ProjectReference Include="..\OfficeHost.SqlServer.Install\OfficeHost.SqlServer.Install.csproj" />

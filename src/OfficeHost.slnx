@@ -18,7 +18,6 @@
   <Project Path="OfficeHost.AzureBlob.Tests/OfficeHost.AzureBlob.Tests.csproj" />
   <Project Path="OfficeHost.Sample/OfficeHost.Sample.csproj" />
   <Project Path="OfficeHost.Sample.Morph/OfficeHost.Sample.Morph.csproj" />
-  <Project Path="OfficeHost.Sample.Shadow/OfficeHost.Sample.Shadow.csproj" />
   <Project Path="OfficeHost.Tests/OfficeHost.Tests.csproj" />
   <Project Path="OfficeHost.E2ETests/OfficeHost.E2ETests.csproj" />
 </Solution>

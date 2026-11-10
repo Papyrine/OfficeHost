@@ -235,9 +235,6 @@ It starts with a `Welcome.docx` in `src/OfficeHost.Sample/files`; add files ther
 
 The sample also serves [Morph](https://github.com/Papyrine/Morph), a second WOPI client whose editor runs in the browser as Blazor WebAssembly ([Morph.Wopi](https://www.nuget.org/packages/Morph.Wopi/), with the editor in [src/OfficeHost.Sample.Morph](src/OfficeHost.Sample.Morph)): Edit using Morph opens a Word document in it, with no container. Its discovery is in `DiscoveryUrls` too, so that its proofs are checked, and the pages of `MapOfficePages` are given Collabora's, so that Edit and View open a file in Collabora only. Morph calls the WOPI endpoints from the server at `OfficeHost:BaseUrl`, so `host.docker.internal` has to resolve on the machine, as Docker Desktop makes it.
 
-
-[src/OfficeHost.Sample.Shadow](src/OfficeHost.Sample.Shadow) is a second sample: a shadow of a SharePoint farm on SQL Server, which replays desktop Office's traffic with SharePoint to OfficeHost and logs how the answers compare ([docs/shadow.md](docs/shadow.md)).
-
 ## Options
 
 | Option | Default | |

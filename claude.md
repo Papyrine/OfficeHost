@@ -73,9 +73,8 @@ specifics.
   deploys it as a farm solution. Tests: `src/OfficeHost.Tests/Replay` (`Replayer` runs a recording, the folder of
   `OFFICEHOST_REPLAY`, with `ReplayTests.Recording`; `ShadowTests`; `TapTests`); `TestServerHost.Record` records an
   OfficeHost as the module records SharePoint. The lab installs the module with `src/sharepoint-lab/Install-ReplayRecorder.ps1`.
-  `src/OfficeHost.Sample.Shadow` is a shadow and nothing else, on SQL Server, as a console application or a Windows
-  service (`SqlServerShadowDocuments`, linked into `OfficeHost.SqlServer.Tests`); its `Send-Recording.ps1` posts a
-  recording to a shadow as the module would.
+  `SqlServerShadowDocuments` of `OfficeHost.SqlServer.Tests` is the documents of a shadow on SQL Server, the snippet
+  of docs/shadow.md: no package has it, as neither OfficeHost.Shadow nor OfficeHost.SqlServer depends on the other.
 
 ## Conventions
 

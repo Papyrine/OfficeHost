@@ -19,7 +19,7 @@ public class SqlServerTests(SqlDatabase database) :
         Verify(OfficeHostSqlServerInstaller.GetScript("office"));
 
     /// <summary>
-    /// The documents of a shadow of SharePoint in SQL Server (the shadow sample, docs/shadow.md): added in the folder of
+    /// The documents of a shadow of SharePoint in SQL Server (docs/shadow.md): added in the folder of
     /// their host and path, found there by their name, and a document a Save As makes next to one found as OfficeHost
     /// makes it.
     /// </summary>
