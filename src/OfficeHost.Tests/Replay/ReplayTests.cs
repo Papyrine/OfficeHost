@@ -147,6 +147,15 @@ public class ReplayTests
 
         var another = ShadowComparer.EditorsOf(EditorsTable($"<Editor><CacheID>{id}</CacheID><HasEditorPermission>true</HasEditorPermission></Editor><Editor><CacheID>{{00000000-0000-4000-8000-000000000002}}</CacheID><HasEditorPermission>true</HasEditorPermission></Editor>"))!;
         await Assert.That(Outcome("Cell QueryChanges (translated)", sharePoint, another)).IsEqualTo(ShadowOutcome.Different);
+
+        // two editors, of which one has updated its metadata: SharePoint 2016 has the permission of the other only
+        const string other = "{00000000-0000-4000-8000-000000000002}";
+        var mixed = ShadowComparer.EditorsOf(EditorsTable($"<Editor><CacheID>{id}</CacheID><HasEditorPermission /></Editor><Editor><CacheID>{other}</CacheID><HasEditorPermission>true</HasEditorPermission></Editor>"))!;
+        var both = ShadowComparer.EditorsOf(EditorsTable($"<Editor><CacheID>{id}</CacheID><HasEditorPermission>true</HasEditorPermission></Editor><Editor><CacheID>{other}</CacheID><HasEditorPermission>true</HasEditorPermission></Editor>"))!;
+        var refused = ShadowComparer.EditorsOf(EditorsTable($"<Editor><CacheID>{id}</CacheID><HasEditorPermission>true</HasEditorPermission></Editor><Editor><CacheID>{other}</CacheID><HasEditorPermission>false</HasEditorPermission></Editor>"))!;
+        await Assert.That(mixed["editors HasEditorPermission"]).IsEqualTo($"{other}=true; {id}=");
+        await Assert.That(Outcome("Cell QueryChanges (translated)", mixed, both)).IsEqualTo(ShadowOutcome.KnownDifference);
+        await Assert.That(Outcome("Cell QueryChanges (translated)", mixed, refused)).IsEqualTo(ShadowOutcome.Different);
         await Assert.That(Outcome("Cell QueryChanges", new() { ["ErrorCode"] = "Success" }, new() { ["ErrorCode"] = "Success", ["editors"] = "" })).IsEqualTo(ShadowOutcome.KnownDifference);
 
         foreach (var label in new[] { "Cell QueryChanges", "Cell QueryAccess", "Cell PutChanges (translated)" })

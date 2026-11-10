@@ -407,8 +407,8 @@ static class ShadowComparer
         {
             ["editors"] = string.Join(
                 "; ",
-                editors.Select(editor =>
-                    $"{editor.CacheId} metadata {string.Join(',', editor.Keys.Where(_ => _ != "JoinCoauthTime").Order(StringComparer.Ordinal))}"))
+                editors.Select(_ =>
+                    $"{_.CacheId} metadata {string.Join(',', _.Keys.Where(_ => _ != "JoinCoauthTime").Order(StringComparer.Ordinal))}"))
         };
         if (editors.Count > 0)
         {

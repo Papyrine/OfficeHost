@@ -39,8 +39,8 @@ public record ShadowRule(string? Label, string? Facet, string Reason, string? Sh
         new(
             "^Cell ",
             "^editors HasEditorPermission$",
-            "SharePoint 2016 drops HasEditorPermission from the editors table when a client updates its metadata",
-            @"^\{[0-9A-F-]+\}=(; \{[0-9A-F-]+\}=)*$",
+            "SharePoint 2016 drops HasEditorPermission from the editors table when a client updates its metadata: of that client, the others keep theirs",
+            @"^\{[0-9A-F-]+\}=(true)?(; \{[0-9A-F-]+\}=(true)?)*$",
             @"^\{[0-9A-F-]+\}=true(; \{[0-9A-F-]+\}=true)*$"),
         new("^Cell ", "^editors$", "SharePoint 2016 sends no editors table when no one is editing, OfficeHost an empty one", @"^\(none\)$", "^$")
     ];
