@@ -391,8 +391,12 @@ answers otherwise than SE, which OfficeHost follows, now known differences (`Sha
   their data elements by file, user and partition (`PartialPuts`), each part for an hour (those of a save that never
   ended leave the store with the file's next Put Changes), answers them as SharePoint does, and applies them with the
   last (`FssHttpServiceTests.Save_InParts`). Nothing in a part names its save, so a last part takes from those waiting
-  the data elements its save holds, and leaves the others to the last part of their own save: two saves of one user
-  at once, as of Word on two machines, do not lose each other's parts. The parts waiting for a file are bounded
+  the parts its save holds data elements of, and leaves the others to the last part of their own save: two saves of
+  one user at once, as of Word on two machines, do not lose each other's parts. Each part is an entry of its own in
+  the `IFssHttpStore`, next to a list of them: a part costs the store its own size, where one entry for all cost a
+  save of 43 MB in 14 parts some 300 MB of writes, and a Put Changes with no part to forget reads the list alone. The
+  store cannot forget an entry of a file, so the entry of a part that is gone is emptied, and taken again by a later
+  part: a file keeps as many of them, empty, as it had parts waiting at once. The parts waiting for a file are bounded
   together by `MaxFileSize`, as a save in one request is: the part beyond it is answered 413
   (`Save_InParts_OverMaxFileSize`). Forgetting the parts comes after the save is applied, and its failure does not
   fail the save. Against the sample (2026-11-05), Word saved three

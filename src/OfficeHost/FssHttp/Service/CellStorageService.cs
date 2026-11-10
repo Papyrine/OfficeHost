@@ -373,7 +373,7 @@ class CellStorageService(
             // the partitions OfficeHost keeps its own state in are not cells
             if (partition == CoauthSessions.SessionPartition ||
                 partition == SaveAsFiles.Partition ||
-                partition == PartialPuts.Partition)
+                PartialPuts.Owns(partition))
             {
                 subResponses.Add(new FailedSubResponse(subRequest.RequestId, subRequest.Type, ResponseError.Cell(CellErrorCode.InvalidPartition)));
                 continue;

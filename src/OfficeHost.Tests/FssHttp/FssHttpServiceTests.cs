@@ -291,8 +291,10 @@ public class FssHttpServiceTests
         await Assert.That(refused!.Message).Contains("413");
         // the first part was within the limit, and waits
         await Assert.That(parts).IsEqualTo(1);
-        var waiting = await host.Service<IFssHttpStore>().Get(fileId, PartialPuts.Partition);
-        await Assert.That(waiting!.Data.Length).IsGreaterThan(0).And.IsLessThanOrEqualTo((int) limit);
+        await Assert.That(await host.Service<PartialPuts>().Get(fileId, "alice", FssHttpCells.ContentPartition)).IsNotEmpty();
+        // and nothing of the second: no slot for it
+        await Assert.That((await host.Service<IFssHttpStore>().Get(fileId, PartialPuts.PartitionOf(0)))!.Data.Length).IsLessThan((int) limit);
+        await Assert.That(await host.Service<IFssHttpStore>().Get(fileId, PartialPuts.PartitionOf(1))).IsNull();
         await Assert.That((await FileOf(host)).SameAs(before)).IsTrue();
     }
 

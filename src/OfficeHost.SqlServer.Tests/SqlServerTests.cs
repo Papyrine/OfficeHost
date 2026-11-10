@@ -207,6 +207,13 @@ public class SqlServerTests(SqlDatabase database) :
         await Assert.That(state.Data.ToArray()).IsEquivalentTo(new byte[] {2, 3});
         await Assert.That(await store.Get(folder, Guid.NewGuid())).IsNull();
 
+        // a state with nothing in it, as the slot of a part of a save that is gone (PartialPuts): still a state
+        await Assert.That(await store.CompareExchange(folder, partition, "2", new("3", Array.Empty<byte>()))).IsTrue();
+        state = (await store.Get(folder, partition))!;
+        await Assert.That(state.Version).IsEqualTo("3");
+        await Assert.That(state.Data.Length).IsEqualTo(0);
+        await Assert.That(await store.GetVersion(folder, partition)).IsEqualTo("3");
+
         await store.Delete(folder);
         await Assert.That(await store.Get(folder, partition)).IsNull();
     }
