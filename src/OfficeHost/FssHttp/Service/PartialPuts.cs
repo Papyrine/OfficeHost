@@ -2,10 +2,12 @@
 /// The data elements of partial Put Changes ([MS-FSSHTTPB] 2.2.2.1.4, Partial and Partial Last). Word splits a save of
 /// more than about 3 MB of changes: Put Changes of Object Groups alone, each with a Storage Index that maps nothing and
 /// no expected one, then a last one with the rest and the Storage Index of the save (docs/fsshttp-notes.md, "SharePoint
-/// Server 2016"). The spec says nothing of how a server ties them together: the data elements wait here, by file, user
-/// and partition, until the last Put Changes applies them with its own, or for an hour: those of a save that never
-/// ended go with the next Put Changes of the file (<see cref="Clean"/>). Kept in the <see cref="IFssHttpStore"/> as
-/// <see cref="SaveAsFiles"/> are, in a partition of their own.
+/// Server 2016"). The spec says nothing of how a server ties them together, and nothing in a part names its save: the
+/// data elements of each part wait here, by file, user and partition, until a last Put Changes of the user applies
+/// them with its own, or for an hour from their part. A last part takes those its save holds, and leaves the others:
+/// they are of another save of the user, as of Word on a second machine, or of a save that never ended, and go once
+/// their hour has passed, with the next Put Changes of the file (<see cref="Clean"/>). Kept in the
+/// <see cref="IFssHttpStore"/> as <see cref="SaveAsFiles"/> are, in a partition of their own.
 /// </summary>
 class PartialPuts(IFssHttpStore store, TimeProvider time)
 {
@@ -22,31 +24,38 @@ class PartialPuts(IFssHttpStore store, TimeProvider time)
     static ReadOnlySpan<byte> magic => "OHP1"u8;
 
     /// <summary>
-    /// Adds the data elements of a partial Put Changes of the user to those waiting: one of the same id replaces the
-    /// one there.
+    /// Adds the data elements of a partial Put Changes of the user to those waiting, as a part with an hour of its own:
+    /// one of the same id replaces the one waiting. False, with nothing added, when the parts waiting for the file, of
+    /// all its users, would be more than <paramref name="limit"/> bytes: what a client may leave in the store is
+    /// bounded.
     /// </summary>
-    public async Task Add(string fileId, string userId, Guid partition, IReadOnlyList<DataElement> elements, Cancel cancel = default)
+    public async Task<bool> Add(string fileId, string userId, Guid partition, IReadOnlyList<DataElement> elements, long? limit = null, Cancel cancel = default)
     {
+        var added = new Dictionary<ExtendedGuid, DataElement>();
+        foreach (var element in elements)
+        {
+            added[element.Id] = element;
+        }
+
+        if (added.Count == 0)
+        {
+            return true;
+        }
+
         for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
-            var (version, entries, _) = await Read(fileId, cancel);
-            var index = entries.FindIndex(_ => _.UserId == userId && _.Partition == partition);
-            var waiting = new Dictionary<ExtendedGuid, DataElement>();
-            if (index >= 0)
+            var (version, parts, _) = await Read(fileId, cancel);
+            Remove(parts, userId, partition, added.ContainsKey);
+            parts.Add(new(userId, partition, time.GetUtcNow() + lifetime, added.Values.ToList()));
+            var data = Write(parts);
+            if (data.Length > limit)
             {
-                waiting = entries[index].Elements.ToDictionary(_ => _.Id);
-                entries.RemoveAt(index);
+                return false;
             }
 
-            foreach (var element in elements)
+            if (await store.CompareExchange(fileId, Partition, version, new(Guid.NewGuid().ToString("N"), data), cancel))
             {
-                waiting[element.Id] = element;
-            }
-
-            entries.Add(new(userId, partition, time.GetUtcNow() + lifetime, waiting.Values.ToList()));
-            if (await store.CompareExchange(fileId, Partition, version, new(Guid.NewGuid().ToString("N"), Write(entries)), cancel))
-            {
-                return;
+                return true;
             }
         }
 
@@ -54,27 +63,31 @@ class PartialPuts(IFssHttpStore store, TimeProvider time)
     }
 
     /// <summary>
-    /// The data elements of the partial Put Changes of the user waiting for the last one, none when there are none.
+    /// The data elements of the partial Put Changes of the user waiting for a last one, none when there are none.
     /// </summary>
     public async Task<IReadOnlyList<DataElement>> Get(string fileId, string userId, Guid partition, Cancel cancel = default)
     {
-        var (_, entries, _) = await Read(fileId, cancel);
-        return entries.FirstOrDefault(_ => _.UserId == userId && _.Partition == partition)?.Elements ?? [];
+        var (_, parts, _) = await Read(fileId, cancel);
+        return parts
+            .Where(_ => _.UserId == userId && _.Partition == partition)
+            .SelectMany(_ => _.Elements)
+            .ToList();
     }
 
     /// <summary>
-    /// After a Put Changes of the file applied: forgets the data elements of the user when it was the last part of a
-    /// save, which applied them, and those of any user that waited more than an hour, whose save never ended. Nothing
-    /// else would: a file with none waiting costs a read.
+    /// After a Put Changes of the file applied: forgets the data elements of the user that <paramref name="applied"/>
+    /// holds, the cell storage a last part made with them (null for any other Put Changes), and those of any user that
+    /// waited more than an hour, whose save never ended. Nothing else would: a file with none waiting costs a read.
     /// </summary>
-    public async Task Clean(string fileId, string userId, Guid partition, bool last, Cancel cancel = default)
+    public async Task Clean(string fileId, string userId, Guid partition, CellStorage? applied, Cancel cancel = default)
     {
         for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
-            var (version, entries, expired) = await Read(fileId, cancel);
-            var removed = last ? entries.RemoveAll(_ => _.UserId == userId && _.Partition == partition) : 0;
-            if (removed == 0 && !expired ||
-                await store.CompareExchange(fileId, Partition, version, new(Guid.NewGuid().ToString("N"), Write(entries)), cancel))
+            var (version, parts, stale) = await Read(fileId, cancel);
+            var removed = applied != null &&
+                          Remove(parts, userId, partition, applied.Elements.ContainsKey);
+            if (!removed && !stale ||
+                await store.CompareExchange(fileId, Partition, version, new(Guid.NewGuid().ToString("N"), Write(parts)), cancel))
             {
                 return;
             }
@@ -82,9 +95,48 @@ class PartialPuts(IFssHttpStore store, TimeProvider time)
     }
 
     /// <summary>
-    /// The entries that have not expired, and whether the store has some that have.
+    /// Takes the data elements that match out of the parts of the user for the partition, and the parts left with none
+    /// out of the list. Whether it took any.
     /// </summary>
-    async Task<(string? Version, List<Entry> Entries, bool Expired)> Read(string fileId, Cancel cancel)
+    static bool Remove(List<Part> parts, string userId, Guid partition, Func<ExtendedGuid, bool> match)
+    {
+        var removed = false;
+        for (var index = parts.Count - 1; index >= 0; index--)
+        {
+            var part = parts[index];
+            if (part.UserId != userId ||
+                part.Partition != partition)
+            {
+                continue;
+            }
+
+            var kept = part.Elements.Where(_ => !match(_.Id)).ToList();
+            if (kept.Count == part.Elements.Count)
+            {
+                continue;
+            }
+
+            removed = true;
+            if (kept.Count == 0)
+            {
+                parts.RemoveAt(index);
+                continue;
+            }
+
+            parts[index] = part with
+            {
+                Elements = kept
+            };
+        }
+
+        return removed;
+    }
+
+    /// <summary>
+    /// The parts that have not expired, and whether the store has some to drop: expired, or a value that cannot be read,
+    /// which is of no use to a last part and is replaced by the next write.
+    /// </summary>
+    async Task<(string? Version, List<Part> Parts, bool Stale)> Read(string fileId, Cancel cancel)
     {
         var stored = await store.Get(fileId, Partition, cancel);
         if (stored == null)
@@ -92,34 +144,43 @@ class PartialPuts(IFssHttpStore store, TimeProvider time)
             return (null, [], false);
         }
 
+        List<Part> all;
+        try
+        {
+            all = Parse(stored.Data);
+        }
+        catch (InvalidDataException)
+        {
+            return (stored.Version, [], true);
+        }
+
         var now = time.GetUtcNow();
-        var all = Parse(stored.Data);
-        var entries = all.Where(_ => _.Expires > now).ToList();
-        return (stored.Version, entries, entries.Count < all.Count);
+        var parts = all.Where(_ => _.Expires > now).ToList();
+        return (stored.Version, parts, parts.Count < all.Count);
     }
 
     /// <summary>
-    /// The magic and format version, the number of entries, then for each its user as a String Item, its partition, its
+    /// The magic and format version, the number of parts, then for each its user as a String Item, its partition, its
     /// expiry in UTC ticks, and its data elements as a Data Element Package ([MS-FSSHTTPB] 2.2.1).
     /// </summary>
-    static byte[] Write(List<Entry> entries)
+    static byte[] Write(List<Part> parts)
     {
         var output = new ArrayBufferWriter<byte>();
         var writer = new FssHttpBWriter(output);
         writer.WriteBytes(magic);
-        writer.WriteCompactUInt64((ulong) entries.Count);
-        foreach (var entry in entries)
+        writer.WriteCompactUInt64((ulong) parts.Count);
+        foreach (var part in parts)
         {
-            writer.WriteStringItem(entry.UserId);
-            writer.WriteGuid(entry.Partition);
-            writer.WriteCompactUInt64((ulong) entry.Expires.UtcTicks);
-            new DataElementPackage(entry.Elements).Write(ref writer);
+            writer.WriteStringItem(part.UserId);
+            writer.WriteGuid(part.Partition);
+            writer.WriteCompactUInt64((ulong) part.Expires.UtcTicks);
+            new DataElementPackage(part.Elements).Write(ref writer);
         }
 
         return output.WrittenSpan.ToArray();
     }
 
-    static List<Entry> Parse(ReadOnlyMemory<byte> data)
+    static List<Part> Parse(ReadOnlyMemory<byte> data)
     {
         try
         {
@@ -130,23 +191,26 @@ class PartialPuts(IFssHttpStore store, TimeProvider time)
             }
 
             var count = reader.ReadCompactUInt64();
-            var entries = new List<Entry>();
+            var parts = new List<Part>();
             for (ulong index = 0; index < count; index++)
             {
                 var userId = reader.ReadStringItem();
                 var partition = reader.ReadGuid();
                 var expires = new DateTimeOffset((long) reader.ReadCompactUInt64(), TimeSpan.Zero);
-                entries.Add(new(userId, partition, expires, DataElementPackage.Read(ref reader).Elements));
+                parts.Add(new(userId, partition, expires, DataElementPackage.Read(ref reader).Elements));
             }
 
             reader.EnsureEnd("the partial Put Changes of a file");
-            return entries;
+            return parts;
         }
-        catch (FssHttpBException exception)
+        catch (Exception exception) when (exception is FssHttpBException or ArgumentOutOfRangeException)
         {
             throw new InvalidDataException($"The partial Put Changes of a file are corrupt: {exception.Message}", exception);
         }
     }
 
-    record Entry(string UserId, Guid Partition, DateTimeOffset Expires, IReadOnlyList<DataElement> Elements);
+    /// <summary>
+    /// The data elements of one partial Put Changes, until a last part takes them or they expire.
+    /// </summary>
+    record Part(string UserId, Guid Partition, DateTimeOffset Expires, IReadOnlyList<DataElement> Elements);
 }

@@ -8,9 +8,9 @@ public class FssHttpServiceTests
         ("word/document.xml", Zips.Text(text)),
         ("large.bin", Zips.Random(10_000, 1)));
 
-    static async Task<(TestServerHost Host, string FileId, string Token)> Start(byte[]? content = null, Mode mode = Mode.Edit, TimeProvider? time = null, Action<OfficeHostOptions>? configure = null)
+    static async Task<(TestServerHost Host, string FileId, string Token)> Start(byte[]? content = null, Mode mode = Mode.Edit, TimeProvider? time = null, Action<OfficeHostOptions>? configure = null, Action<IServiceCollection>? services = null)
     {
-        var host = await TestServerHost.Start(configure, time);
+        var host = await TestServerHost.Start(configure, time, services: services);
         await File.WriteAllBytesAsync(host.PathOf("doc.docx"), content ?? Zip("hello"));
         var (fileId, token) = await host.Open("doc.docx", mode);
         return (host, fileId, token);
@@ -254,6 +254,98 @@ public class FssHttpServiceTests
             sendParts: false);
         await Assert.That(((FailedSubResponse) lost).Error).IsEqualTo(ResponseError.Cell(CellErrorCode.ReferencedDataElementNotFound));
         await Assert.That((await FileOf(host)).SameAs(large)).IsTrue();
+    }
+
+    /// <summary>
+    /// The parts of a save are bounded together as a save in one request is, by
+    /// <see cref="OfficeHostOptions.MaxFileSize"/>: the part that takes them beyond it is answered as a request over
+    /// it, 413, nothing of it waits, and the file stays as it was.
+    /// </summary>
+    [Test]
+    public async Task Save_InParts_OverMaxFileSize()
+    {
+        // between the first part, under 1 KB of Object Groups, and the second, 300 KB
+        const long limit = 200_000;
+        var (host, fileId, token) = await Start(configure: options => options.MaxFileSize = limit);
+        await using var _ = host;
+        var word = new WordClient(host, token);
+        await word.Send(word.Join());
+        await word.Sync();
+        var before = await FileOf(host);
+        var large = Zips.Create(
+            ("word/document.xml", Zips.Text("in parts")),
+            ("word/media/image1.png", Zips.Random(300_000, 2)),
+            ("word/media/image2.png", Zips.Random(300_000, 3)),
+            ("word/media/image3.png", Zips.Random(300_000, 4)));
+
+        var parts = 0;
+        var refused = await Assert.ThrowsAsync<Exception>(
+            async () => await word.Save(
+                large,
+                parts: 3,
+                part: response =>
+                {
+                    parts++;
+                    return Task.CompletedTask;
+                }));
+        await Assert.That(refused!.Message).Contains("413");
+        // the first part was within the limit, and waits
+        await Assert.That(parts).IsEqualTo(1);
+        var waiting = await host.Service<IFssHttpStore>().Get(fileId, PartialPuts.Partition);
+        await Assert.That(waiting!.Data.Length).IsGreaterThan(0).And.IsLessThanOrEqualTo((int) limit);
+        await Assert.That((await FileOf(host)).SameAs(before)).IsTrue();
+    }
+
+    /// <summary>
+    /// A store that fails to read the parts waiting for a file, while it does.
+    /// </summary>
+    sealed class PartsFailingStore :
+        IFssHttpStore
+    {
+        MemoryFssHttpStore inner = new();
+
+        public bool Failing { get; set; }
+
+        public Task<FssHttpState?> Get(string fileId, Guid partition, Cancel cancel = default)
+        {
+            if (Failing &&
+                partition == PartialPuts.Partition)
+            {
+                throw new IOException("The store is away");
+            }
+
+            return inner.Get(fileId, partition, cancel);
+        }
+
+        public Task<bool> CompareExchange(string fileId, Guid partition, string? comparand, FssHttpState value, Cancel cancel = default) =>
+            inner.CompareExchange(fileId, partition, comparand, value, cancel);
+
+        public Task Delete(string fileId, Cancel cancel = default) =>
+            inner.Delete(fileId, cancel);
+    }
+
+    /// <summary>
+    /// A save is applied before the parts waiting for the file are cleaned: failing to clean them does not fail the
+    /// save, which Word would then put again, against the file it just wrote.
+    /// </summary>
+    [Test]
+    public async Task Save_CleaningThePartsFails()
+    {
+        var store = new PartsFailingStore();
+        var (host, _, token) = await Start(services: _ => _.AddSingleton<IFssHttpStore>(store));
+        await using var disposing = host;
+        var word = new WordClient(host, token);
+        await word.Send(word.Join());
+        await word.Sync();
+
+        store.Failing = true;
+        var saved = await word.Save(Zip("second"));
+        await Assert.That(saved).IsTypeOf<PutChangesResponse>();
+        await Assert.That((await FileOf(host)).SameAs(Zip("second"))).IsTrue();
+
+        store.Failing = false;
+        await Assert.That(await word.Save(Zip("third"))).IsTypeOf<PutChangesResponse>();
+        await Assert.That((await FileOf(host)).SameAs(Zip("third"))).IsTrue();
     }
 
     /// <summary>

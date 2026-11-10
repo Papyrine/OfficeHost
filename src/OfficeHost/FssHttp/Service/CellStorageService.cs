@@ -530,7 +530,12 @@ class CellStorageService(
         // as SharePoint answers it, as a Put Changes that applied nothing, with the knowledge of the cell as it is
         if (put.Partial)
         {
-            await partialPuts.Add(site.FileId, site.Access.UserId, partition, package.Where(_ => _ is not StorageIndex).ToList(), cancel);
+            // the parts waiting for the file are bounded as a save in one request is, and answered as one over the limit
+            if (!await partialPuts.Add(site.FileId, site.Access.UserId, partition, package.Where(_ => _ is not StorageIndex).ToList(), options.Value.MaxFileSize, cancel))
+            {
+                throw new BadHttpRequestException($"The parts of a save of {site.FileId} are larger than MaxFileSize", StatusCodes.Status413PayloadTooLarge);
+            }
+
             var current = partition == FssHttpCells.ContentPartition
                 ? await cells.GetContent(site.FileId, cancel) ?? throw new InvalidDataException($"No file {site.FileId}")
                 : await cells.Get(site.FileId, partition, cancel);
@@ -569,7 +574,7 @@ class CellStorageService(
             {
                 if (await cells.TryUpdate(site.FileId, partition, cell.Version, outcome.State, cancel) != null)
                 {
-                    await Applied();
+                    await Applied(outcome.State.Storage!);
                     return (null, outcome.Response);
                 }
 
@@ -600,16 +605,27 @@ class CellStorageService(
                 await WopiHandler.NotifySaved(options.Value, log, new(file, site.Access, site.User, [site.Access.UserId], false, false));
             }
 
-            await Applied();
+            await Applied(outcome.State.Storage!);
             return (null, outcome.Response);
         }
 
         return (null, new FailedSubResponse(put.RequestId, RequestType.PutChanges, ResponseError.Cell(CellErrorCode.CoherencyFailure)));
 
-        // the parts of a save, once its last part applied them (kept when it fails, for Word to put it again), and those
-        // of a save that never ended
-        Task Applied() =>
-            partialPuts.Clean(site.FileId, site.Access.UserId, partition, put.PartialLast, cancel);
+        // the parts of a save that its last part applied (kept when it fails, for Word to put it again), and those of a
+        // save that never ended. The save is applied by then: failing to forget them does not fail it, and the next Put
+        // Changes of the file tries again
+        async Task Applied(CellStorage storage)
+        {
+            var applied = put.PartialLast ? storage : null;
+            try
+            {
+                await partialPuts.Clean(site.FileId, site.Access.UserId, partition, applied, cancel);
+            }
+            catch (Exception exception)
+            {
+                log.LogWarning(exception, "The parts of saves waiting for {FileId} were not cleaned", site.FileId);
+            }
+        }
     }
 
     static string? Attribute(XElement? element, string name) => (string?) element?.Attribute(name);

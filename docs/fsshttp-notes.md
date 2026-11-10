@@ -388,8 +388,14 @@ answers otherwise than SE, which OfficeHost follows, now known differences (`Sha
   SharePoint answers each part as a Put Changes that applied nothing: Data Elements Added empty, knowledge without
   cell knowledge, and the file properties without `Etag`; the last as a save. The spec says nothing of how a server
   ties the parts together. OfficeHost failed each part (`InvalidObject`: it wrote the file of each put), and now keeps
-  their data elements by file, user and partition (`PartialPuts`), for an hour (those of a save that never ended leave the store with the file's next Put Changes), answers them as SharePoint does, and
-  applies them with the last (`FssHttpServiceTests.Save_InParts`). Against the sample (2026-11-05), Word saved three
+  their data elements by file, user and partition (`PartialPuts`), each part for an hour (those of a save that never
+  ended leave the store with the file's next Put Changes), answers them as SharePoint does, and applies them with the
+  last (`FssHttpServiceTests.Save_InParts`). Nothing in a part names its save, so a last part takes from those waiting
+  the data elements its save holds, and leaves the others to the last part of their own save: two saves of one user
+  at once, as of Word on two machines, do not lose each other's parts. The parts waiting for a file are bounded
+  together by `MaxFileSize`, as a save in one request is: the part beyond it is answered 413
+  (`Save_InParts_OverMaxFileSize`). Forgetting the parts comes after the save is applied, and its failure does not
+  fail the save. Against the sample (2026-11-05), Word saved three
   pictures of 4.3 MB in four parts of 3.1, 3.1, 3.1 and 3.6 MB, flags `0x4B`, `0x0B`, `0x0B` and last `0x4D` (G,
   return complete knowledge, only on some): each answered `Success`, the `Etag` only after the last, and the file had
   the pictures byte for byte. Larger (2026-11-06): SharePoint 2016 took a save of 31 MB of pictures in 10 parts within
