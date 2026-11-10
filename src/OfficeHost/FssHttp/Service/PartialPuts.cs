@@ -3,8 +3,9 @@
 /// more than about 3 MB of changes: Put Changes of Object Groups alone, each with a Storage Index that maps nothing and
 /// no expected one, then a last one with the rest and the Storage Index of the save (docs/fsshttp-notes.md, "SharePoint
 /// Server 2016"). The spec says nothing of how a server ties them together: the data elements wait here, by file, user
-/// and partition, until the last Put Changes applies them with its own, or for an hour. Kept in the
-/// <see cref="IFssHttpStore"/> as <see cref="SaveAsFiles"/> are, in a partition of their own.
+/// and partition, until the last Put Changes applies them with its own, or for an hour: those of a save that never
+/// ended go with the next Put Changes of the file (<see cref="Clean"/>). Kept in the <see cref="IFssHttpStore"/> as
+/// <see cref="SaveAsFiles"/> are, in a partition of their own.
 /// </summary>
 class PartialPuts(IFssHttpStore store, TimeProvider time)
 {
@@ -28,7 +29,7 @@ class PartialPuts(IFssHttpStore store, TimeProvider time)
     {
         for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
-            var (version, entries) = await Read(fileId, cancel);
+            var (version, entries, _) = await Read(fileId, cancel);
             var index = entries.FindIndex(_ => _.UserId == userId && _.Partition == partition);
             var waiting = new Dictionary<ExtendedGuid, DataElement>();
             if (index >= 0)
@@ -57,19 +58,22 @@ class PartialPuts(IFssHttpStore store, TimeProvider time)
     /// </summary>
     public async Task<IReadOnlyList<DataElement>> Get(string fileId, string userId, Guid partition, Cancel cancel = default)
     {
-        var (_, entries) = await Read(fileId, cancel);
+        var (_, entries, _) = await Read(fileId, cancel);
         return entries.FirstOrDefault(_ => _.UserId == userId && _.Partition == partition)?.Elements ?? [];
     }
 
     /// <summary>
-    /// Forgets the data elements of the user, once the last Put Changes applied them.
+    /// After a Put Changes of the file applied: forgets the data elements of the user when it was the last part of a
+    /// save, which applied them, and those of any user that waited more than an hour, whose save never ended. Nothing
+    /// else would: a file with none waiting costs a read.
     /// </summary>
-    public async Task Remove(string fileId, string userId, Guid partition, Cancel cancel = default)
+    public async Task Clean(string fileId, string userId, Guid partition, bool last, Cancel cancel = default)
     {
         for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
-            var (version, entries) = await Read(fileId, cancel);
-            if (entries.RemoveAll(_ => _.UserId == userId && _.Partition == partition) == 0 ||
+            var (version, entries, expired) = await Read(fileId, cancel);
+            var removed = last ? entries.RemoveAll(_ => _.UserId == userId && _.Partition == partition) : 0;
+            if (removed == 0 && !expired ||
                 await store.CompareExchange(fileId, Partition, version, new(Guid.NewGuid().ToString("N"), Write(entries)), cancel))
             {
                 return;
@@ -77,16 +81,21 @@ class PartialPuts(IFssHttpStore store, TimeProvider time)
         }
     }
 
-    async Task<(string? Version, List<Entry> Entries)> Read(string fileId, Cancel cancel)
+    /// <summary>
+    /// The entries that have not expired, and whether the store has some that have.
+    /// </summary>
+    async Task<(string? Version, List<Entry> Entries, bool Expired)> Read(string fileId, Cancel cancel)
     {
         var stored = await store.Get(fileId, Partition, cancel);
         if (stored == null)
         {
-            return (null, []);
+            return (null, [], false);
         }
 
         var now = time.GetUtcNow();
-        return (stored.Version, Parse(stored.Data).Where(_ => _.Expires > now).ToList());
+        var all = Parse(stored.Data);
+        var entries = all.Where(_ => _.Expires > now).ToList();
+        return (stored.Version, entries, entries.Count < all.Count);
     }
 
     /// <summary>

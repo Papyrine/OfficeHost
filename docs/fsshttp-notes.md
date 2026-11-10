@@ -388,7 +388,7 @@ answers otherwise than SE, which OfficeHost follows, now known differences (`Sha
   SharePoint answers each part as a Put Changes that applied nothing: Data Elements Added empty, knowledge without
   cell knowledge, and the file properties without `Etag`; the last as a save. The spec says nothing of how a server
   ties the parts together. OfficeHost failed each part (`InvalidObject`: it wrote the file of each put), and now keeps
-  their data elements by file, user and partition (`PartialPuts`), for an hour, answers them as SharePoint does, and
+  their data elements by file, user and partition (`PartialPuts`), for an hour (those of a save that never ended leave the store with the file's next Put Changes), answers them as SharePoint does, and
   applies them with the last (`FssHttpServiceTests.Save_InParts`). Against the sample (2026-11-05), Word saved three
   pictures of 4.3 MB in four parts of 3.1, 3.1, 3.1 and 3.6 MB, flags `0x4B`, `0x0B`, `0x0B` and last `0x4D` (G,
   return complete knowledge, only on some): each answered `Success`, the `Etag` only after the last, and the file had

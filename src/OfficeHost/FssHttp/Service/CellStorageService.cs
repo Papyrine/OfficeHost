@@ -606,14 +606,10 @@ class CellStorageService(
 
         return (null, new FailedSubResponse(put.RequestId, RequestType.PutChanges, ResponseError.Cell(CellErrorCode.CoherencyFailure)));
 
-        // the parts of a save, once its last part applied them; kept when it fails, for Word to put it again
-        async Task Applied()
-        {
-            if (put.PartialLast)
-            {
-                await partialPuts.Remove(site.FileId, site.Access.UserId, partition, cancel);
-            }
-        }
+        // the parts of a save, once its last part applied them (kept when it fails, for Word to put it again), and those
+        // of a save that never ended
+        Task Applied() =>
+            partialPuts.Clean(site.FileId, site.Access.UserId, partition, put.PartialLast, cancel);
     }
 
     static string? Attribute(XElement? element, string name) => (string?) element?.Attribute(name);
