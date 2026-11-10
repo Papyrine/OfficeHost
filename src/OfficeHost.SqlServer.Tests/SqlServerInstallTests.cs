@@ -100,7 +100,7 @@ public class SqlServerInstallTests(SqlDatabase database)
         await locks.CompareExchange("Doc", null, new("upper", expires));
         await Assert.That(await locks.CompareExchange("doc", null, new("lower", expires), new OfficeUser("bob", "Bob", OfficeClient.Desktop))).IsNull();
         await Assert.That((await locks.Get("Doc"))!.Id).IsEqualTo("upper");
-        await Assert.That((await locks.Get("doc"))!.Holder).IsEqualTo(new OfficeUser("bob", "Bob", OfficeClient.Desktop));
+        await Assert.That((await locks.Get("doc"))!.Holder).IsEqualTo(new("bob", "Bob", OfficeClient.Desktop));
     }
 
     /// <summary>
@@ -132,7 +132,7 @@ public class SqlServerInstallTests(SqlDatabase database)
         await OfficeHostSqlServerInstaller.Install(connectionString, schema);
         await OfficeHostSqlServerInstaller.Install(connectionString, schema);
         var locks = new SqlServerLockStore(connectionString, TimeProvider.System, schema);
-        await Assert.That(await locks.Get("kept")).IsEqualTo(new OfficeLock("L", new(2100, 1, 1, 0, 0, 0, TimeSpan.Zero)));
+        await Assert.That(await locks.Get("kept")).IsEqualTo(new("L", new(2100, 1, 1, 0, 0, 0, TimeSpan.Zero)));
         var alice = new OfficeUser("alice", "Alice", OfficeClient.Wopi);
         await Assert.That(await locks.CompareExchange("new", null, new("M", DateTimeOffset.UtcNow.AddMinutes(30)), alice)).IsNull();
         await Assert.That((await locks.Get("new"))!.Holder).IsEqualTo(alice);
