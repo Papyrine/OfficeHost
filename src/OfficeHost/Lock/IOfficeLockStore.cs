@@ -17,7 +17,25 @@ public interface IOfficeLockStore
     /// <see cref="Interlocked.CompareExchange{T}(ref T, T, T)"/> does. An expired lock counts as no lock.
     /// </summary>
     Task<OfficeLock?> CompareExchange(string fileId, string? comparand, OfficeLock? value, Cancel cancel = default);
+
+    /// <summary>
+    /// <see cref="CompareExchange(string, string?, OfficeLock?, Cancel)"/>, with the user whose request locks, refreshes
+    /// or unlocks, so that a store can keep who holds a lock: the built-in stores keep the user as the
+    /// <see cref="OfficeLock.Holder"/> of the lock they write, or, with no user, the holder the value names. A store
+    /// that does not override this one forgets the user.
+    /// </summary>
+    /// <param name="user">The user whose request this is, or null for an exchange of the application's own.</param>
+    Task<OfficeLock?> CompareExchange(string fileId, string? comparand, OfficeLock? value, OfficeUser? user, Cancel cancel = default) =>
+        CompareExchange(fileId, comparand, value, cancel);
 }
 
 /// <param name="Id">The lock id the WOPI client chose, compared as is.</param>
-public record OfficeLock(string Id, DateTimeOffset Expires);
+public record OfficeLock(string Id, DateTimeOffset Expires)
+{
+    /// <summary>
+    /// The user whose request last took or refreshed the lock, when the store keeps it (the built-in ones do), for an
+    /// application to show who is editing. The lock of a desktop coauthoring session is shared by its editors: the
+    /// holder is the one whose request last changed it.
+    /// </summary>
+    public OfficeUser? Holder { get; init; }
+}

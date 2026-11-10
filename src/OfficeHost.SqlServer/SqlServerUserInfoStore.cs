@@ -15,7 +15,9 @@ public sealed class SqlServerUserInfoStore(string connectionString, string schem
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancel);
-        await using var command = new SqlCommand($"select Info from {table} where UserId = @userId", connection);
+        await using var command = new SqlCommand(
+            $"select Info from {table} where UserId = @userId",
+            connection);
         command.Parameters.AddWithValue("@userId", userId);
         return (string?) await command.ExecuteScalarAsync(cancel);
     }

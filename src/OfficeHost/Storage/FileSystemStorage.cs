@@ -11,7 +11,8 @@ public sealed class FileSystemStorage :
     const string metaFolderName = ".wopi";
 
     static StringComparison pathComparison =
-        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        OperatingSystem.IsWindows() ||
+        OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
     static JsonSerializerOptions indexOptions = new()
     {
@@ -92,12 +93,12 @@ public sealed class FileSystemStorage :
     public string GetFileId(string relativePath)
     {
         var full = FullPath(relativePath);
-        if (!File.Exists(full))
+        if (File.Exists(full))
         {
-            throw new FileNotFoundException($"No file {relativePath}", full);
+            return IdOf(full);
         }
 
-        return IdOf(full);
+        throw new FileNotFoundException($"No file {relativePath}", full);
     }
 
     /// <summary>
@@ -176,12 +177,12 @@ public sealed class FileSystemStorage :
     {
         var folder = Path.GetDirectoryName(ExistingPath(fileId))!;
         var full = FullPath(Path.Join(Path.GetRelativePath(Root, folder), name));
-        if (!string.Equals(Path.GetDirectoryName(full), folder, pathComparison))
+        if (string.Equals(Path.GetDirectoryName(full), folder, pathComparison))
         {
-            throw new UnauthorizedAccessException($"{name} is not a file name");
+            return full;
         }
 
-        return full;
+        throw new UnauthorizedAccessException($"{name} is not a file name");
     }
 
     /// <summary>
@@ -209,23 +210,23 @@ public sealed class FileSystemStorage :
         }
 
         var info = new FileInfo(full);
-        if (!info.Exists)
+        if (info.Exists)
         {
-            return Task.FromResult<OfficeFile?>(null);
+            return Task.FromResult<OfficeFile?>(Info(fileId, info));
         }
 
-        return Task.FromResult<OfficeFile?>(Info(fileId, info));
+        return Task.FromResult<OfficeFile?>(null);
     }
 
     public Task<OfficeFile?> GetSibling(string fileId, string name, Cancel cancel = default)
     {
         var info = new FileInfo(SiblingPath(fileId, name));
-        if (!info.Exists)
+        if (info.Exists)
         {
-            return Task.FromResult<OfficeFile?>(null);
+            return Task.FromResult<OfficeFile?>(Info(IdOf(info.FullName), info));
         }
 
-        return Task.FromResult<OfficeFile?>(Info(IdOf(info.FullName), info));
+        return Task.FromResult<OfficeFile?>(null);
     }
 
     public Task<Stream> OpenRead(string fileId, Cancel cancel = default)

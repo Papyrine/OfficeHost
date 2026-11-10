@@ -28,9 +28,11 @@ services.AddOfficeHost(
         builder.Configuration.GetSection("OfficeHost").Bind(options);
         // Morph, whose proofs are checked against its discovery
         options.DiscoveryUrls.Add(morphDiscovery);
-        // the pages below, which the WOPI client links to, as after a Save As
-        options.HostEditUrl = (file, _) => $"{appUrl}/edit/{Uri.EscapeDataString(file.Id)}";
-        options.HostViewUrl = (file, _) => $"{appUrl}/view/{Uri.EscapeDataString(file.Id)}";
+        // the pages below, which the WOPI client links to, as after a Save As, for the same user
+        options.HostEditUrl = (file, access) =>
+            $"{appUrl}/edit/{Uri.EscapeDataString(file.Id)}?user={Uri.EscapeDataString(access.UserId)}";
+        options.HostViewUrl = (file, access) =>
+            $"{appUrl}/view/{Uri.EscapeDataString(file.Id)}?user={Uri.EscapeDataString(access.UserId)}";
         options.OnCheckFileInfo = context =>
         {
             // back to the file list when the user closes the editor
@@ -41,8 +43,9 @@ services.AddOfficeHost(
         };
     });
 
-// Morph (Morph.Wopi): its discovery, the page a file opens in, and the proxy its editor, the WebAssembly app of
-// OfficeHost.Sample.Morph, calls the WOPI endpoints through. Morph opens files only for the WOPISrc of the sample
+// Morph (Morph.Wopi): its discovery, the page a file opens in, and the proxy and coauthoring sessions its editor,
+// the WebAssembly app of OfficeHost.Sample.Morph, reaches the WOPI endpoints through. A session holds the file's
+// lock, merges the edits of everyone in it, and saves the file. Morph opens files only for the WOPISrc of the sample
 var wopiUrl = new Uri(builder.Configuration["OfficeHost:BaseUrl"] ?? appUrl);
 services.AddMorphWopi(options => options.TrustedHosts.Add(wopiUrl.GetLeftPart(UriPartial.Authority)));
 
@@ -83,7 +86,8 @@ app.MapOfficeHost();
 app.MapOfficePages(Access, OnError, collaboraDiscovery);
 // the sites desktop Office edits and coauthors files through: /fsshttp/{token}/{name}
 app.MapFssHttp();
-// Morph's editor, and its endpoints: /hosting/discovery, /morph/wopi/edit and /morph/wopi/view, /morph/wopi/proxy
+// Morph's editor, and its endpoints: /hosting/discovery, /morph/wopi/edit and /morph/wopi/view, /morph/wopi/proxy,
+// /morph/wopi/session
 app.MapStaticAssets();
 app.MapMorphWopi();
 // the page that opens a Word document in Morph
@@ -96,20 +100,14 @@ app.MapGet(
         return launch.HostPage("Morph");
     });
 // the page that opens a file in desktop Office, through an ms-word: (or ms-excel:, ms-powerpoint:) link. The user comes
-// from ?user= so that two people can coauthor the demo, and may edit any file: an application takes the user from its
-// sign-in, and decides the access from its permissions, as Access below does for the WOPI client
+// from ?user= (DemoUser below), and may edit any file: an application decides the access from its permissions, as
+// Access below does for the WOPI client
 app.MapGet(
     "/desktop/{fileId}",
     async (string fileId, string? user, HttpRequest request, OfficeLauncher launcher) =>
     {
-        if (string.IsNullOrEmpty(user))
+        var access = DemoUser(fileId, user) with
         {
-            user = "demo";
-        }
-
-        var access = new OfficeAccess(fileId, user)
-        {
-            UserName = $"{char.ToUpperInvariant(user[0])}{user[1..]} User",
             CanWrite = true,
             // Save As to a new name in the folder
             CanWriteRelative = true,
@@ -152,14 +150,28 @@ app.Lifetime.ApplicationStarted.Register(() => app.Logger.LogInformation("Open {
 app.Run();
 
 // begin-snippet: Launch
+// the user of the demo: the one of ?user=, so that two people can coauthor a file, or demo. An application takes the
+// user from its sign-in
+static OfficeAccess DemoUser(string fileId, string? user)
+{
+    if (string.IsNullOrEmpty(user))
+    {
+        user = "demo";
+    }
+
+    return new(fileId, user)
+    {
+        UserName = $"{char.ToUpperInvariant(user[0])}{user[1..]} User"
+    };
+}
+
 // the access of the user to the file: an application decides it from its own users and permissions, or returns null to
 // refuse it
 static ValueTask<OfficeAccess?> Access(HttpContext context, string fileId, string action)
 {
     var canWrite = action is "edit" or "editnew";
-    var access = new OfficeAccess(fileId, "demo")
+    var access = DemoUser(fileId, context.Request.Query["user"]) with
     {
-        UserName = "Demo User",
         CanWrite = canWrite,
         CanWriteRelative = canWrite,
         CanRename = canWrite

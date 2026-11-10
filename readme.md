@@ -1,7 +1,6 @@
 #  <img src="/src/icon.png" height="30px"> OfficeHost
 
-[![Build](https://github.com/Papyrine/OfficeHost/actions/workflows/build.yml/badge.svg)](https://github.com/Papyrine/OfficeHost/actions/workflows/build.yml)
-[![NuGet Status](https://img.shields.io/nuget/v/OfficeHost.svg?label=OfficeHost)](https://www.nuget.org/packages/OfficeHost/)
+[![Build](https://github.com/Papyrine/OfficeHost/actions/workflows/build.yml/badge.svg)](https://github.com/Papyrine/OfficeHost/actions/workflows/build.yml) [![NuGet Status](https://img.shields.io/nuget/v/OfficeHost.svg?label=OfficeHost)](https://www.nuget.org/packages/OfficeHost/)
 
 The host side of the Office document protocols as a library for ASP.NET Core. Add it to a web application, and the files of any storage the application has open, edit and save in:
 
@@ -11,6 +10,39 @@ The host side of the Office document protocols as a library for ASP.NET Core. Ad
 
 ## How it works
 
+OfficeHost is the host: it runs in the application, over the application's storage, and answers the requests of the programs that edit the files. Those are of two kinds:
+
+* the WOPI clients, editors that run as applications of their own (Collabora Online in a container, Microsoft 365 for the web in Microsoft's cloud, Morph in an ASP.NET Core application). The browser opens the editor, and the editor calls back the WOPI endpoints of the host.
+* desktop Word, Excel and PowerPoint, which open a file from OfficeHost as from a SharePoint site.
+
+```mermaid
+flowchart TD
+  browser([Browser])
+  subgraph app["The application"]
+    pages["The application's pages<br>MapOfficePages, OfficeLauncher"]
+    subgraph officehost["OfficeHost: the host"]
+      wopi["/wopi/files/{fileId}<br>MapOfficeHost"]
+      fsshttp["/fsshttp/{token}/{name}<br>MapFssHttp"]
+    end
+    stores[("IOfficeStorage<br>IOfficeLockStore<br>IFssHttpStore")]
+  end
+  subgraph clients["WOPI clients: the editors"]
+    o365["Microsoft 365 for the web"]
+    collabora["Collabora Online"]
+    onlyoffice["ONLYOFFICE"]
+    morph["Morph"]
+  end
+  desktop["Desktop Word, Excel, PowerPoint"]
+  browser --> pages
+  pages -- "reads the discovery" --> clients
+  browser -- "opens the editor with a token" --> clients
+  clients -- "WOPI" --> wopi
+  browser -- "ms-word: link" --> desktop
+  desktop -- "MS-FSSHTTP" --> fsshttp
+  wopi --> stores
+  fsshttp --> stores
+```
+
 
 ### In a WOPI client:
 
@@ -18,11 +50,62 @@ The host side of the Office document protocols as a library for ASP.NET Core. Ad
 2. The page of the application posts the token to the editor URL, usually in an iframe.
 3. The editor calls the WOPI endpoints the library maps (`/wopi/files/{fileId}`) to read the file metadata, lock the file, and get and save its content. The library checks the token and the locks, and goes to the storage of the application through `IOfficeStorage`.
 
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant A as Application
+  participant C as WOPI client
+  participant H as OfficeHost
+  participant S as IOfficeStorage
+  B->>A: GET /edit/{fileId}
+  A->>A: the user's access to the file (OfficeAccess)
+  A->>C: GET /hosting/discovery (cached for an hour)
+  A-->>B: the host page, a form with the access token
+  B->>C: POST the token to the editor URL, in an iframe
+  C->>H: CheckFileInfo, GET /wopi/files/{fileId}
+  H->>S: the file's name, size and version
+  C->>H: Lock, GetFile
+  H->>S: the content
+  C-->>B: the editor
+  Note over B,C: the users edit
+  C->>H: PutFile, RefreshLock
+  H->>S: the saved content
+  C->>H: Unlock, when the last user closes
+  Note over H: each request: the token (IOfficeTokens),<br>the proof (X-WOPI-Proof), the lock (IOfficeLockStore)
+```
+
+Several users editing a file share one session of the WOPI client, which merges their edits and holds one lock: see [wopi-concurrency.md](docs/wopi-concurrency.md).
+
 
 ### In desktop Office:
 
 1. The application asks `OfficeLauncher.LaunchDesktop` for an `ms-word:` (or `ms-excel:`, `ms-powerpoint:`) link to the file, holding an access token in its URL.
 2. Office calls the sites the library maps (`/fsshttp/{token}/{name}`) as it calls a SharePoint site: it syncs the file in chunks, takes or shares its lock, and coauthors with the other users. The library keeps the file in `IOfficeStorage`, the lock in `IOfficeLockStore`, and the state of the sync in `IFssHttpStore`.
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant A as Application
+  participant W as Word
+  participant H as OfficeHost
+  participant S as The stores
+  B->>A: GET /desktop/{fileId}
+  A-->>B: an ms-word: link to /fsshttp/{token}/{name}
+  B->>W: opens the link
+  W->>H: OPTIONS, the site
+  W->>H: cellstorage.svc, JoinCoauthoring and Cell queries
+  H->>S: the shared lock (IOfficeLockStore), the cells (IFssHttpStore)
+  H-->>W: Alone, or Coauthoring with the others
+  Note over W,H: Excel takes an exclusive lock instead, and does not coauthor
+  loop while the file is open
+    W->>H: alone, sharedaccess.asmx IsOnlyClient
+    W->>H: coauthoring, GetCoauthoringStatus and Cell queries
+  end
+  W->>H: cellstorage.svc, Cell Put Changes (a save)
+  H->>S: the file (IOfficeStorage)
+  W->>H: cellstorage.svc, ExitCoauthoring (the close)
+  H->>S: the lock released, once the last user left
+```
 
 
 ## Features
@@ -56,9 +139,11 @@ services.AddOfficeHost(
         builder.Configuration.GetSection("OfficeHost").Bind(options);
         // Morph, whose proofs are checked against its discovery
         options.DiscoveryUrls.Add(morphDiscovery);
-        // the pages below, which the WOPI client links to, as after a Save As
-        options.HostEditUrl = (file, _) => $"{appUrl}/edit/{Uri.EscapeDataString(file.Id)}";
-        options.HostViewUrl = (file, _) => $"{appUrl}/view/{Uri.EscapeDataString(file.Id)}";
+        // the pages below, which the WOPI client links to, as after a Save As, for the same user
+        options.HostEditUrl = (file, access) =>
+            $"{appUrl}/edit/{Uri.EscapeDataString(file.Id)}?user={Uri.EscapeDataString(access.UserId)}";
+        options.HostViewUrl = (file, access) =>
+            $"{appUrl}/view/{Uri.EscapeDataString(file.Id)}?user={Uri.EscapeDataString(access.UserId)}";
         options.OnCheckFileInfo = context =>
         {
             // back to the file list when the user closes the editor
@@ -69,8 +154,9 @@ services.AddOfficeHost(
         };
     });
 
-// Morph (Morph.Wopi): its discovery, the page a file opens in, and the proxy its editor, the WebAssembly app of
-// OfficeHost.Sample.Morph, calls the WOPI endpoints through. Morph opens files only for the WOPISrc of the sample
+// Morph (Morph.Wopi): its discovery, the page a file opens in, and the proxy and coauthoring sessions its editor,
+// the WebAssembly app of OfficeHost.Sample.Morph, reaches the WOPI endpoints through. A session holds the file's
+// lock, merges the edits of everyone in it, and saves the file. Morph opens files only for the WOPISrc of the sample
 var wopiUrl = new Uri(builder.Configuration["OfficeHost:BaseUrl"] ?? appUrl);
 services.AddMorphWopi(options => options.TrustedHosts.Add(wopiUrl.GetLeftPart(UriPartial.Authority)));
 
@@ -107,7 +193,8 @@ app.MapOfficeHost();
 app.MapOfficePages(Access, OnError, collaboraDiscovery);
 // the sites desktop Office edits and coauthors files through: /fsshttp/{token}/{name}
 app.MapFssHttp();
-// Morph's editor, and its endpoints: /hosting/discovery, /morph/wopi/edit and /morph/wopi/view, /morph/wopi/proxy
+// Morph's editor, and its endpoints: /hosting/discovery, /morph/wopi/edit and /morph/wopi/view, /morph/wopi/proxy,
+// /morph/wopi/session
 app.MapStaticAssets();
 app.MapMorphWopi();
 // the page that opens a Word document in Morph
@@ -120,20 +207,14 @@ app.MapGet(
         return launch.HostPage("Morph");
     });
 // the page that opens a file in desktop Office, through an ms-word: (or ms-excel:, ms-powerpoint:) link. The user comes
-// from ?user= so that two people can coauthor the demo, and may edit any file: an application takes the user from its
-// sign-in, and decides the access from its permissions, as Access below does for the WOPI client
+// from ?user= (DemoUser below), and may edit any file: an application decides the access from its permissions, as
+// Access below does for the WOPI client
 app.MapGet(
     "/desktop/{fileId}",
     async (string fileId, string? user, HttpRequest request, OfficeLauncher launcher) =>
     {
-        if (string.IsNullOrEmpty(user))
+        var access = DemoUser(fileId, user) with
         {
-            user = "demo";
-        }
-
-        var access = new OfficeAccess(fileId, user)
-        {
-            UserName = $"{char.ToUpperInvariant(user[0])}{user[1..]} User",
             CanWrite = true,
             // Save As to a new name in the folder
             CanWriteRelative = true,
@@ -144,7 +225,7 @@ app.MapGet(
         return Results.Content(SamplePages.Desktop(link), "text/html");
     });
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L15-L122' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L15-L119' title='Snippet source file'>snippet source</a> | <a href='#snippet-Registration' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 `MapOfficePages` maps the pages that open a file in a WOPI client, `/edit/{fileId}` and `/view/{fileId}`, and `/editnew/{fileId}` for a new document. The application gives it the access of the user to the file, which only it can decide from its own users and permissions, or null to refuse it with a 403, and optionally its own results for the errors:
@@ -152,14 +233,28 @@ app.MapGet(
 <!-- snippet: Launch -->
 <a id='snippet-Launch'></a>
 ```cs
+// the user of the demo: the one of ?user=, so that two people can coauthor a file, or demo. An application takes the
+// user from its sign-in
+static OfficeAccess DemoUser(string fileId, string? user)
+{
+    if (string.IsNullOrEmpty(user))
+    {
+        user = "demo";
+    }
+
+    return new(fileId, user)
+    {
+        UserName = $"{char.ToUpperInvariant(user[0])}{user[1..]} User"
+    };
+}
+
 // the access of the user to the file: an application decides it from its own users and permissions, or returns null to
 // refuse it
 static ValueTask<OfficeAccess?> Access(HttpContext context, string fileId, string action)
 {
     var canWrite = action is "edit" or "editnew";
-    var access = new OfficeAccess(fileId, "demo")
+    var access = DemoUser(fileId, context.Request.Query["user"]) with
     {
-        UserName = "Demo User",
         CanWrite = canWrite,
         CanWriteRelative = canWrite,
         CanRename = canWrite
@@ -181,7 +276,7 @@ static IResult? OnError(HttpContext context, Exception exception)
     return null;
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L154-L183' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L151-L194' title='Snippet source file'>snippet source</a> | <a href='#snippet-Launch' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 The page is `OfficeLaunch.HostPage()`: a form posts the access token to the editor, in a full-page iframe. An application that puts the editor in a page of its own calls `OfficeLauncher.Launch` itself, and takes the form, the iframe and the script from `HostPageHtml()`. A missing file is a 404, a WOPI client that cannot be reached a 503, and an action no WOPI client offers for the file a 400.
@@ -211,7 +306,7 @@ app.MapPost(
         return Results.Redirect(page);
     });
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L124-L142' title='Snippet source file'>snippet source</a> | <a href='#snippet-NewDocument' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L121-L139' title='Snippet source file'>snippet source</a> | <a href='#snippet-NewDocument' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 Desktop Office can also Save As: with `CanWriteRelative`, as for the Save As of the WOPI clients, the file is created next to the one being edited, and edited on through the same link.
@@ -231,9 +326,47 @@ Then run the sample, and open http://localhost:5000:
 dotnet run --project src/OfficeHost.Sample
 ```
 
-It starts with a `Welcome.docx` in `src/OfficeHost.Sample/files`; add files there to open them too, or make a new Word document, Excel workbook or PowerPoint presentation from the top of the list. Edit opens a file with write access, View read only. Desktop Office needs HTTPS: the `desktop` launch profile (`dotnet run --project src/OfficeHost.Sample --launch-profile desktop`) serves it, and `/desktop/{fileId}` opens a file in Word, Excel or PowerPoint, `?user=` for a second user to coauthor. The URLs and the signing key are in its `appsettings.json`: `OfficeHost:BaseUrl` is how Collabora reaches the sample (`host.docker.internal` from the container), and `Sample:AppUrl` how the browser does.
+It starts with a `Welcome.docx` in `src/OfficeHost.Sample/files`; add files there to open them too, or make a new Word document, Excel workbook or PowerPoint presentation from the top of the list. Edit opens a file with write access, View read only. Desktop Office needs HTTPS: the `desktop` launch profile (`dotnet run --project src/OfficeHost.Sample --launch-profile desktop`) serves it, and `/desktop/{fileId}` opens a file in Word, Excel or PowerPoint. To coauthor a file, open it a second time with "as Bob": in another tab for Collabora or Morph, which show each user where the others are, and from another Windows account or machine for desktop Office (see [fsshttp-checklist.md](docs/fsshttp-checklist.md)). Every page takes the user from `?user=`, `demo` without one. The URLs and the signing key are in its `appsettings.json`: `OfficeHost:BaseUrl` is how Collabora reaches the sample (`host.docker.internal` from the container), and `Sample:AppUrl` how the browser does.
 
-The sample also serves [Morph](https://github.com/Papyrine/Morph), a second WOPI client whose editor runs in the browser as Blazor WebAssembly ([Morph.Wopi](https://www.nuget.org/packages/Morph.Wopi/), with the editor in [src/OfficeHost.Sample.Morph](src/OfficeHost.Sample.Morph)): Edit using Morph opens a Word document in it, with no container. Its discovery is in `DiscoveryUrls` too, so that its proofs are checked, and the pages of `MapOfficePages` are given Collabora's, so that Edit and View open a file in Collabora only. Morph calls the WOPI endpoints from the server at `OfficeHost:BaseUrl`, so `host.docker.internal` has to resolve on the machine, as Docker Desktop makes it.
+The sample also serves [Morph](https://github.com/Papyrine/Morph), a second WOPI client whose editor runs in the browser as Blazor WebAssembly ([Morph.Wopi](https://www.nuget.org/packages/Morph.Wopi/), with the editor in [src/OfficeHost.Sample.Morph](src/OfficeHost.Sample.Morph)): Edit using Morph opens a Word document in it, with no container. Its discovery is in `DiscoveryUrls` too, so that its proofs are checked, and the pages of `MapOfficePages` are given Collabora's, so that Edit and View open a file in Collabora only. Morph calls the WOPI endpoints from the server at `OfficeHost:BaseUrl`, so `host.docker.internal` has to resolve on the machine, as Docker Desktop makes it. Morph coauthors too (from 1.24.0): the pages editing a file join a session in Morph.Wopi, which holds the file's lock, merges their edits paragraph by paragraph, shows each where the others are, and saves the file.
+
+The sample runs both sides of WOPI: OfficeHost, the host, and Morph.Wopi, the server side of a WOPI client. They meet only through WOPI, as Collabora does from its container: Morph's editor reaches the file through Morph.Wopi's coauthoring session and its proxy, on the server, which call the WOPI endpoints signed with Morph's proof key. OfficeHost itself does not depend on Morph.
+
+```mermaid
+flowchart LR
+  browser([Browser])
+  subgraph sample["OfficeHost.Sample, localhost:5000"]
+    pages["The files page, /edit, /view, /editnew,<br>/edit-in-morph, /desktop"]
+    subgraph officehost["OfficeHost: the host"]
+      wopi["/wopi/files/{fileId}"]
+      fsshttp["/fsshttp/{token}/{name}"]
+    end
+    subgraph morphwopi["Morph.Wopi: a WOPI client"]
+      discovery["/hosting/discovery"]
+      editor["/morph/wopi/edit and /view<br>the editor, in WebAssembly"]
+      proxy["/morph/wopi/proxy"]
+      session["/morph/wopi/session<br>the coauthoring sessions"]
+    end
+    files[("files: FileSystemStorage<br>fsshttp-state: FileSystemFssHttpStore")]
+  end
+  subgraph docker["Docker, localhost:9980"]
+    collabora["Collabora Online"]
+  end
+  desktop["Desktop Office<br>through the desktop profile, HTTPS"]
+  browser --> pages
+  pages -- "reads the discovery" --> collabora
+  pages -- "reads the discovery" --> discovery
+  browser -- "the editor, in an iframe" --> collabora
+  browser -- "the editor, in an iframe" --> editor
+  browser -- "the file's info" --> proxy
+  browser -- "edits and presence" --> session
+  collabora -- "WOPI, at OfficeHost:BaseUrl" --> wopi
+  proxy -- "WOPI, at OfficeHost:BaseUrl" --> wopi
+  session -- "WOPI: the lock and the saves" --> wopi
+  desktop -- "MS-FSSHTTP" --> fsshttp
+  wopi --> files
+  fsshttp --> files
+```
 
 ## Options
 
@@ -250,7 +383,7 @@ The sample also serves [Morph](https://github.com/Papyrine/Morph), a second WOPI
 | `ServerVersion` | the library's | The `X-WOPI-ServerVersion` of the responses. |
 | `HostEditUrl`, `HostViewUrl` | | The pages of the application that open a file, returned by CheckFileInfo and PutRelativeFile. |
 | `OnCheckFileInfo` | | Adds or changes CheckFileInfo properties: `CloseUrl`, breadcrumbs, branding, CSPP+ properties. |
-| `OnFileSaved` | | Called after a save, by a WOPI client or desktop Office, with the editors: to keep versions or audit. |
+| `OnFileSaved` | | Called after a save, by a WOPI client or desktop Office, with the user who saved and the editors: to keep versions or audit. |
 | `UrlPlaceholder` | | The values of the placeholders of the action URLs, as `UI_LLCC` or `BUSINESS_USER`; all are dropped without it. |
 | `ShareUrl` | | The URL to share a file by, for GetShareUrl; WOPI clients offer no sharing without it. |
 | `DesktopPath` | `/fsshttp` | The path of the sites of desktop Office, `MapFssHttp`. |
@@ -259,15 +392,15 @@ The sample also serves [Morph](https://github.com/Papyrine/Morph), a second WOPI
 
 ## Access
 
-`OfficeAccess` is what a token grants: a user's access to a file, which the application decides when it launches the
-editor.
+`OfficeAccess` is what a token grants: a user's access to a file, which the application decides when it launches the editor.
 
 * `CanWrite`: lock, save and delete the file. Without it the file opens read only.
 * `CanWriteRelative`: Save As, creating files next to this one, or replacing an unlocked one other than this one.
 * `CanRename`: rename the file.
-* `ViewOnly`: no download, print or copy, as the WOPI client enforces it: without `RequireProof`, the token alone can
-  still download the file.
+* `ViewOnly`: no download, print or copy, as the WOPI client enforces it: without `RequireProof`, the token alone can still download the file.
 * `IsAnonymous`, `UserName`: how the editor shows the user.
+
+The hooks run in the requests of the WOPI client or of desktop Office, which carry no sign-in of the application: `OnCheckFileInfo` and `OnFileSaved` get the `OfficeUser` of the token instead (`Id` and `Name` as the application set `UserId` and `UserName`, and the `Client`, WOPI or desktop), and the `OfficeAccess` the token granted, so the application never has to find and validate the token itself.
 
 The built-in tokens carry the access, signed with `SigningKey`, so they need no storage, but cannot be revoked before they expire; `PreviousSigningKeys` rotates the key without ending the sessions. They are short (about 70 characters, longer with long ids or user names), as desktop Office holds the token in the URL of the file and refuses a Save As to a URL of more than 255 characters; a custom `IOfficeTokens` should keep its tokens short too. To keep tokens in a database, or tie them to the application's sessions, register an `IOfficeTokens`.
 
@@ -325,7 +458,7 @@ public interface IOfficeStorage
 
 `FileSystemStorage` keeps the files in a folder, for development, tests and single machines. It gives each file an id on first use (`GetFileId("reports/q3.docx")`), kept in a hidden `.wopi` folder so that ids survive renames, and writes through a temporary file so that a save never leaves a partial file.
 
-Locks are kept by an `IOfficeLockStore`. The default `MemoryLockStore` suits a single instance of the application; several instances need a shared store, such as one over Redis or a database, with an atomic compare and exchange.
+Locks are kept by an `IOfficeLockStore`. The default `MemoryLockStore` suits a single instance of the application; several instances need a shared store, such as one over Redis or a database, with an atomic compare and exchange. The lock operations pass the `OfficeUser` of the request (the overload of `CompareExchange` with a user, which a store of the two original members gets through its default implementation), and the built-in stores keep it as the `Holder` of the lock `Get` returns, for the application to show who is editing a file; `SqlServerLockStore` keeps it in the HolderId, HolderName and HolderClient columns, to read from the database.
 
 PutUserInfo, where the editors keep per-user data such as the tips a user has seen, is supported when an `IOfficeUserInfoStore` is registered.
 
@@ -334,7 +467,7 @@ The state of desktop coauthoring (the data elements Office syncs, the coauthorin
 
 ### SQL Server
 
-The [OfficeHost.SqlServer](https://www.nuget.org/packages/OfficeHost.SqlServer/) package keeps everything in SQL Server, shared by all the instances of the application: `SqlServerStorage` (the files, in folders the application names, added with `Add(folder, name, ownerId, content)`, which gives the id), `SqlServerLockStore`, `SqlServerFssHttpStore` and `SqlServerUserInfoStore`. Each can be used alone, or `AddOfficeHostSqlServer` registers them all. The tables are created by [OfficeHost.SqlServer.Install](https://www.nuget.org/packages/OfficeHost.SqlServer.Install/), so the application needs no rights to change the schema; `OfficeHostSqlServerInstaller.GetScript()` gives the script to apply by hand. Both take a schema, `dbo` by default.
+The [OfficeHost.SqlServer](https://www.nuget.org/packages/OfficeHost.SqlServer/) package keeps everything in SQL Server, shared by all the instances of the application: `SqlServerStorage` (the files, in folders the application names, added with `Add(folder, name, ownerId, content)`, which gives the id and throws when the folder has a file of that name, or `TryAdd`, which returns null then), `SqlServerLockStore`, `SqlServerFssHttpStore` and `SqlServerUserInfoStore`. Each can be used alone, or `AddOfficeHostSqlServer` registers them all. The tables are created by [OfficeHost.SqlServer.Install](https://www.nuget.org/packages/OfficeHost.SqlServer.Install/), so the application needs no rights to change the schema; `OfficeHostSqlServerInstaller.GetScript()` gives the script to apply by hand. Both take a schema, `dbo` by default.
 
 <!-- snippet: SqlServer -->
 <a id='snippet-SqlServer'></a>
@@ -345,7 +478,7 @@ await OfficeHostSqlServerInstaller.Install(connectionString);
 // in the application, before or after AddOfficeHost
 builder.Services.AddOfficeHostSqlServer(connectionString);
 ```
-<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerTests.cs#L198-L204' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServer' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerTests.cs#L252-L258' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServer' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 
@@ -374,6 +507,9 @@ erDiagram
     nvarchar(450) FileId pk
     nvarchar(1024) LockId
     datetimeoffset Expires
+    nvarchar(450)(nullable) HolderId
+    nvarchar(max)(nullable) HolderName
+    nvarchar(16)(nullable) HolderClient
   }
   OfficeHostSchemaVersion["**OfficeHostSchemaVersion**"] {
     int Version
@@ -408,7 +544,7 @@ Desktop Word, Excel and PowerPoint open files as they open those of a SharePoint
 * The lock of desktop editing is a lock of the `IOfficeLockStore`, so WOPI clients and desktop Office do not edit a file at the same time. A file changed outside desktop Office is synced as a new revision, keeping the unchanged chunks.
 * Word and PowerPoint coauthor: several users edit a document at once, sharing its lock. Excel does not: the first user to type in a workbook takes an exclusive lock, and Excel tells the others who has it.
 
-The host must use HTTPS with a certificate Windows trusts. A host in the Internet zone opens in Protected View first, as SharePoint Online does. Tested with Word, Excel and PowerPoint for Microsoft 365 16.0.20326 on Windows, with `.docx`, `.xlsx` and `.pptx` files. Notes on what Office does that the specs do not say are in [docs/fsshttp-notes.md](docs/fsshttp-notes.md), and the check by hand in [docs/fsshttp-checklist.md](docs/fsshttp-checklist.md).
+The host must use HTTPS with a certificate Windows trusts. A host in the Internet zone opens in Protected View first, as SharePoint Online does. Tested with Word, Excel and PowerPoint for Microsoft 365 16.0.20326 on Windows, with `.docx`, `.xlsx` and `.pptx` files. Notes on what Office does that the specs do not say are in [docs/fsshttp-notes.md](docs/fsshttp-notes.md), how several editors share a file in [docs/fsshttp-concurrency.md](docs/fsshttp-concurrency.md), and the check by hand in [docs/fsshttp-checklist.md](docs/fsshttp-checklist.md).
 
 
 ## Shadow of SharePoint
@@ -441,7 +577,7 @@ if (shadow)
     services.AddOfficeHostShadow();
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L49-L69' title='Snippet source file'>snippet source</a> | <a href='#snippet-Shadow' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L52-L71' title='Snippet source file'>snippet source</a> | <a href='#snippet-Shadow' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 How it works, its guarantees to SharePoint, its configuration and limits are in [docs/shadow.md](docs/shadow.md). The same engine replays recordings offline: [docs/replay.md](docs/replay.md).

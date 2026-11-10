@@ -1,0 +1,52 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "collabora",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": [
+        "run",
+        "--rm",
+        "--publish",
+        "9980:9980",
+        "--add-host",
+        "host.docker.internal:host-gateway",
+        "--env",
+        "domain=host\\.docker\\.internal.*",
+        "--env",
+        "extra_params=--o:ssl.enable=false --o:ssl.termination=false --o:home_mode.enable=true",
+        "collabora/code"
+      ],
+      "port": 9980,
+      "url": "http://localhost:9980"
+    },
+    {
+      "name": "sample",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "src/OfficeHost.Sample",
+        "--launch-profile",
+        "sample"
+      ],
+      "port": 5000,
+      "url": "http://localhost:5000"
+    },
+    {
+      "name": "sample-localhost",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "src/OfficeHost.Sample",
+        "--launch-profile",
+        "sample",
+        "--",
+        "--OfficeHost:BaseUrl=http://localhost:5000"
+      ],
+      "port": 5000,
+      "url": "http://localhost:5000"
+    }
+  ]
+}

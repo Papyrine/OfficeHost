@@ -31,11 +31,22 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
     const int noFile = 50001;
 
     /// <summary>
-    /// Adds a file, returning it with its id. Returns null when the folder has a file of that name.
+    /// Adds a file, returning it with its id. Throws when the folder has a file of that name: <see cref="TryAdd"/>
+    /// returns null instead.
+    /// </summary>
+    /// <param name="folder">The folder of the file, of which siblings are the files of the same folder.</param>
+    /// <exception cref="IOException">The folder has a file of that name.</exception>
+    /// <exception cref="ArgumentException">The folder, the name or the owner id is longer than the table holds.</exception>
+    public async Task<OfficeFile> Add(string folder, string name, string ownerId, Stream content, Cancel cancel = default) =>
+        await TryAdd(folder, name, ownerId, content, cancel) ??
+        throw new IOException($"The folder {folder} already has a file named {name}");
+
+    /// <summary>
+    /// Adds a file, returning it with its id, or null when the folder has a file of that name.
     /// </summary>
     /// <param name="folder">The folder of the file, of which siblings are the files of the same folder.</param>
     /// <exception cref="ArgumentException">The folder, the name or the owner id is longer than the table holds.</exception>
-    public Task<OfficeFile?> Add(string folder, string name, string ownerId, Stream content, Cancel cancel = default) =>
+    public Task<OfficeFile?> TryAdd(string folder, string name, string ownerId, Stream content, Cancel cancel = default) =>
         DeadlockRetry.Once(content, _ => AddAttempt(folder, name, ownerId, _, cancel), cancel);
 
     async Task<OfficeFile?> AddAttempt(string folder, string name, string ownerId, Stream content, Cancel cancel)
@@ -127,7 +138,10 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
     async Task<OfficeFile?> GetFileAttempt(string fileId, Cancel cancel)
     {
         await using var connection = await Open(cancel);
-        await using var command = Command($"select {columns} from {table} where Id = @id", connection, fileId);
+        await using var command = Command(
+            $"select {columns} from {table} where Id = @id",
+            connection,
+            fileId);
         return await ReadFile(command, cancel);
     }
 
@@ -185,7 +199,10 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
     async Task<Stream> OpenReadAttempt(string fileId, Cancel cancel)
     {
         await using var connection = await Open(cancel);
-        await using var command = Command($"select Version, datalength(Content) from {table} where Id = @id", connection, fileId);
+        await using var command = Command(
+            $"select Version, datalength(Content) from {table} where Id = @id",
+            connection,
+            fileId);
         await using var reader = await command.ExecuteReaderAsync(cancel);
         if (!await reader.ReadAsync(cancel))
         {
@@ -267,7 +284,10 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
     async Task<OfficeFile?> RenameAttempt(string fileId, string name, Cancel cancel)
     {
         await using var connection = await Open(cancel);
-        await using var command = Command($"update {table} set Name = @name output {inserted} where Id = @id", connection, fileId);
+        await using var command = Command(
+            $"update {table} set Name = @name output {inserted} where Id = @id",
+            connection,
+            fileId);
         AddText(command, "@name", name, maxNameLength);
         try
         {
@@ -287,7 +307,10 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
     async Task DeleteAttempt(string fileId, Cancel cancel)
     {
         await using var connection = await Open(cancel);
-        await using var command = Command($"delete from {table} where Id = @id", connection, fileId);
+        await using var command = Command(
+            $"delete from {table} where Id = @id",
+            connection,
+            fileId);
         if (await command.ExecuteNonQueryAsync(cancel) == 0)
         {
             throw new FileNotFoundException($"No file {fileId}");

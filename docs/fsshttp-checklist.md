@@ -1,32 +1,16 @@
 # Desktop Office: manual checklist
 
-The tests simulate Word (`src/OfficeHost.Tests/FssHttp`), but only real Word shows what Word does. This is the check of
-the desktop site against Word by hand, before a release or after a change to `FssHttp/Service`. Record anything Word
-does that the spec does not say, or that differs from what is expected here, in [fsshttp-notes.md](fsshttp-notes.md),
-with the requests that show it.
+The tests simulate Word (`src/OfficeHost.Tests/FssHttp`), but only real Word shows what Word does. This is the check of the desktop site against Word by hand, before a release or after a change to `FssHttp/Service`. Record anything Word does that the spec does not say, or that differs from what is expected here, in [fsshttp-notes.md](fsshttp-notes.md), or, for several editors, locks and coherency, [fsshttp-concurrency.md](fsshttp-concurrency.md), with the requests that show it.
 
 
 ## Setup
 
-- **Certificate:** Word only uses FSSHTTP over HTTPS with a certificate it trusts. On the machine of the sample, trust
-  the ASP.NET Core development certificate once (it asks before adding it to the Windows store):
-  `dotnet dev-certs https --trust`.
-- **Run:** `dotnet run --project src/OfficeHost.Sample --launch-profile desktop`. The profile listens on
-  `https://localhost:5001` and logs every request and response to `src/OfficeHost.Sample/request-logs`
-  (`{sequence}-{method}-{path}.txt`). The state of the desktop sessions is in `src/OfficeHost.Sample/fsshttp-state`,
-  the files in `src/OfficeHost.Sample/files`.
-- **Open:** `https://localhost:5001`, then "Open in desktop Office" for a `.docx`, or
-  `https://localhost:5001/desktop/{fileId}?user=bob` to open it as another user.
-- **A second Word:** a second Word on the same Windows account shares the first one's cache and identity, so it is not
-  a second coauthor. Use either:
-  - **another Windows account on the same machine** (fast user switching). It needs the development certificate in its
-    own store: export it from the first account with
-    `dotnet dev-certs https --export-path dev.crt --format PEM --no-password`, then in the second account
-    `certutil -user -addstore Root dev.crt`;
-  - **another machine.** It needs a certificate for the host name of the sample that it trusts (from your
-    organisation's CA, for instance), given to Kestrel with `Kestrel__Certificates__Default__Path` and
-    `Kestrel__Certificates__Default__Password`, `URLS=https://0.0.0.0:5001`, and
-    `OfficeHost__DesktopBaseUrl=https://{host}:5001` so that the links name the host rather than `localhost`.
+- **Certificate:** Word only uses FSSHTTP over HTTPS with a certificate it trusts. On the machine of the sample, trust the ASP.NET Core development certificate once (it asks before adding it to the Windows store): `dotnet dev-certs https --trust`.
+- **Run:** `dotnet run --project src/OfficeHost.Sample --launch-profile desktop`. The profile listens on `https://localhost:5001` and logs every request and response to `src/OfficeHost.Sample/request-logs` (`{sequence}-{method}-{path}.txt`). The state of the desktop sessions is in `src/OfficeHost.Sample/fsshttp-state`, the files in `src/OfficeHost.Sample/files`.
+- **Open:** `https://localhost:5001`, then "Open in desktop Office" for a `.docx`, or `https://localhost:5001/desktop/{fileId}?user=bob` to open it as another user.
+- **A second Word:** a second Word on the same Windows account shares the first one's cache and identity, so it is not a second coauthor. Use either:
+  - **another Windows account on the same machine** (fast user switching). It needs the development certificate in its own store: export it from the first account with `dotnet dev-certs https --export-path dev.crt --format PEM --no-password`, then in the second account `certutil -user -addstore Root dev.crt`;
+  - **another machine.** It needs a certificate for the host name of the sample that it trusts (from your organisation's CA, for instance), given to Kestrel with `Kestrel__Certificates__Default__Path` and `Kestrel__Certificates__Default__Password`, `URLS=https://0.0.0.0:5001`, and `OfficeHost__DesktopBaseUrl=https://{host}:5001` so that the links name the host rather than `localhost`.
 - **Before each run:** close Word, and clear `request-logs` to make the logs of the run easy to read.
 
 
@@ -83,8 +67,7 @@ Alice is the first Word, Bob the second (see Setup), on the same file.
 
 ## Excel
 
-Put an `.xlsx` in `files`. Excel does not coauthor: it takes an exclusive lock when the user first types. Edit by typing
-in Excel: an edit through its object model does not take the lock.
+Put an `.xlsx` in `files`. Excel does not coauthor: it takes an exclusive lock when the user first types. Edit by typing in Excel: an edit through its object model does not take the lock.
 
 | # | Do | Expect |
 |---|---|---|
@@ -105,19 +88,16 @@ PowerPoint coauthors as Word does. Put a `.pptx` in `files`.
 | 29 | Open the `.pptx` from the sample, and Enable Editing. | `WhoAmI` and `GetDocMetaInfo`, then `JoinCoauthoring` (with `ExclusiveLockID` and `AllowFallbackToExclusive`) answered `Alone`, the editors table and content queries, then `IsOnlyClient` polls. |
 | 30 | Edit a slide, save, close. | `AutoSaveFile_Save` answered with a Put Changes Response, the file in `files` has the edit, and `ExitCoauthoring` releases the lock. |
 
-Other applications (Visio, Project, OneNote) get no links from `LaunchDesktop`, nor do the legacy binary formats
-(`.doc`, `.xls`, `.ppt` and their templates) and `.rtf`, which are not supported.
+Other applications (Visio, Project, OneNote) get no links from `LaunchDesktop`, nor do the legacy binary formats (`.doc`, `.xls`, `.ppt` and their templates) and `.rtf`, which are not supported.
 
 
 ## Last run
 
 - **Word** 16.0.20326 on Windows 11, one Windows account: steps 1, 2, 3, 5, 9 and 10 passed (2026-10-21).
-- **Excel** 16.0.20326, one Windows account: steps 23 to 26 passed (2026-10-21), and 27 and 28 with the other user's
-  lock taken by a script as user bob; the lock-out also against SharePoint Server with two users (see the notes).
+- **Excel** 16.0.20326, one Windows account: steps 23 to 26 passed (2026-10-21), and 27 and 28 with the other user's lock taken by a script as user bob; the lock-out also against SharePoint Server with two users (see the notes).
 - **PowerPoint** 16.0.20326: steps 29 and 30 passed (2026-10-21), editing through COM.
 - **Word** 16.0.20326, through COM (2026-11-05): steps 3 to 6 and 10a passed, step 6 once the Storage Index was in
   every answer; 10b failed. 10b passed (2026-11-06) once a partial answer named no Storage Index; 10a and 10b again with 30 MB more pictures,
   a file of 43 MB.
 - What they sent is in [fsshttp-notes.md](fsshttp-notes.md).
-- **Not yet run:** the WOPI client steps, Word coauthoring with two users, and Excel against Excel, which need a second
-  Windows account or machine.
+- **Not yet run:** the WOPI client steps, Word coauthoring with two users, and Excel against Excel, which need a second Windows account or machine.

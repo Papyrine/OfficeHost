@@ -373,6 +373,7 @@ sealed class WopiHandler(
         var saved = new FileSavedContext(
             file,
             access,
+            OfficeUser.From(access, OfficeClient.Wopi),
             editors,
             string.Equals(request.Header("X-COOL-WOPI-IsAutosave"), "true", StringComparison.OrdinalIgnoreCase),
             string.Equals(request.Header("X-COOL-WOPI-IsExitSave"), "true", StringComparison.OrdinalIgnoreCase));
@@ -429,6 +430,7 @@ sealed class WopiHandler(
         }
 
         var access = token!.Access;
+        var user = OfficeUser.From(access, OfficeClient.Wopi);
         switch (operation)
         {
             case "GET_LOCK":
@@ -438,7 +440,7 @@ sealed class WopiHandler(
             case "PUT_USER_INFO":
                 return await PutUserInfo(context, access);
             case "RENAME_FILE":
-                return await RenameFile(context, access);
+                return await RenameFile(context, access, user);
             case "GET_SHARE_URL":
                 return await GetShareUrl(context, access);
         }
@@ -452,13 +454,13 @@ sealed class WopiHandler(
         switch (operation)
         {
             case "LOCK":
-                return await Lock(context, fileId);
+                return await Lock(context, fileId, user);
             case "REFRESH_LOCK":
-                return await RefreshLock(context, fileId);
+                return await RefreshLock(context, fileId, user);
             case "UNLOCK":
-                return await Unlock(context, fileId);
+                return await Unlock(context, fileId, user);
             case "DELETE":
-                return await DeleteFile(context, fileId);
+                return await DeleteFile(context, fileId, user);
         }
 
         return WopiResult.NotImplemented($"Unsupported operation {operation}");
@@ -545,7 +547,7 @@ sealed class WopiHandler(
     /// <summary>
     /// [MS-WOPI] 3.3.5.1.13 Lock, and 3.3.5.1.23 UnlockAndRelock when X-WOPI-OldLock is given.
     /// </summary>
-    async Task<IResult> Lock(HttpContext context, string fileId)
+    async Task<IResult> Lock(HttpContext context, string fileId, OfficeUser user)
     {
         var (requested, error) = RequestedLock(context);
         if (error != null)
@@ -570,7 +572,7 @@ sealed class WopiHandler(
                 return WopiResult.Conflict((await locks.Get(fileId, cancel))?.Id, "The file is not locked with X-WOPI-OldLock");
             }
 
-            var previous = await locks.CompareExchange(fileId, oldLock, NewLock(requested!), cancel);
+            var previous = await locks.CompareExchange(fileId, oldLock, NewLock(requested!), user, cancel);
             if (previous?.Id != oldLock)
             {
                 return WopiResult.Conflict(previous?.Id, "The file is not locked with X-WOPI-OldLock");
@@ -580,7 +582,7 @@ sealed class WopiHandler(
             return Locked(file);
         }
 
-        var current = await locks.CompareExchange(fileId, null, NewLock(requested!), cancel);
+        var current = await locks.CompareExchange(fileId, null, NewLock(requested!), user, cancel);
         if (current == null)
         {
             log.LogInformation("Locked {FileId}", fileId);
@@ -590,7 +592,7 @@ sealed class WopiHandler(
         // locking again with the same lock refreshes it
         if (current.Id == requested)
         {
-            current = await locks.CompareExchange(fileId, requested, NewLock(requested), cancel);
+            current = await locks.CompareExchange(fileId, requested, NewLock(requested), user, cancel);
             if (current?.Id == requested)
             {
                 return Locked(file);
@@ -603,7 +605,7 @@ sealed class WopiHandler(
     /// <summary>
     /// [MS-WOPI] 3.3.5.1.17 RefreshLock.
     /// </summary>
-    async Task<IResult> RefreshLock(HttpContext context, string fileId)
+    async Task<IResult> RefreshLock(HttpContext context, string fileId, OfficeUser user)
     {
         var (requested, error) = RequestedLock(context);
         if (error != null)
@@ -617,7 +619,7 @@ sealed class WopiHandler(
             return WopiResult.NotFound();
         }
 
-        var current = await locks.CompareExchange(fileId, requested, NewLock(requested!), cancel);
+        var current = await locks.CompareExchange(fileId, requested, NewLock(requested!), user, cancel);
         if (current?.Id != requested)
         {
             return WopiResult.Conflict(current?.Id, "The file is not locked with X-WOPI-Lock");
@@ -629,7 +631,7 @@ sealed class WopiHandler(
     /// <summary>
     /// [MS-WOPI] 3.3.5.1.22 Unlock.
     /// </summary>
-    async Task<IResult> Unlock(HttpContext context, string fileId)
+    async Task<IResult> Unlock(HttpContext context, string fileId, OfficeUser user)
     {
         var (requested, error) = RequestedLock(context);
         if (error != null)
@@ -644,7 +646,7 @@ sealed class WopiHandler(
             return WopiResult.NotFound();
         }
 
-        var current = await locks.CompareExchange(fileId, requested, null, cancel);
+        var current = await locks.CompareExchange(fileId, requested, null, user, cancel);
         if (current?.Id != requested)
         {
             return WopiResult.Conflict(current?.Id, "The file is not locked with X-WOPI-Lock");
@@ -674,12 +676,12 @@ sealed class WopiHandler(
     /// <summary>
     /// [MS-WOPI] 3.3.5.1.9 DeleteFile.
     /// </summary>
-    async Task<IResult> DeleteFile(HttpContext context, string fileId)
+    async Task<IResult> DeleteFile(HttpContext context, string fileId, OfficeUser user)
     {
         var cancel = context.RequestAborted;
         // the file is locked while it is deleted, so that no client locks it meanwhile
         var guard = OperationLock();
-        var current = await locks.CompareExchange(fileId, null, guard, cancel);
+        var current = await locks.CompareExchange(fileId, null, guard, user, cancel);
         if (current != null)
         {
             return WopiResult.Conflict(current.Id, "A locked file cannot be deleted");
@@ -701,7 +703,7 @@ sealed class WopiHandler(
         }
         finally
         {
-            await locks.CompareExchange(fileId, guard.Id, null, Cancel.None);
+            await locks.CompareExchange(fileId, guard.Id, null, user, Cancel.None);
         }
 
         // the file is gone: a state left behind is only unused, so its failure does not fail the delete
@@ -720,7 +722,7 @@ sealed class WopiHandler(
     /// <summary>
     /// [MS-WOPI] 3.3.5.1.21 RenameFile. The requested name comes without the extension, which the file keeps.
     /// </summary>
-    async Task<IResult> RenameFile(HttpContext context, OfficeAccess access)
+    async Task<IResult> RenameFile(HttpContext context, OfficeAccess access, OfficeUser user)
     {
         var fileId = access.FileId;
         if (!access.CanRename)
@@ -748,11 +750,12 @@ sealed class WopiHandler(
         {
             // an unlocked file is locked while it is renamed, so that no client locks it meanwhile
             guard = OperationLock();
-            current = await locks.CompareExchange(fileId, null, guard, cancel);
+            current = await locks.CompareExchange(fileId, null, guard, user, cancel);
         }
 
         if (current != null &&
-            (current.Id != requestedLock || CoauthSessions.IsSessionLock(current.Id)))
+            (current.Id != requestedLock ||
+             CoauthSessions.IsSessionLock(current.Id)))
         {
             return WopiResult.Conflict(current.Id, "The file is locked with another lock");
         }
@@ -802,7 +805,7 @@ sealed class WopiHandler(
         {
             if (guard != null)
             {
-                await locks.CompareExchange(fileId, guard.Id, null, Cancel.None);
+                await locks.CompareExchange(fileId, guard.Id, null, user, Cancel.None);
             }
         }
     }
@@ -871,8 +874,12 @@ sealed class WopiHandler(
             }
 
             log.LogInformation("Created {FileId} {Name} from {Source}", created.Id, created.Name, fileId);
-            await Saved(context, created, access with { FileId = created.Id });
-            var newToken = await tokens.Issue(access with { FileId = created.Id }, cancel);
+            var officeAccess = access with
+            {
+                FileId = created.Id
+            };
+            await Saved(context, created, officeAccess);
+            var newToken = await tokens.Issue(officeAccess, cancel);
             var properties = new JsonObject
             {
                 ["Name"] = created.Name,

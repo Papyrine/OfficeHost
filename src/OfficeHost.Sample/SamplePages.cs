@@ -37,17 +37,17 @@ static class SamplePages
             var morph = "";
             if (name.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
             {
-                morph = $"""<a href="/edit-in-morph/{id}">Edit using Morph</a>""";
+                morph = $"""<a href="/edit-in-morph/{id}">Edit using Morph</a> (<a href="/edit-in-morph/{id}?user=bob">as Bob</a>)""";
             }
 
             rows.Append(
                 $"""
                  <tr>
                    <td>{WebUtility.HtmlEncode(name)}</td>
-                   <td><a href="/edit/{id}">Edit in Collabora</a></td>
+                   <td><a href="/edit/{id}">Edit in Collabora</a> (<a href="/edit/{id}?user=bob">as Bob</a>)</td>
                    <td><a href="/view/{id}">View in Collabora</a></td>
                    <td>{morph}</td>
-                   <td><a href="/desktop/{id}">Open in desktop Office</a></td>
+                   <td><a href="/desktop/{id}">Open in desktop Office</a> (<a href="/desktop/{id}?user=bob">as Bob</a>)</td>
                  </tr>
                  """);
         }
@@ -58,6 +58,7 @@ static class SamplePages
              <main>
                <h1>Files</h1>
                <p>The files of <code>{WebUtility.HtmlEncode(storage.Root)}</code>. Add files to the folder to see them here.</p>
+               <p>To coauthor a file, open it a second time as Bob: in another tab for Collabora or Morph, from another Windows account or machine for desktop Office.</p>
                <form method="post" action="/new">
                  <select name="type" aria-label="Type">
                    <option value="docx">Word document</option>

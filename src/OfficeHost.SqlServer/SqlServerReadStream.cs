@@ -72,10 +72,13 @@ sealed class SqlServerReadStream(string connectionString, string table, string f
     SqlCommand ChunkCommand(SqlConnection connection)
     {
         // substring is 1-based
-        var command = new SqlCommand($"select Version, substring(Content, @offset + 1, @count) from {table} where Id = @id", connection);
-        command.Parameters.Add("@id", SqlDbType.NVarChar, 450).Value = fileId;
-        command.Parameters.Add("@offset", SqlDbType.BigInt).Value = position;
-        command.Parameters.Add("@count", SqlDbType.BigInt).Value = (long) chunkSize;
+        var command = new SqlCommand(
+            $"select Version, substring(Content, @offset + 1, @count) from {table} where Id = @id",
+            connection);
+        var parameters = command.Parameters;
+        parameters.Add("@id", SqlDbType.NVarChar, 450).Value = fileId;
+        parameters.Add("@offset", SqlDbType.BigInt).Value = position;
+        parameters.Add("@count", SqlDbType.BigInt).Value = (long) chunkSize;
         return command;
     }
 

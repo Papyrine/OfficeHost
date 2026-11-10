@@ -36,7 +36,10 @@ if object_id(N'[office].[OfficeHostLocks]') is null
     create table [office].[OfficeHostLocks] (
         FileId nvarchar(450) collate Latin1_General_100_BIN2 not null constraint [PK_OfficeHostLocks] primary key,
         LockId nvarchar(1024) collate Latin1_General_100_BIN2 not null,
-        Expires datetimeoffset not null);
+        Expires datetimeoffset not null,
+        HolderId nvarchar(450) null,
+        HolderName nvarchar(max) null,
+        HolderClient nvarchar(16) null);
 
 if object_id(N'[office].[OfficeHostFssHttpStates]') is null
     create table [office].[OfficeHostFssHttpStates] (
@@ -72,8 +75,14 @@ declare @OfficeHostUserInfoDrop nvarchar(max) = N'alter table [office].[OfficeHo
 exec(@OfficeHostUserInfoDrop);
 exec(N'alter table [office].[OfficeHostUserInfo] alter column UserId nvarchar(450) collate Latin1_General_100_BIN2 not null');
 exec(N'alter table [office].[OfficeHostUserInfo] add constraint [PK_OfficeHostUserInfo] primary key (UserId)');
+set @version = 2;
+end;
+
+if @version = 2
+begin
+exec(N'alter table [office].[OfficeHostLocks] add HolderId nvarchar(450) null, HolderName nvarchar(max) null, HolderClient nvarchar(16) null');
 end;
 
 delete from [office].[OfficeHostSchemaVersion];
-insert into [office].[OfficeHostSchemaVersion] (Version) values (2);
+insert into [office].[OfficeHostSchemaVersion] (Version) values (3);
 commit;

@@ -12,8 +12,8 @@ class SqlServerShadowDocuments(SqlServerStorage storage) :
 
     public async Task<string> Add(ShadowDocument document, Stream content, Cancel cancel)
     {
-        var file = await storage.Add(FolderOf(document), document.Name, "shadow", content, cancel) ??
-                   throw new InvalidOperationException($"The storage has a file of {document.Url} already");
+        // throws when the folder has a file of that name
+        var file = await storage.Add(FolderOf(document), document.Name, "shadow", content, cancel);
         return file.Id;
     }
 
