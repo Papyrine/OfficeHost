@@ -183,6 +183,40 @@ Word 16.0.20326, on the `desktop` launch profile of the sample (`https://localho
 
 The expected Storage Index of its saves, and the refresh of its lock, are in fsshttp-concurrency.md.
 
+### Word opens from its cache only when the answer has the Storage Index
+
+- **Spec:** [MS-FSSHTTPB] 3.1.4.2 has the server send "a full or partial set of data elements"; nothing says which
+  ones a client that knows them all gets.
+- **Word** (2026-11-05, documents of 13 MB and of 320 KB it had saved): its join's content query had the knowledge of
+  its cache, and OfficeHost answered with nothing, the client knowing every data element. Word then queried the content
+  and the metadata again, with empty knowledge, and downloaded the whole file: every open was a full download (step 6
+  of docs/fsshttp-checklist.md had not passed), and one over Word's maximum failed (see the next section).
+- **SharePoint Server 2016** sends a Storage Index in every Query Changes answer of the recordings (30 of 30, the
+  three partitions, from the open to the polls), with knowledge one Serial Number ahead of the client's.
+- **The service** sends the Storage Index in every complete answer, known to the client or not. Word then opened
+  from its cache, with no second query. The replay did not show the difference: it compares the content of the cells,
+  not the data elements of each answer.
+
+### A download over Word's maximum comes in parts
+
+- **Spec:** [MS-FSSHTTPB] 2.2.2.1.3: the Maximum Data Elements is "the limit of data elements at which the server
+  starts breaking up the results into partial results", and 2.2.3.1.2 has the partial result flag. Neither says what
+  a partial result holds, nor what the client does next.
+- **Word** asks for 3,670,016 bytes at most, and queries again after a partial answer, with the knowledge of that
+  answer, until one is not partial.
+- **SharePoint Server 2016** (2026-11-06, a document of 7.5 MB, Office's cache cleared): three answers, of 3.1, 3.1 and
+  1.2 MB, within a second. The two partial ones have the flag, a null Storage Index Extended GUID, Object Groups only
+  (of 1 MB at most), and as cell knowledge the Serial Numbers of the Object Groups sent so far, one by one (and
+  `0..0`); their file properties have no `Etag`. The last has the other Object Groups, the manifests and the Storage
+  Index, its Extended GUID, the whole knowledge, and the `Etag`. A document of 38 MB, the same way: 12 partial
+  answers of 3.1 to 3.6 MB and a last of 0.6 MB, within 14 seconds.
+- **The service** named its Storage Index in a partial answer, and sent the `Etag`: Word sent no other query, exited
+  coauthoring, and the open failed, or Word fell back to a GET of the file and opened it read-only (with the Storage
+  Index sent too, in an experiment, the same). It now answers as SharePoint: no Storage Index named in a partial
+  answer, no `Etag` (`FssHttpServiceTests.Query_Partial`). Word then opened a document of 13 MB it had not cached in
+  four answers of 3.3, 3.3, 3.3 and 3.2 MB, for editing, with its pictures, and one of 43 MB in 14 answers within 5
+  seconds.
+
 ### Protected View, then a second open
 
 - **Word:** on a host in the Internet zone, the open (join, queries) ends with `ExitCoauthoring` (`Scenario: ReleaseLock_LockRelease`) and the document in Protected View. Enable Editing sends the open again, with the join, and the editing goes on from there, polling `IsOnlyClient`.
@@ -270,7 +304,7 @@ Excel 16.0.20326 (`UserAgentClient="msexcl"`), opening a workbook with the edit 
 What Office sets, from the 113 Cell sub-requests the sample logged (Word, Excel and PowerPoint, opens and saves; 71 Query Changes, 4 Put Changes) and Word's saves before them:
 
 - **Query Changes:** the flags above, the arguments `3` (include the Storage Manifest and the cell changes) with a null Cell ID, at most 3,670,016 bytes of data elements (the service answers partial results beyond it), the client's knowledge, no versioning and no filters.
-- **Put Changes:** flags `0x49`: A, imply null expected if no mapping; D, favor coherency failure over not found; G, return complete knowledge (Excel once sent `0x09`). Then three zero bytes: an empty content version coherency check, no author logins, the reserved byte. Additional flags `0x8004`: C, check for id reuse, and bit 15, which the spec reserves. No lock id, the client's knowledge, no diagnostic.
+- **Put Changes:** flags `0x49`: A, imply null expected if no mapping; D, favor coherency failure over not found; G, return complete knowledge (Excel once sent `0x09`). Then three zero bytes: an empty content version coherency check, no author logins, the reserved byte. Additional flags `0x8004`: C, check for id reuse, and bit 15, which the spec reserves. No lock id, the client's knowledge, no diagnostic. A save Word splits (see "SharePoint Server 2016") has `0x4B` for its parts (B, partial, besides) and `0x0D` for the last (A, C partial last, D), with G on some only.
 
 SharePoint Server SE and OfficeHost answer each case of `PutChangesTests` (a save as Office's, with one thing changed) alike. The cases of the expected Storage Index, and how coherency is checked, are in fsshttp-concurrency.md ("Coherency is key by key").
 
@@ -327,6 +361,52 @@ Word 16.0.20326 against the lab and the sample, driven through COM (`SaveAs2`), 
 
 - **SharePoint:** an MTOM request whose body starts with the boundary, without the CRLF Word puts before it, fails with the same 302 to its error page, before the cell storage service runs. Word's request with its sub-requests replaced works; the headers (`User-Agent`, `X-Office-*`, `Scenario`) and the `Request` attributes make no difference.
 - **OfficeHost** reads both.
+
+
+## SharePoint Server 2016
+
+Word against a SharePoint Server 2016 farm (16.0.5522), recorded from inside it by the module of the shadow
+(docs/shadow.md) and replayed to OfficeHost (docs/replay.md): a new document opened from a library, edited, saved,
+left open 24 minutes, closed. 10 exchanges, 47 sub-responses: OfficeHost had the same file as SharePoint after each of
+the 7 Cells of the content, the save too, and answered 30 sub-responses as SharePoint did. The other 17 are where 2016
+answers otherwise than SE, which OfficeHost follows, now known differences (`ShadowRule.Defaults`):
+
+- **`cellstorage.svc` is WCF,** not SE's `cobalt.ashx`: WCF reads the request body unbuffered, and its response is
+  flushed write by write (what the module of the shadow had to be made for, docs/shadow.md).
+- **`HaveOnlyDemotionChanges="False"`** is on every Cell of the content: the queries, with changes or none, the 27-byte
+  Query Access of the open, and the put. Never on the other partitions. SE sends it with a query that sends changes.
+- **The editors table** has no `JoinCoauthTime`, and the `EmailAddress` of the editor. Once Word updates its metadata
+  (`UpdateEditorMetadata`), the editor has no `HasEditorPermission`. Its `Timeout` has the ticks of the join.
+- **MarkTransitionComplete** of a client that has left the session (after its ExitCoauthoring) is
+  `InvalidCoauthSession`, where SE answers `Success`. Word opened the document again just after, with a join.
+- **No editors table** in the answer to the query of the editors partition when no one is editing, where OfficeHost
+  sends an empty one.
+- **A save of more than about 3 MB of changes is split** into partial Put Changes ([MS-FSSHTTPB] 2.2.2.1.4, Partial
+  and Partial Last), seen with pictures added to a document: 3.1 MB, 3.1 MB, then 1.2 MB, within 5 seconds. Each part
+  has Object Groups only, and a Storage Index of its own that maps nothing, with no expected one (flags `0x4B`). The
+  last (`0x0D`) has the other Object Groups, the manifests, and the Storage Index of the save with the expected one.
+  SharePoint answers each part as a Put Changes that applied nothing: Data Elements Added empty, knowledge without
+  cell knowledge, and the file properties without `Etag`; the last as a save. The spec says nothing of how a server
+  ties the parts together. OfficeHost failed each part (`InvalidObject`: it wrote the file of each put), and now keeps
+  their data elements by file, user and partition (`PartialPuts`), each part for an hour (those of a save that never
+  ended leave the store with the file's next Put Changes), answers them as SharePoint does, and applies them with the
+  last (`FssHttpServiceTests.Save_InParts`). Nothing in a part names its save, so a last part takes from those waiting
+  the parts its save holds data elements of, and leaves the others to the last part of their own save: two saves of
+  one user at once, as of Word on two machines, do not lose each other's parts. Each part is an entry of its own in
+  the `IFssHttpStore`, next to a list of them: a part costs the store its own size, where one entry for all cost a
+  save of 43 MB in 14 parts some 300 MB of writes, and a Put Changes with no part to forget reads the list alone. The
+  store cannot forget an entry of a file, so the entry of a part that is gone is emptied, and taken again by a later
+  part: a file keeps as many of them, empty, as it had parts waiting at once. The parts waiting for a file are bounded
+  together by `MaxFileSize`, as a save in one request is: the part beyond it is answered 413
+  (`Save_InParts_OverMaxFileSize`). Forgetting the parts comes after the save is applied, and its failure does not
+  fail the save. Against the sample (2026-11-05), Word saved three
+  pictures of 4.3 MB in four parts of 3.1, 3.1, 3.1 and 3.6 MB, flags `0x4B`, `0x0B`, `0x0B` and last `0x4D` (G,
+  return complete knowledge, only on some): each answered `Success`, the `Etag` only after the last, and the file had
+  the pictures byte for byte. Larger (2026-11-06): SharePoint 2016 took a save of 31 MB of pictures in 10 parts within
+  19 seconds; against the sample, Word saved 30 MB in 10 parts within 5 seconds, from 13 to 43 MB.
+- **Word's coauthoring** went otherwise than against SE: in a first recording, seven pairs of
+  `GetChangesFile_MarkCoauthTransitionCompleteAndDownload` and `PollingSubscriptionNotConnected_TransitionToCoauthInHostMode`
+  within 1.5 seconds of the open; in the second, one pair, then ExitCoauthoring and ReleaseLock, and the open again.
 
 
 ## PowerPoint

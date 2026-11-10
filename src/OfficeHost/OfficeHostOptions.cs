@@ -72,7 +72,8 @@ public class OfficeHostOptions
     /// <summary>
     /// The largest file PutFile and PutRelativeFile accept, in bytes, or null for no limit; 512 MB by default. Office
     /// documents can be large, so this replaces the request body limit of the server for those requests, and for the
-    /// requests of desktop Office, which carry the changes of a file.
+    /// requests of desktop Office, which carry the changes of a file. The parts of a save that Word splits are bounded
+    /// by it together.
     /// </summary>
     public long? MaxFileSize { get; set; } = 512L * 1024 * 1024;
 

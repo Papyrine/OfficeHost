@@ -23,11 +23,18 @@ The tests simulate Word (`src/OfficeHost.Tests/FssHttp`), but only real Word sho
 | 3 | Type, then save (Ctrl+S). | One Cell `PutChanges` with `BypassLockID`, answered with a Put Changes Response (no coherency failure). The file in `files` has the edit: open it in another application to check. |
 | 4 | Edit and save again. | The second save also succeeds, and uploads only the changed chunks (a much smaller request than the file). |
 | 5 | Close Word. | Coauth `ExitCoauthoring` and SchemaLock `ReleaseLock`; nothing in the `IOfficeLockStore` (a WOPI client can now lock the file). |
-| 6 | Open the file again. | The content Cell query answers with what Word lacks; Word opens without a full download when its cache has the file. |
+| 6 | Open the file again. | The content Cell query answers with what Word lacks, and the Storage Index; Word opens from its cache, with no second content query of empty knowledge. |
 | 7 | Change the file outside Word (replace it in `files`) while it is closed, and open it. | Word shows the new content. |
 | 8 | Change the file outside Word while Word has it open, then save in Word. | The save fails coherency, Word queries, gets the change, and saves again (or tells the user of a conflict). The file is never left with only one of the two edits without Word saying so. |
 | 9 | Stop the sample with Word open for a minute, start it again, then save. | Word goes on polling without joining again, and saves: the state is in `fsshttp-state`, and the first poll writes the lock again. |
 | 10 | Leave Word open and idle for an hour, then save. | `IsOnlyClient` every 30 seconds, `RefreshCoauthoring` 40 minutes after the join (the join's `Timeout` is 2580 seconds), and the save succeeds. |
+
+A large document: pictures Word does not compress, such as random noise, a few MB each.
+
+| # | Do | Expect |
+|---|---|---|
+| 10a | Add more than 3 MB of pictures, and save. | Word splits the save into partial Put Changes of about 3 MB (fsshttp-notes.md, "SharePoint Server 2016"), each answered `Success`; the file in `files` has the pictures. |
+| 10b | Open it as another user (`?user=bob`), whose URL Word has not cached. | Word downloads it in partial Query Changes answers of about 3 MB, the last with the Storage Index (fsshttp-notes.md, "A download over Word's maximum comes in parts"), and opens it for editing, with its pictures. |
 
 
 ## WOPI and desktop Office
@@ -89,5 +96,8 @@ Other applications (Visio, Project, OneNote) get no links from `LaunchDesktop`, 
 - **Word** 16.0.20326 on Windows 11, one Windows account: steps 1, 2, 3, 5, 9 and 10 passed (2026-10-21).
 - **Excel** 16.0.20326, one Windows account: steps 23 to 26 passed (2026-10-21), and 27 and 28 with the other user's lock taken by a script as user bob; the lock-out also against SharePoint Server with two users (see the notes).
 - **PowerPoint** 16.0.20326: steps 29 and 30 passed (2026-10-21), editing through COM.
+- **Word** 16.0.20326, through COM (2026-11-05): steps 3 to 6 and 10a passed, step 6 once the Storage Index was in
+  every answer; 10b failed. 10b passed (2026-11-06) once a partial answer named no Storage Index; 10a and 10b again with 30 MB more pictures,
+  a file of 43 MB.
 - What they sent is in [fsshttp-notes.md](fsshttp-notes.md).
 - **Not yet run:** the WOPI client steps, Word coauthoring with two users, and Excel against Excel, which need a second Windows account or machine.

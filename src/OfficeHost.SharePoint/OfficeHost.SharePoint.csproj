@@ -18,6 +18,7 @@
     <!-- source only, compiled into the DLL: System.Threading.Lock on .NET Framework -->
     <PackageReference Include="Polyfill" PrivateAssets="all" />
     <None Include="Install-OfficeHostShadow.ps1" Pack="true" PackagePath="tools" />
+    <None Include="Test-ShadowWire.ps1" Pack="true" PackagePath="tools" />
   </ItemGroup>
   <Target Name="PackTools" BeforeTargets="GenerateNuspec" DependsOnTargets="Build">
     <ItemGroup>

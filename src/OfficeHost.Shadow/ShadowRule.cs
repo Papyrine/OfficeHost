@@ -15,13 +15,34 @@ namespace OfficeHost;
 public record ShadowRule(string? Label, string? Facet, string Reason, string? SharePoint = null, string? OfficeHost = null)
 {
     /// <summary>
-    /// The differences the lab found expected (docs/fsshttp-notes.md, "Word's session replayed").
+    /// The differences found expected: in the lab, against SharePoint Server SE (docs/fsshttp-notes.md, "Word's session
+    /// replayed"), and where SharePoint Server 2016 answers otherwise than SE, which OfficeHost follows
+    /// (docs/fsshttp-notes.md, "SharePoint Server 2016").
     /// </summary>
     public static IReadOnlyList<ShadowRule> Defaults { get; } =
     [
         new("^GetVersions$", "^ErrorCode$", "OfficeHost does not support GetVersions", "^Success$", "^RequestNotSupported$"),
         new("^GetDocMetaInfo$", "^(DocProps|FolderProps)$", "OfficeHost sends a subset of SharePoint's vti_ properties"),
-        new("^Cell QueryChanges", "^@HaveOnlyDemotionChanges$", "SharePoint sends a revision of its own after a save", "^False$", @"^\(none\)$")
+        new(
+            "^Cell (QueryChanges|QueryAccess|PutChanges)",
+            "^@HaveOnlyDemotionChanges$",
+            "SharePoint sends it where OfficeHost does not: SE with a revision of its own after a save, 2016 with every Cell of the content",
+            "^False$",
+            @"^\(none\)$"),
+        new(
+            "^Coauth MarkTransitionComplete$",
+            "^ErrorCode$",
+            "SharePoint 2016 answers InvalidCoauthSession for a client out of the session, SE and OfficeHost Success",
+            "^InvalidCoauthSession$",
+            "^Success$"),
+        new("^Cell ", "^editors JoinCoauthTime$", "SharePoint 2016 adds no JoinCoauthTime to the editors table, SE and OfficeHost do", "^$"),
+        new(
+            "^Cell ",
+            "^editors HasEditorPermission$",
+            "SharePoint 2016 drops HasEditorPermission from the editors table when a client updates its metadata: of that client, the others keep theirs",
+            @"^\{[0-9A-F-]+\}=(true)?(; \{[0-9A-F-]+\}=(true)?)*$",
+            @"^\{[0-9A-F-]+\}=true(; \{[0-9A-F-]+\}=true)*$"),
+        new("^Cell ", "^editors$", "SharePoint 2016 sends no editors table when no one is editing, OfficeHost an empty one", @"^\(none\)$", "^$")
     ];
 
     public bool Matches(string label, string facet, string? sharePoint, string? officeHost) =>

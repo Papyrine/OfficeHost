@@ -145,6 +145,23 @@ public sealed class SqlServerStorage(string connectionString, string schema = "d
         return await ReadFile(command, cancel);
     }
 
+    /// <summary>
+    /// The file of a folder by its name, as the collation of the database compares names, or null: for an application
+    /// that keeps files at paths of its own, as a shadow of SharePoint does (docs/shadow.md).
+    /// </summary>
+    /// <exception cref="ArgumentException">The folder or the name is longer than the table holds.</exception>
+    public Task<OfficeFile?> GetFile(string folder, string name, Cancel cancel = default) =>
+        DeadlockRetry.Once(() => GetFileAttempt(folder, name, cancel));
+
+    async Task<OfficeFile?> GetFileAttempt(string folder, string name, Cancel cancel)
+    {
+        await using var connection = await Open(cancel);
+        await using var command = Command($"select {columns} from {table} where Folder = @folder and Name = @name", connection);
+        AddText(command, "@folder", folder, maxFolderLength);
+        AddText(command, "@name", name, maxNameLength);
+        return await ReadFile(command, cancel);
+    }
+
     public Task<OfficeFile?> GetSibling(string fileId, string name, Cancel cancel = default) =>
         DeadlockRetry.Once(() => GetSiblingAttempt(fileId, name, cancel));
 

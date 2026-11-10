@@ -8,9 +8,9 @@ public class FssHttpServiceTests
         ("word/document.xml", Zips.Text(text)),
         ("large.bin", Zips.Random(10_000, 1)));
 
-    static async Task<(TestServerHost Host, string FileId, string Token)> Start(byte[]? content = null, Mode mode = Mode.Edit, TimeProvider? time = null, Action<OfficeHostOptions>? configure = null)
+    static async Task<(TestServerHost Host, string FileId, string Token)> Start(byte[]? content = null, Mode mode = Mode.Edit, TimeProvider? time = null, Action<OfficeHostOptions>? configure = null, Action<IServiceCollection>? services = null)
     {
-        var host = await TestServerHost.Start(configure, time);
+        var host = await TestServerHost.Start(configure, time, services: services);
         await File.WriteAllBytesAsync(host.PathOf("doc.docx"), content ?? Zip("hello"));
         var (fileId, token) = await host.Open("doc.docx", mode);
         return (host, fileId, token);
@@ -125,6 +125,9 @@ public class FssHttpServiceTests
         var again = (await word.Send(WordClient.Cell("1", WordClient.Query(query.Knowledge), new XAttribute("GetFileProps", "true")))).Single();
         await Assert.That(again.Attribute("Etag")).IsNotNull();
         await Assert.That(again.Attribute("HaveOnlyDemotionChanges")).IsNull();
+        // and the Storage Index alone, as SharePoint Server 2016 answers: without it, Word does not open from its cache
+        var unchanged = (StorageIndex) again.FssHttpB.DataElements!.Elements.Single();
+        await Assert.That(unchanged.Id).IsEqualTo(query.StorageIndex);
         await Assert.That(byToken["6"].Attribute("Etag")).StartsWith("\"{");
         await Assert.That(byToken["6"].Attribute("ModifiedBy")).IsEqualTo("Alice");
         await Assert.That(byToken["6"].Attribute("HaveOnlyDemotionChanges")).IsEqualTo("False");
@@ -199,6 +202,151 @@ public class FssHttpServiceTests
         await Assert.That(third).IsTypeOf<PutChangesResponse>();
         var stale = await other.Save(Zip("stale"));
         await Assert.That(((FailedSubResponse) stale).Error).IsEqualTo(ResponseError.Cell(CellErrorCode.CoherencyFailure));
+        await Assert.That((await FileOf(host)).SameAs(Zip("third"))).IsTrue();
+    }
+
+    /// <summary>
+    /// A save Word splits, as one of more than about 3 MB of changes (docs/fsshttp-notes.md, "SharePoint Server 2016"):
+    /// each partial Put Changes is answered as SharePoint answers it, as one that applied nothing, and leaves the file as
+    /// it was; the last applies them all, and another client gets the new file. A last part whose parts never came
+    /// fails, and changes nothing.
+    /// </summary>
+    [Test]
+    public async Task Save_InParts()
+    {
+        var (host, fileId, token) = await Start();
+        await using var _ = host;
+        var word = new WordClient(host, token);
+        await word.Send(word.Join());
+        await word.Sync();
+        var before = await FileOf(host);
+        var large = Zips.Create(
+            ("word/document.xml", Zips.Text("in parts")),
+            ("word/media/image1.png", Zips.Random(300_000, 2)),
+            ("word/media/image2.png", Zips.Random(300_000, 3)),
+            ("word/media/image3.png", Zips.Random(300_000, 4)));
+
+        var parts = 0;
+        var saved = await word.Save(
+            large,
+            parts: 3,
+            part: async response =>
+            {
+                parts++;
+                await Assert.That(((PutChangesResponse) response).DataElementsAdded).IsEmpty();
+                await Assert.That((await FileOf(host)).SameAs(before)).IsTrue();
+                // the file properties, but no Etag: the file has no new version yet
+                await Assert.That(word.LastData!.Attribute("Etag")).IsNull();
+                await Assert.That(word.LastData!.Attribute("LastModifiedTime")).IsNotNull();
+            });
+        await Assert.That(parts).IsEqualTo(2);
+        await Assert.That(saved).IsTypeOf<PutChangesResponse>();
+        await Assert.That((await FileOf(host)).SameAs(large)).IsTrue();
+        await Assert.That(await host.Service<PartialPuts>().Get(fileId, "alice", FssHttpCells.ContentPartition)).IsEmpty();
+
+        var other = new WordClient(host, token);
+        await other.Sync();
+        await Assert.That(other.File.SameAs(large)).IsTrue();
+
+        var lost = await word.Save(
+            Zips.Create(("word/document.xml", Zips.Text("lost")), ("word/media/image1.png", Zips.Random(300_000, 5))),
+            parts: 3,
+            sendParts: false);
+        await Assert.That(((FailedSubResponse) lost).Error).IsEqualTo(ResponseError.Cell(CellErrorCode.ReferencedDataElementNotFound));
+        await Assert.That((await FileOf(host)).SameAs(large)).IsTrue();
+    }
+
+    /// <summary>
+    /// The parts of a save are bounded together as a save in one request is, by
+    /// <see cref="OfficeHostOptions.MaxFileSize"/>: the part that takes them beyond it is answered as a request over
+    /// it, 413, nothing of it waits, and the file stays as it was.
+    /// </summary>
+    [Test]
+    public async Task Save_InParts_OverMaxFileSize()
+    {
+        // between the first part, under 1 KB of Object Groups, and the second, 300 KB
+        const long limit = 200_000;
+        var (host, fileId, token) = await Start(configure: options => options.MaxFileSize = limit);
+        await using var _ = host;
+        var word = new WordClient(host, token);
+        await word.Send(word.Join());
+        await word.Sync();
+        var before = await FileOf(host);
+        var large = Zips.Create(
+            ("word/document.xml", Zips.Text("in parts")),
+            ("word/media/image1.png", Zips.Random(300_000, 2)),
+            ("word/media/image2.png", Zips.Random(300_000, 3)),
+            ("word/media/image3.png", Zips.Random(300_000, 4)));
+
+        var parts = 0;
+        var refused = await Assert.ThrowsAsync<Exception>(
+            async () => await word.Save(
+                large,
+                parts: 3,
+                part: response =>
+                {
+                    parts++;
+                    return Task.CompletedTask;
+                }));
+        await Assert.That(refused!.Message).Contains("413");
+        // the first part was within the limit, and waits
+        await Assert.That(parts).IsEqualTo(1);
+        await Assert.That(await host.Service<PartialPuts>().Get(fileId, "alice", FssHttpCells.ContentPartition)).IsNotEmpty();
+        // and nothing of the second: no slot for it
+        await Assert.That((await host.Service<IFssHttpStore>().Get(fileId, PartialPuts.PartitionOf(0)))!.Data.Length).IsLessThan((int) limit);
+        await Assert.That(await host.Service<IFssHttpStore>().Get(fileId, PartialPuts.PartitionOf(1))).IsNull();
+        await Assert.That((await FileOf(host)).SameAs(before)).IsTrue();
+    }
+
+    /// <summary>
+    /// A store that fails to read the parts waiting for a file, while it does.
+    /// </summary>
+    sealed class PartsFailingStore :
+        IFssHttpStore
+    {
+        MemoryFssHttpStore inner = new();
+
+        public bool Failing { get; set; }
+
+        public Task<FssHttpState?> Get(string fileId, Guid partition, Cancel cancel = default)
+        {
+            if (Failing &&
+                partition == PartialPuts.Partition)
+            {
+                throw new IOException("The store is away");
+            }
+
+            return inner.Get(fileId, partition, cancel);
+        }
+
+        public Task<bool> CompareExchange(string fileId, Guid partition, string? comparand, FssHttpState value, Cancel cancel = default) =>
+            inner.CompareExchange(fileId, partition, comparand, value, cancel);
+
+        public Task Delete(string fileId, Cancel cancel = default) =>
+            inner.Delete(fileId, cancel);
+    }
+
+    /// <summary>
+    /// A save is applied before the parts waiting for the file are cleaned: failing to clean them does not fail the
+    /// save, which Word would then put again, against the file it just wrote.
+    /// </summary>
+    [Test]
+    public async Task Save_CleaningThePartsFails()
+    {
+        var store = new PartsFailingStore();
+        var (host, _, token) = await Start(services: _ => _.AddSingleton<IFssHttpStore>(store));
+        await using var disposing = host;
+        var word = new WordClient(host, token);
+        await word.Send(word.Join());
+        await word.Sync();
+
+        store.Failing = true;
+        var saved = await word.Save(Zip("second"));
+        await Assert.That(saved).IsTypeOf<PutChangesResponse>();
+        await Assert.That((await FileOf(host)).SameAs(Zip("second"))).IsTrue();
+
+        store.Failing = false;
+        await Assert.That(await word.Save(Zip("third"))).IsTypeOf<PutChangesResponse>();
         await Assert.That((await FileOf(host)).SameAs(Zip("third"))).IsTrue();
     }
 
@@ -407,7 +555,9 @@ public class FssHttpServiceTests
     }
 
     /// <summary>
-    /// A query with a small maximum gets part of the data elements, and the rest with the knowledge it got.
+    /// A query with a small maximum gets part of the data elements, and the rest with the knowledge it got. A partial
+    /// answer is as SharePoint Server 2016's (docs/fsshttp-notes.md, "A download over Word's maximum"): no Storage
+    /// Index named nor sent, and the properties of the file without Etag; the last has them.
     /// </summary>
     [Test]
     public async Task Query_Partial()
@@ -418,19 +568,30 @@ public class FssHttpServiceTests
         var knowledge = Knowledge.Empty;
         var elements = new List<DataElement>();
         ExtendedGuid index = default;
+        var parts = 0;
         for (var round = 0; round < 20; round++)
         {
-            var response = (await word.Send(WordClient.Cell("1", WordClient.Query(knowledge, 20_000)))).Single().FssHttpB;
+            var answer = (await word.Send(WordClient.Cell("1", WordClient.Query(knowledge, 20_000), new XAttribute("GetFileProps", "true")))).Single();
+            var response = answer.FssHttpB;
             var query = (QueryChangesResponse) response.SubResponses.Single();
             elements.AddRange(response.DataElements!.Elements);
             knowledge = query.Knowledge;
             index = query.StorageIndex;
+            await Assert.That(answer.Attribute("LastModifiedTime")).IsNotNull();
             if (!query.Partial)
             {
+                await Assert.That(answer.Attribute("Etag")).IsNotNull();
                 break;
             }
+
+            parts++;
+            await Assert.That(index.IsNull).IsTrue();
+            await Assert.That(response.DataElements.Elements.OfType<StorageIndex>()).IsEmpty();
+            await Assert.That(answer.Attribute("Etag")).IsNull();
         }
 
+        await Assert.That(parts).IsGreaterThan(1);
+        await Assert.That(index.IsNull).IsFalse();
         await Assert.That(elements.Count).IsGreaterThan(4);
         var storage = CellStorage.Create(elements, index);
         await Assert.That(FileCell.Read(storage).Root.ToArray().SameAs(await FileOf(host))).IsTrue();
