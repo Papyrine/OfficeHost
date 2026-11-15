@@ -22,11 +22,18 @@ class ReplayCells
         IReadOnlyList<DataElement> RecordedPackage,
         ExtendedGuid? RecordedStorageIndex,
         IReadOnlyList<DataElement> ReplayPackage,
-        ExtendedGuid? ReplayStorageIndex);
+        ExtendedGuid? ReplayStorageIndex,
+        bool Partial = false);
 
     public const string Translated = "translated";
 
     public const string FromCache = "Office's cache";
+
+    /// <summary>
+    /// A part of a save Office split (a partial Put Changes): sent as it is, its data elements waiting on both servers
+    /// for the last part, which is translated as a whole save.
+    /// </summary>
+    public const string Partial = "partial";
 
     sealed class Copies
     {
@@ -74,10 +81,27 @@ class ReplayCells
         var replayPackage = package;
         ExtendedGuid? recordedIndex = null;
         ExtendedGuid? replayIndex = null;
+        var partial = false;
         foreach (var subRequest in request.SubRequests)
         {
             switch (subRequest)
             {
+                // its Object Groups alone, which only the last part's Storage Index reaches: nothing to translate
+                case PutChangesRequest { Partial: true } put:
+                    var knowledgeOfPart = put.ClientKnowledge;
+                    if (knowledgeOfPart is { Items.Count: > 0 })
+                    {
+                        knowledgeOfPart = Map(copies, knowledgeOfPart).Knowledge;
+                    }
+
+                    subRequests.Add(put with
+                    {
+                        ClientKnowledge = knowledgeOfPart
+                    });
+                    status = Worst(status, Partial);
+                    partial = true;
+                    changed = true;
+                    break;
                 case QueryChangesRequest { Knowledge.Items.Count: > 0 } query:
                     var (knowledge, known) = Map(copies, query.Knowledge!);
                     status = Worst(status, known);
@@ -133,7 +157,7 @@ class ReplayCells
             }
         }
 
-        translation = new(document, partition, status, package, recordedIndex, replayPackage, replayIndex);
+        translation = new(document, partition, status, package, recordedIndex, replayPackage, replayIndex, partial);
         if (!changed)
         {
             return null;
@@ -236,6 +260,19 @@ class ReplayCells
     public void Answered(Translation translation, FssHttpBResponse? recorded, FssHttpBResponse? replay)
     {
         var copies = Get(translation.Document, translation.Partition);
+        // a part of a save changes neither server's file: its data elements join the recorded server's copy, under the
+        // Storage Index it has, for the last part to be made again from; OfficeHost keeps its own until then
+        if (translation.Partial)
+        {
+            if (copies.Recorded != null &&
+                recorded?.SubResponses.OfType<PutChangesResponse>().Any() == true)
+            {
+                copies.Recorded = copies.Recorded.With(translation.RecordedPackage.Where(_ => _ is not StorageIndex), copies.Recorded.StorageIndexId);
+            }
+
+            return;
+        }
+
         var recordedKnowledge = Apply(ref copies.Recorded, recorded, translation.RecordedPackage, translation.RecordedStorageIndex);
         var replayKnowledge = Apply(ref copies.Replay, replay, translation.ReplayPackage, translation.ReplayStorageIndex);
         if (replayKnowledge == null)

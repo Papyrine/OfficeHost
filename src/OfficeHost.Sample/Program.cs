@@ -59,7 +59,8 @@ if (shadow)
 {
     // the documents of SharePoint as files of the folder, under their host and path
     services.AddSingleton<IShadowDocuments>(new FileSystemShadowDocuments(storage));
-    // the documents Office opened from its cache, from SharePoint, as the application's account
+    // the documents Office opened from its cache, or downloaded in parts, from SharePoint, as the
+    // application's account
     services.AddHttpClient<IShadowContent, SharePointShadowContent>()
         .ConfigurePrimaryHttpMessageHandler(
             () => new HttpClientHandler

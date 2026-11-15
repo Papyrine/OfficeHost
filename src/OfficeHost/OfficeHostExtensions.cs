@@ -28,6 +28,7 @@ public static class OfficeHostExtensions
         services.TryAddTransient<FssHttpCells>();
         services.TryAddTransient<CoauthSessions>();
         services.TryAddTransient<SaveAsFiles>();
+        services.TryAddTransient<PartialPuts>();
         services.TryAddTransient<FssHttpTargets>();
         services.TryAddTransient<CellStorageService>();
         services.TryAddTransient<FssHttpHandler>();

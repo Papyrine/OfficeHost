@@ -37,37 +37,34 @@ public class SqlServerTests(SqlDatabase database) :
     public Task Script() =>
         Verify(OfficeHostSqlServerInstaller.GetScript("office"));
 
-    sealed class MemoryMap : IShadowDocumentMap
-    {
-        Dictionary<string, string> ids = [];
-
-        public Task<string?> Get(string key, Cancel cancel) =>
-            Task.FromResult(ids.GetValueOrDefault(key));
-
-        public Task Set(string key, string fileId, Cancel cancel)
-        {
-            ids[key] = fileId;
-            return Task.CompletedTask;
-        }
-    }
-
     /// <summary>
-    /// The documents of a shadow of SharePoint in SQL Server, as docs/shadow.md shows them: added under their host and
-    /// folder, then found by their key.
+    /// The documents of a shadow of SharePoint in SQL Server (docs/shadow.md): added in the folder of
+    /// their host and path, found there by their name, and a document a Save As makes next to one found as OfficeHost
+    /// makes it.
     /// </summary>
     [Test]
     public async Task ShadowDocuments()
     {
         var storage = new SqlServerStorage(connectionString);
-        var documents = new SqlServerShadowDocuments(storage, new MemoryMap());
+        var documents = new SqlServerShadowDocuments(storage);
         var document = ShadowDocument.From($"https://sharepoint/{folder}/Shared%20Documents/Budget.xlsx")!;
         await Assert.That(await documents.Find(document, default)).IsNull();
 
         var fileId = await documents.Add(document, new MemoryStream([1, 2, 3]), default);
         await Assert.That(await documents.Find(document, default)).IsEqualTo(fileId);
+        // as SharePoint compares names
+        var upper = ShadowDocument.From($"https://sharepoint/{folder}/Shared%20Documents/BUDGET.xlsx")!;
+        await Assert.That(await documents.Find(upper, default)).IsEqualTo(fileId);
         var file = (await storage.GetFile(fileId))!;
         await Assert.That(file.Name).IsEqualTo("Budget.xlsx");
         await Assert.That(file.Size).IsEqualTo(3);
+        await Assert.That(async () => await documents.Add(document, new MemoryStream([4]), default)).Throws<IOException>();
+
+        var copy = (await storage.CreateSibling(fileId, "Copy.xlsx", new MemoryStream([5]), false))!;
+        var copied = ShadowDocument.From($"https://sharepoint/{folder}/Shared%20Documents/Copy.xlsx")!;
+        await Assert.That(await documents.Find(copied, default)).IsEqualTo(copy.Id);
+        var elsewhere = ShadowDocument.From($"https://sharepoint/{folder}/Other/Budget.xlsx")!;
+        await Assert.That(await documents.Find(elsewhere, default)).IsNull();
     }
 
     [Test]
@@ -209,6 +206,13 @@ public class SqlServerTests(SqlDatabase database) :
         await Assert.That(state.Version).IsEqualTo("2");
         await Assert.That(state.Data.ToArray()).IsEquivalentTo(new byte[] {2, 3});
         await Assert.That(await store.Get(folder, Guid.NewGuid())).IsNull();
+
+        // a state with nothing in it, as the slot of a part of a save that is gone (PartialPuts): still a state
+        await Assert.That(await store.CompareExchange(folder, partition, "2", new("3", Array.Empty<byte>()))).IsTrue();
+        state = (await store.Get(folder, partition))!;
+        await Assert.That(state.Version).IsEqualTo("3");
+        await Assert.That(state.Data.Length).IsEqualTo(0);
+        await Assert.That(await store.GetVersion(folder, partition)).IsEqualTo("3");
 
         await store.Delete(folder);
         await Assert.That(await store.Get(folder, partition)).IsNull();

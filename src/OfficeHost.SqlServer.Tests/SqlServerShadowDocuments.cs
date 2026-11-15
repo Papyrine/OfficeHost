@@ -1,27 +1,23 @@
 /// <summary>
-/// The map of the keys of SharePoint's documents to the ids of their files, as an application keeps it in its own
-/// database.
+/// The documents of SharePoint in a <see cref="SqlServerStorage"/>: each in the folder of its host and path
+/// (<c>sharepoint/sites/team/Shared Documents</c>), by its name. A document a Save As makes, which OfficeHost makes next
+/// to the file it was saved from, is found there too.
 /// </summary>
-interface IShadowDocumentMap
-{
-    Task<string?> Get(string key, Cancel cancel);
-
-    Task Set(string key, string fileId, Cancel cancel);
-}
-
 // begin-snippet: SqlServerShadowDocuments
-class SqlServerShadowDocuments(SqlServerStorage storage, IShadowDocumentMap map) :
+class SqlServerShadowDocuments(SqlServerStorage storage) :
     IShadowDocuments
 {
-    public Task<string?> Find(ShadowDocument document, Cancel cancel) =>
-        map.Get(document.Key, cancel);
+    public async Task<string?> Find(ShadowDocument document, Cancel cancel) =>
+        (await storage.GetFile(FolderOf(document), document.Name, cancel))?.Id;
 
     public async Task<string> Add(ShadowDocument document, Stream content, Cancel cancel)
     {
-        var folder = $"{document.Url.Host}/{document.Folder}";
-        var file = await storage.Add(folder, document.Name, "shadow", content, cancel);
-        await map.Set(document.Key, file.Id, cancel);
+        // throws when the folder has a file of that name
+        var file = await storage.Add(FolderOf(document), document.Name, "shadow", content, cancel);
         return file.Id;
     }
+
+    static string FolderOf(ShadowDocument document) =>
+        $"{document.Url.Host}/{document.Folder}";
 }
 // end-snippet

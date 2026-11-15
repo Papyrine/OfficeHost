@@ -132,6 +132,12 @@ class FssHttpHandler(
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
             return;
         }
+        catch (BadHttpRequestException exception)
+        {
+            // the parts of a save Word split, together over MaxFileSize: as a request over it
+            context.Response.StatusCode = exception.StatusCode;
+            return;
+        }
 
         await mtom.Write(context.Response, envelope, cancel);
     }

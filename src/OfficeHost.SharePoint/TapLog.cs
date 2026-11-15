@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Web.Hosting;
 
 /// <summary>
 /// What the module has to say, to the Application event log under the source <c>OfficeHost.Shadow</c>, which
-/// Install-OfficeHostShadow.ps1 creates, and to Trace: at most once a minute for each message, never throwing.
+/// Install-OfficeHostShadow.ps1 creates, and to Trace: at most once a minute for each message, never throwing. Written
+/// as the application pool's identity: SharePoint 2016 runs parts of a request as IUSR (the module's start), who cannot
+/// write to the event log, and a failure turns it off for the app domain.
 /// </summary>
 static class TapLog
 {
@@ -35,7 +38,10 @@ static class TapLog
             {
                 try
                 {
-                    EventLog.WriteEntry(source, message, EventLogEntryType.Warning);
+                    using (HostingEnvironment.Impersonate())
+                    {
+                        EventLog.WriteEntry(source, message, EventLogEntryType.Warning);
+                    }
                 }
                 catch (Exception)
                 {

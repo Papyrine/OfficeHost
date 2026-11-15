@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using System.Web;
 
@@ -9,12 +10,21 @@ using System.Web;
 /// at the response's first write (SharePoint's handler has read the request by then), whether its document is sampled,
 /// and if so the request body, read again from its start; the response as it is written; its status and head once it is
 /// complete; and the exchange, or a tombstone, to the queue once the request has completed. The body of a shared access
-/// request is copied when the request is authenticated instead: after its ASMX handler, it reads empty. While the shadow
-/// pauses the module or cannot be reached, a request of a sampled document is not copied but becomes a tombstone, so that
-/// the shadow knows its document misses an exchange.
+/// request is copied when the request is authenticated instead: after its ASMX handler, it reads empty. A cell storage
+/// body that WCF reads (SharePoint 2016) cannot be read again: it is copied as WCF reads it (<see cref="Tee"/>). While
+/// the shadow pauses the module or cannot be reached, a request of a sampled document is not copied but becomes a
+/// tombstone, so that the shadow knows its document misses an exchange.
 /// </summary>
 sealed class TapCapture
 {
+    // the stream that HttpRequest gives every caller of GetBufferlessInputStream once it has one (.NET Framework 4.5 to
+    // 4.8.1); null if not found, and then no body is copied as it is read
+    static FieldInfo? entityBodyStream =
+        typeof(HttpRequest).GetField("_readEntityBodyStream", BindingFlags.Instance | BindingFlags.NonPublic) is { } field &&
+        field.FieldType == typeof(Stream)
+            ? field
+            : null;
+
     // the headers of the request a replay needs; never credentials, cookies or the request digest. Host, as the shadow
     // replays only the documents of the SharePoint the request went to
     static string[] requestHeaders =
@@ -36,6 +46,8 @@ sealed class TapCapture
     string? document;
     TapBuffer? response;
     TapBuffer? requestBody;
+    TapInputStream? input;
+    int contentLength;
     byte[]? responseHead;
     int status;
     bool closed;
@@ -99,10 +111,59 @@ sealed class TapCapture
     }
 
     /// <summary>
-    /// What the response writes, after it went to SharePoint's stream.
+    /// Before SharePoint's handler runs. WCF's (cellstorage.svc on SharePoint 2016) reads the body without buffering it
+    /// when nothing has read it before, so that it cannot be read again: then the body is copied as WCF reads it. The
+    /// module asks for the stream WCF would ask for itself (HostedHttpRequestAsyncResult.GetInputStream,
+    /// GetBufferlessInputStream(true), maxRequestLength not applied), which reads nothing yet, and puts a
+    /// <see cref="TapInputStream"/> over it in its place, which ASP.NET then gives WCF: WCF reads the same bytes the same
+    /// way. Any other handler, or a body read already, is left alone, to be read again after the handler (SharePoint SE's
+    /// cobalt.ashx reads it buffered).
+    /// </summary>
+    public void Tee()
+    {
+        var request = context.Request;
+        if (kind != "cellstorage" ||
+            entityBodyStream == null ||
+            runtime.Settings.WcfReadsClassic ||
+            request.ReadEntityBodyMode != ReadEntityBodyMode.None ||
+            context.Handler?.GetType().FullName?.StartsWith("System.ServiceModel.Activation.", StringComparison.Ordinal) != true)
+        {
+            return;
+        }
+
+        // while not copying, only the start, to name the document of the tombstone. The copy takes nothing before the
+        // start names the document, and nothing at all of one that is not sampled
+        var body = copying ? new TapBuffer(runtime.Budget, runtime.Settings.MaxExchangeBytes) : null;
+        var tap = new TapInputStream(request.GetBufferlessInputStream(true), body, Named);
+        entityBodyStream.SetValue(request, tap);
+        contentLength = request.ContentLength;
+        requestBody = body;
+        input = tap;
+    }
+
+    /// <summary>
+    /// Whether the document that the start of a body names is sampled, or null while it names none yet.
+    /// </summary>
+    bool? Named(string start)
+    {
+        if (TapSampler.Document(start) is not { } named)
+        {
+            return null;
+        }
+
+        return TapSampler.Sampled(TapSampler.Key(named), runtime.Sender.SamplePercent);
+    }
+
+    /// <summary>
+    /// What the response writes, after it went to SharePoint's stream: not what ASP.NET filters again while IIS sends.
     /// </summary>
     public void Writing(byte[] buffer, int offset, int count)
     {
+        if (Resending())
+        {
+            return;
+        }
+
         if (decided == 0)
         {
             Decide();
@@ -113,6 +174,17 @@ sealed class TapCapture
             response?.Write(buffer, offset, count);
         }
     }
+
+    /// <summary>
+    /// Whether ASP.NET is filtering again what IIS is sending. A flush sends with IIS's send response notification, raised
+    /// within the flush for the modules of PreSendRequestHeaders and PreSendRequestContent (SharePoint 2016 has three),
+    /// and at the end of each ASP.NET filters what IIS still holds: what the filter wrote already, before the flush. The
+    /// filter's output replaces it, so Office gets it once; the copy takes it once, outside these notifications
+    /// (IPipelineRuntime.ProcessRequestNotificationHelper restores the notification after each).
+    /// </summary>
+    bool Resending() =>
+        HttpRuntime.UsingIntegratedPipeline &&
+        context.CurrentNotification == RequestNotification.SendResponse;
 
     /// <summary>
     /// Whether the document is sampled: IsOnlyClient always (it names no document, and is small), a cell storage
@@ -126,22 +198,31 @@ sealed class TapCapture
         {
             try
             {
-                document = TapSampler.Document(Peek());
+                document = TapSampler.Document(input != null ? Encoding.UTF8.GetString(input.Start()) : Peek());
             }
             catch (Exception exception)
             {
                 decided = 1;
                 unread = true;
                 failure = $"the request body could not be read again: {exception.Message}";
+                // dropped with no document to name, so no tombstone says why: how SharePoint's handler read the body
+                TapLog.Write(
+                    $"A cell storage request was dropped, its body could not be read again (SharePoint read it {context.Request.ReadEntityBodyMode}, handler {context.Handler?.GetType().FullName}): {exception.GetType().Name}: {exception.Message}");
                 return;
             }
 
             sampled = TapSampler.Sampled(TapSampler.Key(document ?? ""), runtime.Sender.SamplePercent);
+            if (input != null)
+            {
+                // as the body was copied, when its start said already
+                sampled = input.Settle(sampled);
+            }
         }
 
         if (!sampled)
         {
             decided = 2;
+            Release();
             runtime.Queue.Ended(sequence);
             return;
         }
@@ -176,7 +257,7 @@ sealed class TapCapture
         }
         catch (Exception exception) when (exception is HttpException or IOException or InvalidOperationException or NotSupportedException)
         {
-            // a handler that read the body without buffering it (SharePoint 2016 or 2019?)
+            // a handler other than WCF's that read the body without buffering it
             failure = $"the request body could not be read again: {exception.Message}";
         }
         finally
@@ -297,6 +378,8 @@ sealed class TapCapture
     /// </summary>
     bool Enqueue()
     {
+        // the request has completed: what its handler reads from here is not copied, the sender has the copy
+        input?.Stop();
         if (decided != 1 ||
             status == 401)
         {
@@ -335,9 +418,9 @@ sealed class TapCapture
             return "the response did not complete";
         }
 
-        if (failure != null)
+        if ((failure ?? input?.Failure) is { } reason)
         {
-            return failure;
+            return reason;
         }
 
         if (response!.Overflowed ||
@@ -345,6 +428,12 @@ sealed class TapCapture
             response.Length + requestBody.Length > runtime.Settings.MaxExchangeBytes)
         {
             return "larger than the module copies, or its budget full";
+        }
+
+        if (input != null &&
+            !ReadToTheEnd(input))
+        {
+            return "SharePoint's handler did not read the request body to its end";
         }
 
         if (kind == "cellstorage" &&
@@ -356,8 +445,23 @@ sealed class TapCapture
         return null;
     }
 
+    /// <summary>
+    /// Whether the handler read all of the body: the bytes of its Content-Length, or, without one (a chunked request),
+    /// until a read got none.
+    /// </summary>
+    bool ReadToTheEnd(TapInputStream tap)
+    {
+        if (contentLength > 0)
+        {
+            return tap.Passed == contentLength;
+        }
+
+        return tap.Ended;
+    }
+
     void Release()
     {
+        input?.Stop();
         response?.Release();
         requestBody?.Release();
     }

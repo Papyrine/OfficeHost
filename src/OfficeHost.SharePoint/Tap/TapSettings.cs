@@ -41,13 +41,20 @@ sealed class TapSettings
     /// </summary>
     public string[] Include { get; private set; } = [];
 
+    /// <summary>
+    /// Whether WCF reads request bodies through ASP.NET's buffered input stream, which the module reads again after it
+    /// (WCF's own appSetting): then the module leaves WCF's reading alone.
+    /// </summary>
+    public bool WcfReadsClassic { get; private set; }
+
     public static TapSettings Read(Func<string, string?> setting)
     {
         var settings = new TapSettings
         {
             Enabled = string.Equals(setting("OfficeHostShadow.Enabled"), "true", StringComparison.OrdinalIgnoreCase),
             Sink = Trimmed(setting("OfficeHostShadow.Sink")),
-            ApiKey = Trimmed(setting("OfficeHostShadow.ApiKey")) ?? ""
+            ApiKey = Trimmed(setting("OfficeHostShadow.ApiKey")) ?? "",
+            WcfReadsClassic = bool.TryParse(Trimmed(setting("wcf:serviceHostingEnvironment:useClassicReadEntityBodyMode")), out var classic) && classic
         };
         if (Number(setting("OfficeHostShadow.SamplePercent")) is { } sample)
         {
@@ -99,7 +106,8 @@ sealed class TapSettings
         }
 
         return path.Length == prefix.Length ||
-               prefix[^1] == '/' ||
+               // not ^1: no System.Index on .NET Framework without System.ValueTuple
+               prefix[prefix.Length - 1] == '/' ||
                path[prefix.Length] == '/';
     }
 

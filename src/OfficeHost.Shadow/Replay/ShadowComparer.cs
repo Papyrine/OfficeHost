@@ -344,7 +344,10 @@ static class ShadowComparer
             {
                 if (EditorsOf(file) is { } editors)
                 {
-                    facets["editors"] = editors;
+                    foreach (var (facet, value) in editors)
+                    {
+                        facets[facet] = value;
+                    }
                 }
                 else
                 {
@@ -359,10 +362,13 @@ static class ShadowComparer
     public static string Hash(byte[] file) => Convert.ToHexString(SHA256.HashData(file))[..12];
 
     /// <summary>
-    /// An editors table by what the servers agree on: each editor's CacheID, permission and metadata keys. Not its login
+    /// An editors table by what the servers agree on, as facets: <c>editors</c>, each editor's CacheID and the keys of
+    /// its client's metadata; and, when there are editors, <c>editors JoinCoauthTime</c>, those with the time of their
+    /// join in their metadata, and <c>editors HasEditorPermission</c>, the permission of each. These two apart, as
+    /// SharePoint 2016 has neither where SharePoint SE and OfficeHost have them (docs/fsshttp-notes.md). Not its login
     /// name (the users are mapped), its timeout (OfficeHost keeps clients an hour at least), nor the layout of its XML.
     /// </summary>
-    public static string? EditorsOf(byte[] file)
+    public static Dictionary<string, string>? EditorsOf(byte[] file)
     {
         if (!file.AsSpan().StartsWith(editorsTableHeader))
         {
@@ -390,19 +396,27 @@ static class ShadowComparer
             return null;
         }
 
-        return string.Join(
-            "; ",
-            table.Root!.Elements("Editor")
-                .Select(_ =>
-                {
-                    var keys = (_.Element("Metadata")?.Elements() ?? [])
-                        .Select(_ => _.Name.LocalName)
-                        .Order(StringComparer.Ordinal);
-                    var cacheId = (string?) _.Element("CacheID");
-                    var hasEditorPermission = (string?) _.Element("HasEditorPermission");
-                    return $"{cacheId?.ToUpperInvariant()} editor {hasEditorPermission} metadata {string.Join(',', keys)}";
-                })
-                .Order(StringComparer.Ordinal));
+        var editors = table.Root!.Elements("Editor")
+            .Select(_ => (
+                CacheId: ((string?) _.Element("CacheID"))?.ToUpperInvariant(),
+                Permission: (string?) _.Element("HasEditorPermission"),
+                Keys: (_.Element("Metadata")?.Elements() ?? []).Select(_ => _.Name.LocalName).ToList()))
+            .OrderBy(_ => _.CacheId, StringComparer.Ordinal)
+            .ToList();
+        var facets = new Dictionary<string, string>
+        {
+            ["editors"] = string.Join(
+                "; ",
+                editors.Select(_ =>
+                    $"{_.CacheId} metadata {string.Join(',', _.Keys.Where(_ => _ != "JoinCoauthTime").Order(StringComparer.Ordinal))}"))
+        };
+        if (editors.Count > 0)
+        {
+            facets["editors JoinCoauthTime"] = string.Join("; ", editors.Where(_ => _.Keys.Contains("JoinCoauthTime")).Select(_ => _.CacheId));
+            facets["editors HasEditorPermission"] = string.Join("; ", editors.Select(_ => $"{_.CacheId}={_.Permission}"));
+        }
+
+        return facets;
     }
 
     static string Describe(byte[] binary)

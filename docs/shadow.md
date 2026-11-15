@@ -73,9 +73,9 @@ The shadow replays to OfficeHost in process (the handler of `MapFssHttp`), not o
 
 SharePoint must never fail, and must not slow down noticeably, because of the module. Each guarantee, and how it is kept:
 
-- **Its answers are unchanged.** The module copies what the response writes after it went to SharePoint's stream, and reads the body of a cell storage request only once SharePoint's handler has read it. Reading it before (at authentication) made PowerPoint drop the connection of its first request in the lab; reading it after did not (docs/replay.md). IsOnlyClient is the exception: after its ASMX handler, its body reads empty, so the module reads it at authentication, through the buffered input stream the handler reads too. It is a few hundred bytes, and the lab's 27 IsOnlyClient requests read so were all answered 200, as without the module.
+- **Its answers are unchanged.** The module copies what the response writes after it went to SharePoint's stream, and reads the body of a cell storage request only once SharePoint's handler has read it. Reading it before (at authentication) made PowerPoint drop the connection of its first request in the lab; reading it after did not (docs/replay.md). SharePoint 2016 serves `cellstorage.svc` with WCF, which reads the body unbuffered (`GetBufferlessInputStream(true)`), so that it cannot be read again: there the module, just before the handler, asks for that same stream, which reads nothing yet, and puts a copying stream over it where ASP.NET keeps it (a private field of `HttpRequest`), which WCF then gets. WCF reads the same bytes, the same way, and the module copies them as they pass. It does so only for WCF's handler with a body no one has read, and leaves WCF alone when its `useClassicReadEntityBodyMode` is set. WCF's response is unbuffered, so each write is flushed, and IIS sends it with its send response notification, raised within the flush for each module of `PreSendRequestHeaders` or `PreSendRequestContent` (SharePoint 2016 has three): at the end of each, ASP.NET filters again what IIS still holds, which the filter wrote already. Office gets each chunk once, but the copy had it four times: the module copies nothing during that notification (`HttpContext.CurrentNotification`, which ASP.NET restores after it, as the notification is re-entrant). A filter written to inside its own write is copied once, by the outermost write. A response filter at all can make ASP.NET send a response twice when a module turns buffering off after a buffered handler (seen with IIS Express, not on SharePoint 2016): after installing, check with a folder sink that an answer is the same as its copy ([Test-ShadowWire.ps1](../src/OfficeHost.SharePoint/Test-ShadowWire.ps1), next to the installer). IsOnlyClient is the exception: after its ASMX handler, its body reads empty, so the module reads it at authentication, through the buffered input stream the handler reads too. It is a few hundred bytes, and the lab's 27 IsOnlyClient requests read so were all answered 200, as without the module.
 - **It never fails a request.** Only the module's own work is in a `try`: a failure of SharePoint's stream is SharePoint's, a failure of the copy only stops the copy (a tombstone) and goes to the event log, rate limited.
-- **Its memory is bounded.** Copies are made in 64 KB chunks (under the large object heap) taken from a budget for all requests (`MaxInFlightMegabytes`), and an exchange stops at `MaxExchangeMegabytes`: beyond either, it becomes a tombstone. The queue is bounded too, and so are the tombstones (beyond, only counted). A document that is not sampled is not copied at all: sampling is decided at the response's first write.
+- **Its memory is bounded.** Copies are made in 64 KB chunks (under the large object heap) taken from a budget for all requests (`MaxInFlightMegabytes`), and an exchange stops at `MaxExchangeMegabytes`: beyond either, it becomes a tombstone. The queue is bounded too, and so are the tombstones (beyond, only counted). A document that is not sampled is not copied at all: sampling is decided at the response's first write, and for a body copied as WCF reads it (SharePoint 2016), as soon as its start names the document, before any of it goes to the copy. Such a body counts as copied only when WCF read it to its end: all of its Content-Length, or, without one, until a read got nothing.
 - **It never waits for the shadow.** A thread of its own sends: never a request's. It sends with timeouts; when the shadow is full it waits as the shadow asks (503 and Retry-After); after three failures it turns what waits into tombstones, and tries again at each heartbeat, with backoff, until the shadow answers. Meanwhile it copies nothing: a cell storage request of a sampled document becomes a tombstone, so that the shadow knows its document misses an exchange.
 
   ```mermaid
@@ -127,7 +127,8 @@ if (shadow)
 {
     // the documents of SharePoint as files of the folder, under their host and path
     services.AddSingleton<IShadowDocuments>(new FileSystemShadowDocuments(storage));
-    // the documents Office opened from its cache, from SharePoint, as the application's account
+    // the documents Office opened from its cache, or downloaded in parts, from SharePoint, as the
+    // application's account
     services.AddHttpClient<IShadowContent, SharePointShadowContent>()
         .ConfigurePrimaryHttpMessageHandler(
             () => new HttpClientHandler
@@ -137,7 +138,7 @@ if (shadow)
     services.AddOfficeHostShadow();
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L52-L71' title='Snippet source file'>snippet source</a> | <a href='#snippet-Shadow' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L52-L72' title='Snippet source file'>snippet source</a> | <a href='#snippet-Shadow' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 <!-- snippet: MapShadow -->
@@ -149,35 +150,63 @@ if (shadow)
     app.MapOfficeHostShadow();
 }
 ```
-<sup><a href='/src/OfficeHost.Sample/Program.cs#L74-L80' title='Snippet source file'>snippet source</a> | <a href='#snippet-MapShadow' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.Sample/Program.cs#L75-L81' title='Snippet source file'>snippet source</a> | <a href='#snippet-MapShadow' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 `AddOfficeHost` is needed too, configured as the application's production deployment would be: the point is to test it. `IShadowDocuments` exists because `IOfficeStorage` has no way to create a file at a path.
 
-`IShadowDocuments` finds or adds the file of a document. For `FileSystemStorage`, `FileSystemShadowDocuments` keeps each document at its host and path under the root. For SQL Server or Azure Blob Storage, their `Add(folder, name, ownerId, content)` and a map of document keys to file ids, kept in the application's own database:
+`IShadowDocuments` finds or adds the file of a document. For `FileSystemStorage`, `FileSystemShadowDocuments` keeps each document at its host and path under the root. For SQL Server, a class as this one keeps it in the folder of its host and path, found there by `SqlServerStorage.GetFile(folder, name)`; Azure Blob Storage would need a map of document keys to file ids in the application's own database:
 
 <!-- snippet: SqlServerShadowDocuments -->
 <a id='snippet-SqlServerShadowDocuments'></a>
 ```cs
-class SqlServerShadowDocuments(SqlServerStorage storage, IShadowDocumentMap map) :
+class SqlServerShadowDocuments(SqlServerStorage storage) :
     IShadowDocuments
 {
-    public Task<string?> Find(ShadowDocument document, Cancel cancel) =>
-        map.Get(document.Key, cancel);
+    public async Task<string?> Find(ShadowDocument document, Cancel cancel) =>
+        (await storage.GetFile(FolderOf(document), document.Name, cancel))?.Id;
 
     public async Task<string> Add(ShadowDocument document, Stream content, Cancel cancel)
     {
-        var folder = $"{document.Url.Host}/{document.Folder}";
-        var file = await storage.Add(folder, document.Name, "shadow", content, cancel);
-        await map.Set(document.Key, file.Id, cancel);
+        // throws when the folder has a file of that name
+        var file = await storage.Add(FolderOf(document), document.Name, "shadow", content, cancel);
         return file.Id;
     }
+
+    static string FolderOf(ShadowDocument document) =>
+        $"{document.Url.Host}/{document.Folder}";
 }
 ```
-<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerShadowDocuments.cs#L12-L27' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServerShadowDocuments' title='Start of snippet'>anchor</a></sup>
+<sup><a href='/src/OfficeHost.SqlServer.Tests/SqlServerShadowDocuments.cs#L6-L23' title='Snippet source file'>snippet source</a> | <a href='#snippet-SqlServerShadowDocuments' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-A document made by a Save As in SharePoint is made by OfficeHost too, next to the file it was saved from, so `Find` must find a file by the folder and name of its document (`FileSystemShadowDocuments` does).
+A document made by a Save As in SharePoint is made by OfficeHost too, next to the file it was saved from, so `Find` must find a file by the folder and name of its document (both of these do).
+
+### A shadow on SQL Server, as a Windows service
+
+A shadow and nothing else, with no WOPI client and no page that opens a file, is a small application: OfficeHost's files, locks and coauthoring state in a SQL Server database of the shadow's own, with the tables of `OfficeHost.SqlServer.Install`, and the class above for the documents:
+
+```cs
+// a Windows service when started as one, a console application otherwise (Microsoft.Extensions.Hosting.WindowsServices)
+services.AddWindowsService(options => options.ServiceName = "OfficeHost Shadow");
+// the tables, when the account may create them
+await OfficeHostSqlServerInstaller.Install(connectionString, schema);
+// the files, locks and coauthoring state of OfficeHost in SQL Server, as the application would keep them
+services.AddOfficeHostSqlServer(connectionString, schema);
+services.AddOfficeHost(options => configuration.GetSection("OfficeHost").Bind(options));
+// the documents of SharePoint as files of the database, in the folder of their host and path
+services.AddSingleton<IShadowDocuments>(_ => new SqlServerShadowDocuments(_.GetRequiredService<SqlServerStorage>()));
+// the documents Office opened from its cache, or downloaded in parts, from SharePoint, as the service's account
+services.AddHttpClient<IShadowContent, SharePointShadowContent>()
+    .ConfigurePrimaryHttpMessageHandler(
+        () => new HttpClientHandler
+        {
+            UseDefaultCredentials = true
+        });
+services.AddOfficeHostShadow();
+```
+
+The database is the shadow's own: never SharePoint's, nor the application's in production. On a server of the farm, the module can post over the loopback (`http://localhost:5002`), which never leaves the machine; from another server, HTTPS. The account of the service is allowed to log on as a service, owns the database, and can read the documents in SharePoint, for those Office opened from its cache or downloaded in parts (`SharePointShadowContent`). Point the module at it with `Install-OfficeHostShadow.ps1 -Sink http://localhost:5002/officehost-shadow/exchanges -ApiKey <key>` (below); to stop, point the module at a folder again, or `-Remove` it, then stop the service.
 
 ### The module: SharePoint
 
@@ -263,7 +292,7 @@ Error ShadowProcessor: OfficeHostFailed: Cell PutChanges (translated) of … : E
 
 Every `SummaryInterval`, a summary at Information (event id 100): the counts per outcome and sub-request, the documents known, the exchanges waiting, received and refused.
 
-A rule (`ShadowRule`) matches a sub-request label (`Coauth JoinCoauthoring`, `Cell QueryChanges (translated)`), a facet (`ErrorCode`, `@CoauthStatus`, `DocProps`, `content`, `editors`, `FSSHTTPB`) and optionally each server's value, by regular expressions. The defaults are the differences the lab found expected: GetVersions, which OfficeHost does not support; the `vti_` properties of GetDocMetaInfo, of which OfficeHost sends a subset; the revision SharePoint adds after a save (`HaveOnlyDemotionChanges`). What is compared of a sub-response is in [replay.md](replay.md).
+A rule (`ShadowRule`) matches a sub-request label (`Coauth JoinCoauthoring`, `Cell QueryChanges (translated)`), a facet (`ErrorCode`, `@CoauthStatus`, `DocProps`, `content`, `editors`, `FSSHTTPB`) and optionally each server's value, by regular expressions. The defaults are the differences found expected: GetVersions, which OfficeHost does not support; the `vti_` properties of GetDocMetaInfo, of which OfficeHost sends a subset; the revision SharePoint adds after a save (`HaveOnlyDemotionChanges`); and where SharePoint 2016 answers otherwise than SE, which OfficeHost follows (`HaveOnlyDemotionChanges` with every Cell of the content, the editors table without `JoinCoauthTime` or `HasEditorPermission`, MarkTransitionComplete out of the session; docs/fsshttp-notes.md, "SharePoint Server 2016"). What is compared of a sub-response is in [replay.md](replay.md).
 
 
 ## Documents
@@ -335,7 +364,7 @@ The request headers copied are an allowlist (host, content type, SOAPAction, use
 
 - Copies of documents and the logins of their users leave SharePoint: send them over **HTTPS** only, keep the shadow's storage (and its `RecordingFolder`) private, and delete it when done. `Include` and `SamplePercent` limit what leaves.
 - The key is in web.config, visible to the farm's administrators: it only lets one post to the ingest of the shadow, and the shadow logs what it receives. Rotate it with the script.
-- `SharePointShadowContent` reads documents as the account the shadow runs as (or the credentials of its handler): give it read access only.
+- `SharePointShadowContent` reads documents as the account the shadow runs as (or the credentials of its handler): give it read access only. It says it takes no sign-in page (`X-FORMS_BASED_AUTH_ACCEPTED: f`, as the SharePoint REST clients do): without it SharePoint 2016 answered the shadow's GET 403, a client with no user agent of a browser being one that may expect a sign-in page. A page instead of the document (an error, a sign-in) is a failure, not content.
 
 
 ## Tested

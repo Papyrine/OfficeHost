@@ -129,6 +129,64 @@ public class ReplayTests
     }
 
     /// <summary>
+    /// Where SharePoint Server 2016 answers otherwise than SE, which OfficeHost follows, the differences are known (as
+    /// recorded of Word against a 2016 farm): its editors table without JoinCoauthTime, and without HasEditorPermission
+    /// after an update of the metadata, HaveOnlyDemotionChanges with every Cell of the content, InvalidCoauthSession for
+    /// MarkTransitionComplete out of the session. An editor more or less, or another error, is still different.
+    /// </summary>
+    [Test]
+    public async Task KnownDifferences_SharePoint2016()
+    {
+        const string id = "{1777CAA2-7C34-4C6C-BADB-6B61E134B644}";
+        var sharePoint = ShadowComparer.EditorsOf(EditorsTable($"<Editor><CacheID>{id.ToLowerInvariant()}</CacheID><HasEditorPermission /><Metadata><SupportsRename>AQ==</SupportsRename></Metadata></Editor>"))!;
+        var officeHost = ShadowComparer.EditorsOf(EditorsTable($"<Editor><CacheID>{id}</CacheID><HasEditorPermission>true</HasEditorPermission><Metadata><JoinCoauthTime>AA==</JoinCoauthTime><SupportsRename>AQ==</SupportsRename></Metadata></Editor>"))!;
+        await Assert.That(sharePoint["editors"]).IsEqualTo($"{id} metadata SupportsRename");
+        await Assert.That(officeHost["editors"]).IsEqualTo($"{id} metadata SupportsRename");
+        await Assert.That(officeHost["editors JoinCoauthTime"]).IsEqualTo(id);
+        await Assert.That(Outcome("Cell QueryChanges (translated)", sharePoint, officeHost)).IsEqualTo(ShadowOutcome.KnownDifference);
+
+        var another = ShadowComparer.EditorsOf(EditorsTable($"<Editor><CacheID>{id}</CacheID><HasEditorPermission>true</HasEditorPermission></Editor><Editor><CacheID>{{00000000-0000-4000-8000-000000000002}}</CacheID><HasEditorPermission>true</HasEditorPermission></Editor>"))!;
+        await Assert.That(Outcome("Cell QueryChanges (translated)", sharePoint, another)).IsEqualTo(ShadowOutcome.Different);
+
+        // two editors, of which one has updated its metadata: SharePoint 2016 has the permission of the other only
+        const string other = "{00000000-0000-4000-8000-000000000002}";
+        var mixed = ShadowComparer.EditorsOf(EditorsTable($"<Editor><CacheID>{id}</CacheID><HasEditorPermission /></Editor><Editor><CacheID>{other}</CacheID><HasEditorPermission>true</HasEditorPermission></Editor>"))!;
+        var both = ShadowComparer.EditorsOf(EditorsTable($"<Editor><CacheID>{id}</CacheID><HasEditorPermission>true</HasEditorPermission></Editor><Editor><CacheID>{other}</CacheID><HasEditorPermission>true</HasEditorPermission></Editor>"))!;
+        var refused = ShadowComparer.EditorsOf(EditorsTable($"<Editor><CacheID>{id}</CacheID><HasEditorPermission>true</HasEditorPermission></Editor><Editor><CacheID>{other}</CacheID><HasEditorPermission>false</HasEditorPermission></Editor>"))!;
+        await Assert.That(mixed["editors HasEditorPermission"]).IsEqualTo($"{other}=true; {id}=");
+        await Assert.That(Outcome("Cell QueryChanges (translated)", mixed, both)).IsEqualTo(ShadowOutcome.KnownDifference);
+        await Assert.That(Outcome("Cell QueryChanges (translated)", mixed, refused)).IsEqualTo(ShadowOutcome.Different);
+        await Assert.That(Outcome("Cell QueryChanges", new() { ["ErrorCode"] = "Success" }, new() { ["ErrorCode"] = "Success", ["editors"] = "" })).IsEqualTo(ShadowOutcome.KnownDifference);
+
+        foreach (var label in new[] { "Cell QueryChanges", "Cell QueryAccess", "Cell PutChanges (translated)" })
+        {
+            await Assert.That(Outcome(label, new() { ["@HaveOnlyDemotionChanges"] = "False" }, [])).IsEqualTo(ShadowOutcome.KnownDifference);
+        }
+
+        await Assert.That(Outcome("Cell QueryAccess", new() { ["@HaveOnlyDemotionChanges"] = "True" }, [])).IsEqualTo(ShadowOutcome.Different);
+        await Assert.That(Outcome("Coauth MarkTransitionComplete", new() { ["ErrorCode"] = "InvalidCoauthSession" }, new() { ["ErrorCode"] = "Success" })).IsEqualTo(ShadowOutcome.KnownDifference);
+        await Assert.That(Outcome("Coauth MarkTransitionComplete", new() { ["ErrorCode"] = "Success" }, new() { ["ErrorCode"] = "InvalidCoauthSession" })).IsEqualTo(ShadowOutcome.OfficeHostFailed);
+
+        static ShadowOutcome Outcome(string label, Dictionary<string, string> sharePoint, Dictionary<string, string> officeHost) =>
+            ShadowComparer.Outcome(label, ShadowComparer.Differences(sharePoint, officeHost), ShadowRule.Defaults, out _);
+    }
+
+    /// <summary>
+    /// An editors table as the servers send it in its partition: the header, then the XML deflated.
+    /// </summary>
+    static byte[] EditorsTable(string editors)
+    {
+        using var stream = new MemoryStream();
+        stream.Write([0x1A, 0x5A, 0x3A, 0x30, 0x00, 0x00, 0x00, 0x00]);
+        using (var deflate = new DeflateStream(stream, CompressionLevel.Optimal, true))
+        {
+            deflate.Write(Encoding.UTF8.GetBytes($"<EditorsTable>{editors}</EditorsTable>"));
+        }
+
+        return stream.ToArray();
+    }
+
+    /// <summary>
     /// Replays the recording of the folder of OFFICEHOST_REPLAY (with the documents to start from in its <c>files</c>
     /// folder, if any), and writes the report to its <c>replay.txt</c>.
     /// </summary>

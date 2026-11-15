@@ -48,6 +48,7 @@ class CellStorageService(
     CoauthSessions sessions,
     FssHttpTargets targets,
     SaveAsFiles saveAs,
+    PartialPuts partialPuts,
     IFssHttpStore store,
     IOptions<OfficeHostOptions> options,
     ILogger<CellStorageService> log)
@@ -363,13 +364,16 @@ class CellStorageService(
 
         var subResponses = new List<SubResponse>();
         var elements = new Dictionary<ExtendedGuid, DataElement>();
+        // whether a query sent the client anything it lacked: the Storage Index of every answer is not a change
+        var changes = false;
         var package = request.DataElements?.Elements ?? [];
         foreach (var subRequest in request.SubRequests)
         {
             var partition = subRequest.TargetPartition ?? defaultPartition;
             // the partitions OfficeHost keeps its own state in are not cells
             if (partition == CoauthSessions.SessionPartition ||
-                partition == SaveAsFiles.Partition)
+                partition == SaveAsFiles.Partition ||
+                PartialPuts.Owns(partition))
             {
                 subResponses.Add(new FailedSubResponse(subRequest.RequestId, subRequest.Type, ResponseError.Cell(CellErrorCode.InvalidPartition)));
                 continue;
@@ -392,8 +396,9 @@ class CellStorageService(
                     break;
                 case QueryChangesRequest query:
                     var cell = await Partition(site, partition, cancel);
-                    var (response, sent) = CellSync.Query(query, cell.State.Storage!);
+                    var (response, sent, changed) = CellSync.Query(query, cell.State.Storage!);
                     subResponses.Add(response);
+                    changes |= changed;
                     foreach (var element in sent)
                     {
                         elements.TryAdd(element.Id, element);
@@ -423,13 +428,20 @@ class CellStorageService(
             defaultPartition == FssHttpCells.ContentPartition)
         {
             file = await storage.GetFile(site.FileId, cancel) ?? file;
+            // no Etag with a part of a save, as on SharePoint Server 2016: the file has no new version yet; nor with a
+            // part of a download
+            if (!request.SubRequests.Any(_ => _ is PutChangesRequest { Partial: true }) &&
+                !subResponses.Any(_ => _ is QueryChangesResponse { Partial: true }))
+            {
+                data.Add(new XAttribute("Etag", Etag(site, file)));
+            }
+
             data.Add(
-                new XAttribute("Etag", Etag(site, file)),
                 new XAttribute("CreateTime", file.LastModified.ToFileTime()),
                 new XAttribute("LastModifiedTime", file.LastModified.ToFileTime()),
                 new XAttribute("ModifiedBy", site.Access.UserName ?? site.Access.UserId));
             // with a query that sends changes, not with one that has none, nor with a put
-            if (elements.Count > 0 &&
+            if (changes &&
                 !request.SubRequests.Any(_ => _ is PutChangesRequest))
             {
                 data.Add(new XAttribute("HaveOnlyDemotionChanges", "False"));
@@ -514,6 +526,31 @@ class CellStorageService(
             return ("FileAlreadyLockedOnServer", null);
         }
 
+        // a part of a save Word split (Partial, PartialPuts): its data elements wait for the last part, and it is answered
+        // as SharePoint answers it, as a Put Changes that applied nothing, with the knowledge of the cell as it is
+        if (put.Partial)
+        {
+            // the parts waiting for the file are bounded as a save in one request is, and answered as one over the limit
+            if (!await partialPuts.Add(site.FileId, site.Access.UserId, partition, package.Where(_ => _ is not StorageIndex).ToList(), options.Value.MaxFileSize, cancel))
+            {
+                throw new BadHttpRequestException($"The parts of a save of {site.FileId} are larger than MaxFileSize", StatusCodes.Status413PayloadTooLarge);
+            }
+
+            var current = partition == FssHttpCells.ContentPartition
+                ? await cells.GetContent(site.FileId, cancel) ?? throw new InvalidDataException($"No file {site.FileId}")
+                : await cells.Get(site.FileId, partition, cancel);
+            var knowledge = current.State.Storage is { } cellStorage ? SerialNumberSet.Full(cellStorage) : Knowledge.Empty;
+            return (null, new PutChangesResponse(put.RequestId, knowledge, true, ExtendedGuid.Null, []));
+        }
+
+        // the last part: with the data elements of the parts before it
+        if (put.PartialLast &&
+            await partialPuts.Get(site.FileId, site.Access.UserId, partition, cancel) is { Count: > 0 } waiting)
+        {
+            var sent = package.Select(_ => _.Id).ToHashSet();
+            package = waiting.Where(_ => !sent.Contains(_.Id)).Concat(package).ToList();
+        }
+
         for (var attempt = 0; attempt < 8; attempt++)
         {
             StoredCell cell;
@@ -537,6 +574,7 @@ class CellStorageService(
             {
                 if (await cells.TryUpdate(site.FileId, partition, cell.Version, outcome.State, cancel) != null)
                 {
+                    await Applied(outcome.State.Storage!);
                     return (null, outcome.Response);
                 }
 
@@ -567,10 +605,27 @@ class CellStorageService(
                 await WopiHandler.NotifySaved(options.Value, log, new(file, site.Access, site.User, [site.Access.UserId], false, false));
             }
 
+            await Applied(outcome.State.Storage!);
             return (null, outcome.Response);
         }
 
         return (null, new FailedSubResponse(put.RequestId, RequestType.PutChanges, ResponseError.Cell(CellErrorCode.CoherencyFailure)));
+
+        // the parts of a save that its last part applied (kept when it fails, for Word to put it again), and those of a
+        // save that never ended. The save is applied by then: failing to forget them does not fail it, and the next Put
+        // Changes of the file tries again
+        async Task Applied(CellStorage storage)
+        {
+            var applied = put.PartialLast ? storage : null;
+            try
+            {
+                await partialPuts.Clean(site.FileId, site.Access.UserId, partition, applied, cancel);
+            }
+            catch (Exception exception)
+            {
+                log.LogWarning(exception, "The parts of saves waiting for {FileId} were not cleaned", site.FileId);
+            }
+        }
     }
 
     static string? Attribute(XElement? element, string name) => (string?) element?.Attribute(name);

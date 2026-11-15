@@ -21,6 +21,7 @@ class Replayer : IShadowTarget, IShadowFiles, IAsyncDisposable
     List<string> lines = [];
     int same;
     Dictionary<string, int> different = [];
+    Dictionary<string, int> known = [];
     int skipped;
     int contents;
 
@@ -61,10 +62,10 @@ class Replayer : IShadowTarget, IShadowFiles, IAsyncDisposable
         }
 
         var differences = replayer.different.Values.Sum();
-        replayer.lines.Add($"{replayer.same} the same, {differences} different, {replayer.skipped} requests not replayed, the content compared after {replayer.contents} Cells");
+        replayer.lines.Add($"{replayer.same} the same, {differences} different ({replayer.known.Values.Sum()} known), {replayer.skipped} requests not replayed, the content compared after {replayer.contents} Cells");
         foreach (var (label, count) in replayer.different.OrderBy(_ => _.Key))
         {
-            replayer.lines.Add($"  {label}: {count} different");
+            replayer.lines.Add($"  {label}: {count} different ({replayer.known.GetValueOrDefault(label)} known)");
         }
 
         return new(replayer.lines, replayer.same, replayer.different, replayer.skipped, replayer.contents);
@@ -194,6 +195,11 @@ class Replayer : IShadowTarget, IShadowFiles, IAsyncDisposable
         }
 
         different[finding.Label] = different.GetValueOrDefault(finding.Label) + 1;
+        if (finding.Outcome == ShadowOutcome.KnownDifference)
+        {
+            known[finding.Label] = known.GetValueOrDefault(finding.Label) + 1;
+        }
+
         var outcome = finding.Outcome switch
         {
             ShadowOutcome.Different => "DIFFERENT",

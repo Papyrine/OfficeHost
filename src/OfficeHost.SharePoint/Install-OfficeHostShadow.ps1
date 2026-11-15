@@ -187,6 +187,15 @@ try {
     }
 
     $existing = Get-SPSolution $solutionName -ErrorAction SilentlyContinue
+    if ($existing -and $existing.JobExists) {
+        # a deployment of an earlier run, still to run: Update-SPSolution refuses while it is
+        Wait-Solution { param($s) -not $s.JobExists } 'free of its earlier job'
+        $existing = Get-SPSolution $solutionName
+    }
+
+    # the deployment of this run is the one that ends after this: the solution looks deployed already until the timer
+    # job of Update-SPSolution has run
+    $since = if ($existing) { $existing.LastOperationEndTime } else { [DateTime]::MinValue }
     if ($existing -and $existing.Deployed) {
         Write-Host 'Updating the deployed solution: the application pools recycle'
         Update-SPSolution $solutionName -LiteralPath $wsp -GACDeployment
@@ -203,7 +212,8 @@ try {
     # 2. deployed on every server, before any web.config names the module
     Wait-Solution {
         param($s)
-        $s -and $s.Deployed -and -not $s.JobExists -and "$($s.LastOperationResult)" -like '*Succeeded*'
+        $s -and $s.Deployed -and -not $s.JobExists -and $s.LastOperationEndTime -gt $since -and
+            "$($s.LastOperationResult)" -like '*Succeeded*'
     } 'deployed'
     $servers = @(Get-SPServer | Where-Object {
         $_.Role -ne 'Invalid' -and

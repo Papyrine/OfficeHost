@@ -54,6 +54,131 @@ public class TapTests
     }
 
     /// <summary>
+    /// The body of a handler that reads it without buffering it (WCF in SharePoint 2016): the handler reads every byte as
+    /// from the stream itself, however it reads, and the copy has them all, the start naming the document. A copy beyond
+    /// its limit, or stopped, takes nothing from what the handler reads.
+    /// </summary>
+    [Test]
+    public async Task InputStream_CopiedAsRead()
+    {
+        var body = Encoding.UTF8.GetBytes($"\r\n--boundary\r\nContent-ID: <http://tempuri.org/xml/0>\r\n\r\n{envelope}\r\n--boundary\r\n\r\n")
+            .Concat(Enumerable.Range(0, 200_000).Select(_ => (byte) _))
+            .ToArray();
+        var budget = new TapBudget(1024 * 1024);
+        var copy = new TapBuffer(budget, 1024 * 1024);
+        var tap = new TapInputStream(new MemoryStream(body), copy);
+        await Assert.That(tap.Length).IsEqualTo(body.Length);
+        await Assert.That(tap.CanSeek).IsFalse();
+
+        var read = new MemoryStream();
+        var buffer = new byte[10_000];
+        var count = tap.Read(buffer, 0, 1000);
+        read.Write(buffer, 0, count);
+        count = await Task.Factory.FromAsync(tap.BeginRead, tap.EndRead, buffer, 0, buffer.Length, null);
+        read.Write(buffer, 0, count);
+        var pending = tap.BeginRead(buffer, 0, buffer.Length, null, null);
+        count = tap.EndRead(pending);
+        read.Write(buffer, 0, count);
+        count = await tap.ReadAsync(buffer, 0, buffer.Length);
+        read.Write(buffer, 0, count);
+        await tap.CopyToAsync(read);
+
+        await Assert.That(read.ToArray().SequenceEqual(body)).IsTrue();
+        await Assert.That(copy.ToArray().SequenceEqual(body)).IsTrue();
+        await Assert.That(tap.Passed).IsEqualTo(body.Length);
+        await Assert.That(tap.Ended).IsTrue();
+        await Assert.That(tap.Failure).IsNull();
+        await Assert.That(tap.Start().SequenceEqual(body.Take(64 * 1024))).IsTrue();
+        await Assert.That(TapSampler.Document(Encoding.UTF8.GetString(tap.Start())))
+            .IsEqualTo("http://spse.mshome.net/Shared%20Documents/Budget%20Q1.xlsx?x=1&y=2");
+
+        var limited = new TapBuffer(budget, 50_000);
+        var overflowing = new TapInputStream(new MemoryStream(body), limited);
+        var all = new MemoryStream();
+        overflowing.CopyTo(all);
+        await Assert.That(all.ToArray().SequenceEqual(body)).IsTrue();
+        await Assert.That(limited.Overflowed).IsTrue();
+
+        var stopped = new TapBuffer(budget, 1024 * 1024);
+        var stopping = new TapInputStream(new MemoryStream(body), stopped, _ => true);
+        await Assert.That(stopping.Read(buffer, 0, 1000)).IsEqualTo(1000);
+        // a read that asks for nothing is not the end of the body
+        await Assert.That(stopping.Read(buffer, 0, 0)).IsEqualTo(0);
+        await Assert.That(stopping.Ended).IsFalse();
+        stopping.Stop();
+        stopping.CopyTo(Stream.Null);
+        await Assert.That(stopped.Length).IsEqualTo(1000);
+        await Assert.That(stopping.Passed).IsEqualTo(body.Length);
+        await Assert.That(stopping.Ended).IsTrue();
+    }
+
+    /// <summary>
+    /// The copy of a body waits for its start to name the document. One that is not sampled is never copied, and takes
+    /// nothing from the budget; one that is has all of it, the start it waited with too. A start that names none is
+    /// copied once it is full, and otherwise when the capture settles it, at the response's first write; what the start
+    /// said stays.
+    /// </summary>
+    [Test]
+    public async Task InputStream_SampledFromItsStart()
+    {
+        var body = Encoding.UTF8.GetBytes($"\r\n--boundary\r\nContent-ID: <http://tempuri.org/xml/0>\r\n\r\n{envelope}\r\n--boundary\r\n\r\n")
+            .Concat(Enumerable.Range(0, 200_000).Select(_ => (byte) _))
+            .ToArray();
+        var budget = new TapBudget(4 * 1024 * 1024);
+        var buffer = new byte[10_000];
+        var asked = 0;
+
+        Func<string, bool?> Named(bool sampled) =>
+            _ =>
+            {
+                asked++;
+                if (TapSampler.Document(_) == null)
+                {
+                    return null;
+                }
+
+                return sampled;
+            };
+
+        var skipped = new TapBuffer(budget, 1024 * 1024);
+        var skipping = new TapInputStream(new MemoryStream(body), skipped, Named(false));
+        // not yet the Request and its Url
+        await Assert.That(skipping.Read(buffer, 0, 10)).IsEqualTo(10);
+        skipping.CopyTo(Stream.Null);
+        await Assert.That(asked).IsEqualTo(2);
+        await Assert.That(skipped.Length).IsEqualTo(0);
+        await Assert.That(budget.Used).IsEqualTo(0);
+        await Assert.That(skipping.Passed).IsEqualTo(body.Length);
+        await Assert.That(skipping.Settle(true)).IsFalse();
+        await Assert.That(skipped.Length).IsEqualTo(0);
+
+        var taken = new TapBuffer(budget, 1024 * 1024);
+        var taking = new TapInputStream(new MemoryStream(body), taken, Named(true));
+        await Assert.That(taking.Read(buffer, 0, 10)).IsEqualTo(10);
+        await Assert.That(taken.Length).IsEqualTo(0);
+        taking.CopyTo(Stream.Null);
+        await Assert.That(taken.ToArray().SequenceEqual(body)).IsTrue();
+        await Assert.That(taking.Settle(false)).IsTrue();
+
+        // a start that names no document, and is not full: the capture says
+        var small = body.Take(5000).ToArray();
+        var settled = new TapBuffer(budget, 1024 * 1024);
+        var settling = new TapInputStream(new MemoryStream(small), settled);
+        settling.CopyTo(Stream.Null);
+        await Assert.That(settled.Length).IsEqualTo(0);
+        await Assert.That(settling.Settle(true)).IsTrue();
+        await Assert.That(settled.ToArray().SequenceEqual(small)).IsTrue();
+        await Assert.That(settling.Settle(false)).IsTrue();
+
+        // and one that is full: copied, until the capture says not to
+        var full = new TapBuffer(budget, 1024 * 1024);
+        var filling = new TapInputStream(new MemoryStream(body), full);
+        filling.CopyTo(Stream.Null);
+        await Assert.That(full.Length).IsEqualTo(body.Length);
+        await Assert.That(filling.Settle(false)).IsFalse();
+    }
+
+    /// <summary>
     /// The queue never takes more than its capacity, counts the tombstones beyond theirs, and gives as watermark the
     /// earliest start of what waits or is in flight.
     /// </summary>
@@ -143,6 +268,8 @@ public class TapTests
         await Assert.That(settings.Includes("/sites/teamB/_vti_bin/cellstorage.svc/CellStorageService")).IsFalse();
         await Assert.That(settings.Includes("/sites/finance2/_vti_bin/sharedaccess.asmx")).IsFalse();
         await Assert.That(TapSettings.Read(_ => null).Includes("/anything")).IsTrue();
+        await Assert.That(settings.WcfReadsClassic).IsFalse();
+        await Assert.That(TapSettings.Read(_ => _ == "wcf:serviceHostingEnvironment:useClassicReadEntityBodyMode" ? " True " : null).WcfReadsClassic).IsTrue();
     }
 
     /// <summary>
