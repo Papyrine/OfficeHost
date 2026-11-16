@@ -107,7 +107,7 @@ sealed class TapSettings
 
         return path.Length == prefix.Length ||
                // not ^1: no System.Index on .NET Framework without System.ValueTuple
-               prefix[prefix.Length - 1] == '/' ||
+               prefix[^1] == '/' ||
                path[prefix.Length] == '/';
     }
 

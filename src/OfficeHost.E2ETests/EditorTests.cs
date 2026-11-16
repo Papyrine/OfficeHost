@@ -104,9 +104,9 @@ public class EditorTests
         catch
         {
             await Screenshot(page, nameof(Collabora_OpenEditSave));
-            await Console.Error.WriteLineAsync(string.Join('\n', server.Requests));
-            await Console.Error.WriteLineAsync(server.Log.ToString());
-            await Console.Error.WriteLineAsync(await collabora.Logs(cancel));
+            await Console.Error.WriteLineAsync(string.Join('\n', server.Requests), cancel);
+            await Console.Error.WriteLineAsync(server.Log.ToString(), cancel);
+            await Console.Error.WriteLineAsync(await collabora.Logs(cancel), cancel);
             throw;
         }
     }
@@ -155,9 +155,9 @@ public class EditorTests
         catch
         {
             await Screenshot(page, nameof(OnlyOffice_OpenWithProofKeys));
-            await Console.Error.WriteLineAsync(string.Join('\n', server.Requests));
-            await Console.Error.WriteLineAsync(server.Log.ToString());
-            await Console.Error.WriteLineAsync(await onlyOffice.Logs(cancel));
+            await Console.Error.WriteLineAsync(string.Join('\n', server.Requests), cancel);
+            await Console.Error.WriteLineAsync(server.Log.ToString(), cancel);
+            await Console.Error.WriteLineAsync(await onlyOffice.Logs(cancel), cancel);
             throw;
         }
     }

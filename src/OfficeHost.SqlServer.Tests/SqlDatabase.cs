@@ -1,5 +1,3 @@
-using TUnit.Core.Interfaces;
-
 /// <summary>
 /// A database of its own on LocalDB for the test session, with the tables installed, dropped at the end.
 /// </summary>

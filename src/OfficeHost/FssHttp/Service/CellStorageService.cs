@@ -548,7 +548,7 @@ class CellStorageService(
             await partialPuts.Get(site.FileId, site.Access.UserId, partition, cancel) is { Count: > 0 } waiting)
         {
             var sent = package.Select(_ => _.Id).ToHashSet();
-            package = waiting.Where(_ => !sent.Contains(_.Id)).Concat(package).ToList();
+            package = [.. waiting.Where(_ => !sent.Contains(_.Id)), .. package];
         }
 
         for (var attempt = 0; attempt < 8; attempt++)

@@ -39,7 +39,7 @@ public class FssHttpServiceTests
         await Assert.That(await word.Save(Zip("saved"))).IsTypeOf<PutChangesResponse>();
         var save = saves.Single();
         await Assert.That(save.File.Id).IsEqualTo(fileId);
-        await Assert.That(save.User).IsEqualTo(new OfficeUser("alice", "Alice", OfficeClient.Desktop));
+        await Assert.That(save.User).IsEqualTo(new("alice", "Alice", OfficeClient.Desktop));
         await Assert.That(save.Editors).IsEquivalentTo(["alice"]);
         await Assert.That(save.IsAutosave).IsFalse();
     }
@@ -283,7 +283,7 @@ public class FssHttpServiceTests
             async () => await word.Save(
                 large,
                 parts: 3,
-                part: response =>
+                part: _ =>
                 {
                     parts++;
                     return Task.CompletedTask;
@@ -481,7 +481,7 @@ public class FssHttpServiceTests
         var exclusive = (await host.Service<IOfficeLockStore>().Get(fileId))!;
         await Assert.That(exclusive.Id).IsEqualTo("fsshttp-exclusive:{E}");
         // the lock store hears who locks, as from desktop Office
-        await Assert.That(exclusive.Holder).IsEqualTo(new OfficeUser("alice", "Alice", OfficeClient.Desktop));
+        await Assert.That(exclusive.Holder).IsEqualTo(new("alice", "Alice", OfficeClient.Desktop));
         await Assert.That((await Exclusive("RefreshLock")).ErrorCode).IsEqualTo("Success");
         await Assert.That((await Exclusive("GetLock", "{F}")).ErrorCode).IsEqualTo("FileAlreadyLockedOnServer");
         await Assert.That((await Exclusive("CheckLockAvailability", "{F}")).ErrorCode).IsEqualTo("FileAlreadyLockedOnServer");

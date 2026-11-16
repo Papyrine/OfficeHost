@@ -1,5 +1,3 @@
-using Microsoft.AspNetCore.Mvc.Testing;
-
 /// <summary>
 /// The sample application, with a stubbed WOPI client discovery: the file list, the pages that launch the editor, and
 /// the WOPI requests of the editor with the token they give.

@@ -461,7 +461,7 @@ public class ApiTests
         using var response = await host.Client.GetAsync($"/wopi/files/{fileId}?access_token={token}");
         var info = JsonNode.Parse(await response.Content.ReadAsStringAsync())!;
         // the user of the token, as the hook runs in the request of the WOPI client
-        await Assert.That(user).IsEqualTo(new OfficeUser("alice", "Alice", OfficeClient.Wopi));
+        await Assert.That(user).IsEqualTo(new("alice", "Alice", OfficeClient.Wopi));
         await Assert.That((string?) info["CloseUrl"]).IsEqualTo("https://app/folder?file=test.docx");
         await Assert.That((bool?) info["UserCanWrite"]).IsFalse();
         await Assert.That((string?) info["HostEditUrl"]).IsEqualTo($"https://app/edit/{fileId}");

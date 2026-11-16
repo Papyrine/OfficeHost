@@ -312,7 +312,7 @@ class WordClient(TestServerHost host, string accessToken, string? clientId = nul
             if (!sendParts &&
                 put.Partial)
             {
-                return new PutChangesResponse(put.RequestId, Knowledge!);
+                return new PutChangesResponse(put.RequestId, Knowledge);
             }
 
             var request = new FssHttpBRequest(new(Guid.NewGuid(), "msword", "win", 1), [put], new(elements)).ToArray();

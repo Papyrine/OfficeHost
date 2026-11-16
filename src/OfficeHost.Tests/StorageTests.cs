@@ -319,7 +319,7 @@ public class StorageTests : IDisposable
         IOfficeLockStore locks = new OldLockStore();
         var expires = DateTimeOffset.UtcNow.AddMinutes(30);
         await Assert.That(await locks.CompareExchange("f", null, new("L", expires), new OfficeUser("alice", "Alice", OfficeClient.Wopi))).IsNull();
-        await Assert.That(await locks.Get("f")).IsEqualTo(new OfficeLock("L", expires));
+        await Assert.That(await locks.Get("f")).IsEqualTo(new("L", expires));
     }
 
     sealed class OldLockStore :

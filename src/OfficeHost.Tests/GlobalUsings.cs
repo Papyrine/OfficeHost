@@ -4,5 +4,6 @@ global using System.Globalization;
 global using System.IO.Compression;
 global using System.Security.Cryptography;
 global using System.Xml.Linq;
+global using Microsoft.AspNetCore.Mvc.Testing;
 global using TUnit.Core;
 global using static VerifyTUnit.Verifier;

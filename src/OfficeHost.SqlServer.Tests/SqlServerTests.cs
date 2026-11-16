@@ -110,7 +110,7 @@ public class SqlServerTests(SqlDatabase database) :
         var alice = new OfficeUser("alice", "Alice", OfficeClient.Wopi);
         var bob = new OfficeUser("bob", null, OfficeClient.Desktop);
         await Assert.That(await locks.CompareExchange(fileId, null, new("a", expires), alice)).IsNull();
-        await Assert.That(await locks.Get(fileId)).IsEqualTo(new OfficeLock("a", expires) { Holder = alice });
+        await Assert.That(await locks.Get(fileId)).IsEqualTo(new("a", expires) { Holder = alice });
 
         var previous = await locks.CompareExchange(fileId, "a", new("a", expires), bob);
         await Assert.That(previous!.Holder).IsEqualTo(alice);
