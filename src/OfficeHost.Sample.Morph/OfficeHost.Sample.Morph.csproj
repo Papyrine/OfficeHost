@@ -4,7 +4,7 @@
   OfficeHost.Sample serves through Morph.Wopi, a WOPI client beside Collabora Online.
   -->
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <InvariantGlobalization>true</InvariantGlobalization>
     <BlazorEnableTimeZoneSupport>false</BlazorEnableTimeZoneSupport>
     <IsPackable>false</IsPackable>

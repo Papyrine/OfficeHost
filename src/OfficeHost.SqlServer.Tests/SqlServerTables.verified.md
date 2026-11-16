@@ -1,6 +1,6 @@
 ﻿```mermaid
 erDiagram
-  OfficeHostFiles["**OfficeHostFiles**"] {
+  "OfficeHostFiles"["**OfficeHostFiles**"] {
     nvarchar(450) Id pk
     nvarchar(400) Folder
     nvarchar(255) Name
@@ -10,13 +10,13 @@ erDiagram
     uniqueidentifier Version
     datetimeoffset LastModified
   }
-  OfficeHostFssHttpStates["**OfficeHostFssHttpStates**"] {
+  "OfficeHostFssHttpStates"["**OfficeHostFssHttpStates**"] {
     nvarchar(450) FileId pk
     uniqueidentifier Partition pk
     nvarchar(max) Version
     varbinary(max) Data
   }
-  OfficeHostLocks["**OfficeHostLocks**"] {
+  "OfficeHostLocks"["**OfficeHostLocks**"] {
     nvarchar(450) FileId pk
     nvarchar(1024) LockId
     datetimeoffset Expires
@@ -24,10 +24,10 @@ erDiagram
     nvarchar(max)(nullable) HolderName
     nvarchar(16)(nullable) HolderClient
   }
-  OfficeHostSchemaVersion["**OfficeHostSchemaVersion**"] {
+  "OfficeHostSchemaVersion"["**OfficeHostSchemaVersion**"] {
     int Version
   }
-  OfficeHostUserInfo["**OfficeHostUserInfo**"] {
+  "OfficeHostUserInfo"["**OfficeHostUserInfo**"] {
     nvarchar(450) UserId pk
     nvarchar(max) Info
   }

@@ -4,7 +4,7 @@
   Sample section of readme.md.
   -->
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
     <Using Include="System.IO.Compression" />

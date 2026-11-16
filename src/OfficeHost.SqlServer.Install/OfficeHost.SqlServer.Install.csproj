@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <Description>Creates the SQL Server tables of OfficeHost.SqlServer, from a deployment or migration step, so that the application itself needs no rights to change the schema.</Description>
   </PropertyGroup>
   <ItemGroup>

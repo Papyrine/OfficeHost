@@ -45,7 +45,7 @@ jobs:
 
       - name: Install the Playwright browser
         shell: pwsh
-        run: ./src/OfficeHost.E2ETests/bin/Release/net10.0/playwright.ps1 install --with-deps chromium
+        run: ./src/OfficeHost.E2ETests/bin/Release/net11.0/playwright.ps1 install --with-deps chromium
 
       - name: Test
         run: dotnet run --project src/OfficeHost.E2ETests --configuration Release --no-build -- --treenode-filter "/*/*/EditorTests/${{ matrix.test }}"
@@ -55,5 +55,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: screenshots-${{ matrix.test }}
-          path: src/OfficeHost.E2ETests/bin/Release/net10.0/screenshots
+          path: src/OfficeHost.E2ETests/bin/Release/net11.0/screenshots
           if-no-files-found: ignore

@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <Description>An Azure Blob Storage storage for OfficeHost: the files in a blob container, shared by all the instances of the application, with no other service.</Description>
   </PropertyGroup>
   <ItemGroup>
