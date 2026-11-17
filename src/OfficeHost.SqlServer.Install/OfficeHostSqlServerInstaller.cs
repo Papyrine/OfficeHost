@@ -3,7 +3,7 @@ namespace OfficeHost;
 /// <summary>
 /// Creates the tables of the SQL Server stores of OfficeHost.SqlServer, and their schema, when missing, and brings
 /// tables of an older version up to date: the version is kept in a table of its own. Running it again changes nothing,
-/// and two instances that run it at once take turns.
+/// nor does running it on tables of a later version, and two instances that run it at once take turns.
 /// </summary>
 public static class OfficeHostSqlServerInstaller
 {
@@ -78,8 +78,12 @@ public static class OfficeHostSqlServerInstaller
              {Version3(locks)}
              end;
 
+             -- tables of a later version, as an older instance of the application installs, are left as they are
+             if @version is null or @version <= {Version}
+             begin
              delete from {versions};
              insert into {versions} (Version) values ({Version});
+             end;
              commit;
              """;
     }

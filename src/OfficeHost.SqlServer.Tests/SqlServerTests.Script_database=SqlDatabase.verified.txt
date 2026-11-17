@@ -83,6 +83,10 @@ begin
 exec(N'alter table [office].[OfficeHostLocks] add HolderId nvarchar(450) null, HolderName nvarchar(max) null, HolderClient nvarchar(16) null');
 end;
 
+-- tables of a later version, as an older instance of the application installs, are left as they are
+if @version is null or @version <= 3
+begin
 delete from [office].[OfficeHostSchemaVersion];
 insert into [office].[OfficeHostSchemaVersion] (Version) values (3);
+end;
 commit;

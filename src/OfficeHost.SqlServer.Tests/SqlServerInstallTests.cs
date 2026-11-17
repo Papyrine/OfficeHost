@@ -53,6 +53,28 @@ public class SqlServerInstallTests(SqlDatabase database)
     }
 
     /// <summary>
+    /// Tables of a later version, as when an older instance of the application installs during a rolling deploy, are left
+    /// as they are: their version is not set back, which would have the next install apply its changes again.
+    /// </summary>
+    [Test]
+    public async Task Install_LaterVersion()
+    {
+        const string schema = "later";
+        await OfficeHostSqlServerInstaller.Install(connectionString, schema);
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        var versions = $"[{schema}].[OfficeHostSchemaVersion]";
+        await using (var command = new SqlCommand($"update {versions} set Version = {OfficeHostSqlServerInstaller.Version + 1}", connection))
+        {
+            await command.ExecuteNonQueryAsync();
+        }
+
+        await OfficeHostSqlServerInstaller.Install(connectionString, schema);
+        await using var read = new SqlCommand($"select Version from {versions}", connection);
+        await Assert.That((int) (await read.ExecuteScalarAsync())!).IsEqualTo(OfficeHostSqlServerInstaller.Version + 1);
+    }
+
+    /// <summary>
     /// Installs at once, in schemas of their own, take turns rather than deadlock.
     /// </summary>
     [Test]
