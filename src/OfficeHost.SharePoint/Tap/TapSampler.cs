@@ -10,6 +10,18 @@ static class TapSampler
         TimeSpan.FromMilliseconds(100));
 
     /// <summary>
+    /// The bytes at the start of a body the document is looked for in: the envelope names it in its first few hundred,
+    /// after the MIME headers of an MTOM body. Decoded, 16 KB is a string of 32 KB, off the large object heap.
+    /// </summary>
+    public const int StartBytes = 16 * 1024;
+
+    /// <summary>
+    /// <see cref="Document(string)"/> of the start of a body, as read.
+    /// </summary>
+    public static string? Document(byte[] body, int length) =>
+        Document(Encoding.UTF8.GetString(body, 0, Math.Min(length, StartBytes)));
+
+    /// <summary>
     /// The URL of the document a cell storage request names: the Url of its first Request, in the SOAP envelope at the
     /// start of the body.
     /// </summary>

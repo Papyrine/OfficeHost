@@ -33,7 +33,6 @@ sealed class TapCapture
         "FileExtension", "X-Office-Major-Version"
     ];
 
-    const int peek = 64 * 1024;
     HttpContext context;
     TapRuntime runtime;
     string kind;
@@ -216,7 +215,7 @@ sealed class TapCapture
         {
             try
             {
-                document = TapSampler.Document(input != null ? Encoding.UTF8.GetString(input.Start()) : Peek());
+                document = input != null ? input.Document() : Peek();
             }
             catch (Exception exception)
             {
@@ -285,17 +284,17 @@ sealed class TapCapture
     }
 
     /// <summary>
-    /// The start of the request body, where the SOAP envelope names the document: read again from its start, as
-    /// SharePoint's handler has read it.
+    /// The document the start of the request body names, in its SOAP envelope: read again from its start, as
+    /// SharePoint's handler has read it, only as far as the document is looked for.
     /// </summary>
-    string Peek()
+    string? Peek()
     {
         var input = context.Request.InputStream;
         var position = input.Position;
         try
         {
             input.Position = 0;
-            var buffer = new byte[peek];
+            var buffer = new byte[TapSampler.StartBytes];
             var length = 0;
             int read;
             while (length < buffer.Length &&
@@ -304,7 +303,7 @@ sealed class TapCapture
                 length += read;
             }
 
-            return Encoding.UTF8.GetString(buffer, 0, length);
+            return TapSampler.Document(buffer, length);
         }
         finally
         {

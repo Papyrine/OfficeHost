@@ -48,6 +48,17 @@ sealed class TapInputStream(Stream inner, TapBuffer? copy, Func<string, bool?>? 
     }
 
     /// <summary>
+    /// The document the start names, or null.
+    /// </summary>
+    public string? Document()
+    {
+        lock (gate)
+        {
+            return TapSampler.Document(start, startLength);
+        }
+    }
+
+    /// <summary>
     /// Copies no more: the copy is sent or released.
     /// </summary>
     public void Stop()
@@ -190,8 +201,12 @@ sealed class TapInputStream(Stream inner, TapBuffer? copy, Func<string, bool?>? 
                     return;
                 }
 
-                // until here, all that was read is in the start
-                wanted ??= sampled?.Invoke(Encoding.UTF8.GetString(start, 0, startLength));
+                // until here, all that was read is in the start: the document is looked for in its first bytes, while they
+                // come
+                if (startLength - kept < TapSampler.StartBytes)
+                {
+                    wanted ??= sampled?.Invoke(Encoding.UTF8.GetString(start, 0, Math.Min(startLength, TapSampler.StartBytes)));
+                }
                 if (wanted == true ||
                     (wanted == null && startLength == startSize))
                 {

@@ -17,6 +17,11 @@ public class TapTests
         await Assert.That(document).IsEqualTo("http://spse.mshome.net/Shared%20Documents/Budget%20Q1.xlsx?x=1&y=2");
         await Assert.That(TapSampler.Key(document)).IsEqualTo(ShadowDocument.From(document)!.Key);
         await Assert.That(TapSampler.Document("<html>not a request</html>")).IsNull();
+        // from bytes, only the start is decoded: an envelope beyond it names no document
+        var bytes = Encoding.UTF8.GetBytes(envelope);
+        await Assert.That(TapSampler.Document(bytes, bytes.Length)).IsEqualTo(document);
+        byte[] late = [..new byte[TapSampler.StartBytes], ..bytes];
+        await Assert.That(TapSampler.Document(late, late.Length)).IsNull();
 
         var keys = Enumerable.Range(0, 10_000).Select(_ => $"spse/shared documents/{_}.docx").ToList();
         var sampled = keys.Count(_ => TapSampler.Sampled(_, 25));
