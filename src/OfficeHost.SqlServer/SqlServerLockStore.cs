@@ -80,7 +80,8 @@ public sealed class SqlServerLockStore(string connectionString, TimeProvider tim
                  set @holderName = null;
                  set @holderClient = null;
              end;
-             if @id = @comparand collate Latin1_General_100_BIN2 or (@id is null and @comparand is null)
+             -- = ignores trailing spaces whatever the collation: the lengths are compared too
+             if (@id = @comparand collate Latin1_General_100_BIN2 and datalength(@id) = datalength(@comparand)) or (@id is null and @comparand is null)
              begin
                  delete from {table} where FileId = @fileId;
                  if @value is not null

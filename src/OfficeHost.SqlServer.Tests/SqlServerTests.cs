@@ -145,6 +145,11 @@ public class SqlServerTests(SqlDatabase database) :
         await locks.CompareExchange(folder, "ABC", new(id, expires));
         await Assert.That((await locks.CompareExchange(folder, id + "b", null))!.Id).IsEqualTo(id);
         await Assert.That((await locks.Get(folder))!.Id).IsEqualTo(id);
+
+        // nor are trailing spaces ignored, as SQL compares strings
+        await locks.CompareExchange(folder, id, new("L1", expires));
+        await Assert.That((await locks.CompareExchange(folder, "L1 ", null))!.Id).IsEqualTo("L1");
+        await Assert.That((await locks.Get(folder))!.Id).IsEqualTo("L1");
     }
 
     /// <summary>
