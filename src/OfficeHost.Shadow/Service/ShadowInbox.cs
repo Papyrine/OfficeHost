@@ -13,7 +13,8 @@ record ShadowBatch(Guid Instance, string Server, DateTimeOffset Watermark, long 
 
 /// <summary>
 /// A loss the shadow cannot tie to a document: an instance that stopped sending without its last batch (its app domain
-/// stopped abruptly), or exchanges it dropped without a tombstone. Every document it sent is then untrusted.
+/// stopped abruptly), or exchanges it dropped without a tombstone. Every document known, and every one of an exchange
+/// waiting, is then untrusted, as the exchange lost may be of any.
 /// </summary>
 record ShadowLoss(Guid Instance, string Server, string Reason);
 
@@ -182,6 +183,17 @@ sealed class ShadowInbox(IOptions<OfficeHostShadowOptions> options, TimeProvider
     }
 
     public Task Wait(TimeSpan timeout, Cancel cancel) => signal.WaitAsync(timeout, cancel);
+
+    /// <summary>
+    /// The exchanges waiting, by instance and sequence.
+    /// </summary>
+    public HashSet<(Guid Instance, long Sequence)> Pending()
+    {
+        lock (gate)
+        {
+            return pending.Select(_ => (_.Instance, _.Sequence)).ToHashSet();
+        }
+    }
 
     /// <summary>
     /// The exchanges that can be replayed, in the order SharePoint started them.

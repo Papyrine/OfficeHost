@@ -50,6 +50,9 @@ sealed class ShadowProcessor
     ILogger<ShadowProcessor> log;
     ShadowReplay replay;
     Dictionary<string, Tracked> tracked = [];
+
+    // the exchanges that waited in the inbox when a loss was reported, and its reason: their documents are untrusted
+    Dictionary<(Guid Instance, long Sequence), string> waitingAtLoss = [];
     Dictionary<(ShadowOutcome Outcome, string Label), int> counts = [];
     DateTimeOffset summarized = DateTimeOffset.UtcNow;
     string? recordingFolder;
@@ -101,15 +104,23 @@ sealed class ShadowProcessor
             }
         }
 
+        // a loss names no document: the exchange lost may be of any, as Office's requests go to any server of the farm,
+        // of a document known, or of one whose exchanges still wait in the inbox
         foreach (var loss in inbox.Losses())
         {
-            foreach (var document in tracked.Values.Where(_ => _.Instances.Contains(loss.Instance)))
+            var reason = $"{loss.Server} {loss.Reason}";
+            foreach (var document in tracked.Values)
             {
-                document.Untrust($"{loss.Server} {loss.Reason}", true);
+                document.Untrust(reason, true);
+            }
+
+            foreach (var key in inbox.Pending())
+            {
+                waitingAtLoss[key] = reason;
             }
 
             Count(ShadowOutcome.TapDropped, "server");
-            Write(ShadowOutcome.TapDropped, "{Outcome}: {Server} {Reason}; the documents it sent are not compared until they are forgotten", ShadowOutcome.TapDropped, loss.Server, loss.Reason);
+            Write(ShadowOutcome.TapDropped, "{Outcome}: {Server} {Reason}; the documents known and waiting are not compared until they are forgotten", ShadowOutcome.TapDropped, loss.Server, loss.Reason);
         }
 
         Forget(DateTimeOffset.UtcNow);
@@ -118,6 +129,8 @@ sealed class ShadowProcessor
 
     async Task Process(ShadowItem item, Cancel cancel)
     {
+        // waiting when a loss was reported: its documents may miss the exchange lost
+        waitingAtLoss.Remove((item.Instance, item.Sequence), out var loss);
         if (item.Exchange is not { } exchange)
         {
             if (item.Tombstone is { } missing)
@@ -163,6 +176,10 @@ sealed class ShadowProcessor
                 state.LastSeen = DateTimeOffset.UtcNow;
                 state.LastStarted = item.Started;
                 state.Instances.Add(item.Instance);
+                if (loss != null)
+                {
+                    state.Untrust(loss, true);
+                }
             }
         }
 

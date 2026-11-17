@@ -79,7 +79,8 @@ public class ShadowTests
         Guid instance,
         DateTimeOffset? watermark = null,
         string sentKey = Key,
-        IEnumerable<(ShadowDocument Document, long Sequence, DateTimeOffset Started)>? tombstones = null)
+        IEnumerable<(ShadowDocument Document, long Sequence, DateTimeOffset Started)>? tombstones = null,
+        long dropped = 0)
     {
         var content = new MultipartContent("mixed");
         var latest = DateTimeOffset.MinValue;
@@ -122,6 +123,11 @@ public class ShadowTests
         message.Headers.Add(ShadowProtocol.Instance, instance.ToString());
         message.Headers.Add(ShadowProtocol.Server, "sharepoint");
         message.Headers.Add(ShadowProtocol.Watermark, (watermark ?? latest.AddSeconds(1)).ToString("O"));
+        if (dropped > 0)
+        {
+            message.Headers.Add(ShadowProtocol.Dropped, dropped.ToString());
+        }
+
         return await shadow.Client.SendAsync(message);
     }
 
@@ -275,6 +281,38 @@ public class ShadowTests
         }
 
         await Assert.That(shadow.Log.Lines.Count(_ => _.Contains("ShadowFailed: ", StringComparison.Ordinal))).IsEqualTo(1);
+    }
+
+    /// <summary>
+    /// A server that dropped an exchange it cannot name the document of: every document may miss it, as Office's requests
+    /// go to any server, so those whose exchanges come from another server and still wait in the inbox are untrusted too.
+    /// </summary>
+    [Test]
+    public async Task Dropped_ByAnotherServer()
+    {
+        using var folder = new TempDirectory();
+        var (_, file) = await Record(folder);
+        var status = Path.Combine(folder, "0006.response.http");
+        await File.WriteAllTextAsync(status, (await File.ReadAllTextAsync(status)).Replace("CoauthStatus=\"Coauthoring\"", "CoauthStatus=\"Alone\""));
+        var exchanges = Exchange.ReadFolder(folder);
+        await using var shadow = await StartShadow(file, _ =>
+        {
+            _.Levels[ShadowOutcome.NotCompared] = LogLevel.Information;
+            _.MaximumDelay = TimeSpan.FromSeconds(2);
+        });
+
+        // the other server lags, with a request in flight from before the exchanges: they wait for it
+        var other = Guid.NewGuid();
+        var before = exchanges[0].Time!.Value.AddSeconds(-1);
+        await Post(shadow, [], other, before);
+        await Post(shadow, exchanges, Guid.NewGuid());
+        await Post(shadow, [], other, before, dropped: 1);
+
+        var findings = await Findings(shadow, 11);
+        await Assert.That(findings).Contains(_ => _.Contains("TapDropped: sharepoint 1 exchanges dropped without a tombstone"));
+        await Assert.That(findings).Contains(_ => _.StartsWith("Information ShadowProcessor: NotCompared: Coauth GetCoauthoringStatus", StringComparison.Ordinal) &&
+                                                  _.Contains("dropped without a tombstone"));
+        await Assert.That(findings).DoesNotContain(_ => _.Contains("Different:"));
     }
 
     /// <summary>
