@@ -197,6 +197,20 @@ public class FssHttpBRoundTripTests
     }
 
     /// <summary>
+    /// A count of the bytes of a response, which copies none of its data, is the size it is written at.
+    /// </summary>
+    [Test]
+    public async Task ByteCounter_Count()
+    {
+        var response = new FssHttpBResponse([], new([new ObjectDataBlob(Id(1), Serial(1), Data(70000)), new ObjectDataBlob(Id(2), Serial(2), Data(5000))]));
+        var counter = new ByteCounter();
+        response.Write(counter);
+        var bytes = FssHttpB.Write(response);
+        await Assert.That(counter.Count).IsEqualTo(bytes.Length);
+        await Assert.That(response.ToMemory().ToArray().SequenceEqual(bytes)).IsTrue();
+    }
+
+    /// <summary>
     /// Models with more than one encoding are written in one: a client or platform alone with the other empty, and the
     /// data elements added of a Put Changes response after the null Storage Index when none was applied.
     /// </summary>

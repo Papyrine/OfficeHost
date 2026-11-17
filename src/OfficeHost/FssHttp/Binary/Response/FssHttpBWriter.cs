@@ -34,7 +34,18 @@ ref struct FssHttpBWriter(IBufferWriter<byte> output)
         output.Advance(16);
     }
 
-    public void WriteBytes(ReadOnlySpan<byte> value) => output.Write(value);
+    public void WriteBytes(ReadOnlySpan<byte> value)
+    {
+        // counting the bytes needs no copy of them: the data of a response, megabytes, is counted twice before it is
+        // written
+        if (output is ByteCounter counter)
+        {
+            counter.Advance(value.Length);
+            return;
+        }
+
+        output.Write(value);
+    }
 
     /// <summary>
     /// A compact unsigned 64-bit integer (2.2.1.1): the value shifted left by the size, under a type flag of one bit at
