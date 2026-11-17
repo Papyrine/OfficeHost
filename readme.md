@@ -378,7 +378,7 @@ flowchart LR
 | `LockDuration` | 30 minutes | How long a lock lasts unless refreshed, as [MS-WOPI] sets it. |
 | `BaseUrl` | the request's | The URL the WOPI clients reach the application at: WOPISrc is `{BaseUrl}/wopi/files/{fileId}`. |
 | `DiscoveryUrls` | | The trusted WOPI clients: their actions are launched, and their proof keys checked. |
-| `RequireProof` | false | Refuses requests without `X-WOPI-Proof`. Collabora Online does not sign its requests. |
+| `RequireProof` | false | Refuses requests without `X-WOPI-Proof`, and all requests when there are no `DiscoveryUrls` to validate it with. Collabora Online does not sign its requests. |
 | `MaxFileSize` | 512 MB | The largest file PutFile, PutRelativeFile and desktop Office's saves accept, replacing the server's request size limit; null for none. |
 | `ServerVersion` | the library's | The `X-WOPI-ServerVersion` of the responses. |
 | `HostEditUrl`, `HostViewUrl` | | The pages of the application that open a file, returned by CheckFileInfo and PutRelativeFile. |

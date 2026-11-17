@@ -302,6 +302,35 @@ public class ProofKeyTests
     }
 
     /// <summary>
+    /// With no trusted WOPI client, no proof can be validated: RequireProof refuses every request, signed or not, rather
+    /// than none.
+    /// </summary>
+    [Test]
+    [Arguments(false, HttpStatusCode.OK)]
+    [Arguments(true, HttpStatusCode.InternalServerError)]
+    public async Task NoDiscoveryUrls(bool required, HttpStatusCode expected)
+    {
+        await using var host = await TestServerHost.Start(_ => _.RequireProof = required);
+        await File.WriteAllTextAsync(host.PathOf("/test.docx"), "content");
+        var (fileId, token) = await host.Open("/test.docx");
+        var url = $"http://localhost/wopi/files/{fileId}?access_token={token}";
+        using var client = RSA.Create(2048);
+        var now = DateTime.UtcNow.Ticks;
+        foreach (var signed in new[] { false, true })
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            if (signed)
+            {
+                request.Headers.Add("X-WOPI-TimeStamp", now.ToString());
+                request.Headers.Add("X-WOPI-Proof", Sign(client, token, url, now));
+            }
+
+            using var response = await host.Client.SendAsync(request);
+            await Assert.That(response.StatusCode).IsEqualTo(expected);
+        }
+    }
+
+    /// <summary>
     /// The POST operations and GetFile/PutFile are validated too.
     /// </summary>
     [Test]

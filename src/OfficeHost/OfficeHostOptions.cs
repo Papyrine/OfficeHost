@@ -65,7 +65,8 @@ public class OfficeHostOptions
     /// <summary>
     /// Refuses the requests without X-WOPI-Proof. Only for WOPI clients that sign their requests, which Collabora
     /// Online does not. Without it, an access token is enough to call the WOPI endpoints, so that the user of a
-    /// <see cref="OfficeAccess.ViewOnly"/> token who takes it from the page can still download the file.
+    /// <see cref="OfficeAccess.ViewOnly"/> token who takes it from the page can still download the file. The proofs are
+    /// validated with the keys of <see cref="DiscoveryUrls"/>: with none, every request is refused.
     /// </summary>
     public bool RequireProof { get; set; }
 

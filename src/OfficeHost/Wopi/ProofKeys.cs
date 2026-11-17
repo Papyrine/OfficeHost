@@ -21,6 +21,12 @@ sealed class ProofKeys(WopiDiscovery discovery, IOptions<OfficeHostOptions> opti
     {
         if (!Enabled)
         {
+            // no keys to validate a proof with: none is valid when one is required
+            if (Options.RequireProof)
+            {
+                return "RequireProof is set, but there are no DiscoveryUrls for the keys of a proof";
+            }
+
             return null;
         }
 
