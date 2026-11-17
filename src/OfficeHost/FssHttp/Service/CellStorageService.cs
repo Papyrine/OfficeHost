@@ -171,7 +171,14 @@ class CellStorageService(
             return response;
         }
 
-        // the site reaches the file once it wrote it
+        // the site reaches the file once it wrote it. A Put can succeed without writing a file taken over: a part of a
+        // split save waits for its last part, and a Put of another partition writes no content
+        if (!created &&
+            (await storage.GetFile(file.Id, cancel))?.Version == file.Version)
+        {
+            return response;
+        }
+
         await saveAs.Add(site, file.Id, cancel);
         return response;
     }

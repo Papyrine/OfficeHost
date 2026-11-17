@@ -196,6 +196,34 @@ public class NewFileTests
     }
 
     /// <summary>
+    /// A part of a split save answers Success without writing the file: a Save As whose Cell has only such a part does
+    /// not let the site reach the file it would take over.
+    /// </summary>
+    [Test]
+    public async Task SaveAs_OtherFile_PartialPut_NotRead()
+    {
+        var (host, token, _) = await Start();
+        await using var _ = host;
+        var original = await File.ReadAllBytesAsync(host.PathOf("other.docx"));
+        var client = new WordClient(host, token)
+        {
+            DocumentUrl = Url(token, "other.docx")
+        };
+        var ids = new IdAllocator(Guid.NewGuid());
+        // Partial, with no data elements: kept for the last part, which never comes
+        var put = new PutChangesRequest(1, ids.NewId(), ExtendedGuid.Null, 0x4B, new byte[3], new byte[] { 4, 0, 0 });
+        var request = new FssHttpBRequest(new(Guid.NewGuid(), "msword", "win", 1), [put], new([])).ToArray();
+        var result = (await client.Send(WordClient.Cell("1", request, new XAttribute("Coalesce", "true")))).Single();
+        await Assert.That(result.ErrorCode).IsEqualTo("Success");
+        await Assert.That((await File.ReadAllBytesAsync(host.PathOf("other.docx"))).SameAs(original)).IsTrue();
+
+        using var get = await host.Client.GetAsync($"/fsshttp/{token}/other.docx");
+        await Assert.That(get.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
+        var query = await client.Send(WordClient.Cell("1", WordClient.Query()));
+        await Assert.That(query.Single().ErrorCode).IsEqualTo("FileNotExistsOrCannotBeCreated");
+    }
+
+    /// <summary>
     /// After a rename the file answers to its new name only, as on SharePoint Server SE.
     /// </summary>
     [Test]
