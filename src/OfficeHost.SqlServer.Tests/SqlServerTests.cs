@@ -169,6 +169,14 @@ public class SqlServerTests(SqlDatabase database) :
             await Assert.That(copy.ToArray().AsSpan().SequenceEqual(bytes)).IsTrue();
         }
 
+        await using (var read = await storage.OpenRead(file.Id))
+        {
+            using var copy = new MemoryStream();
+            // the synchronous read
+            read.CopyTo(copy);
+            await Assert.That(copy.ToArray().AsSpan().SequenceEqual(bytes)).IsTrue();
+        }
+
         await using var interrupted = await storage.OpenRead(file.Id);
         var buffer = new byte[1024];
         await interrupted.ReadExactlyAsync(buffer);

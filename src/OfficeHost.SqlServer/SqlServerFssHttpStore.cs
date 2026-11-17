@@ -17,17 +17,23 @@ public sealed class SqlServerFssHttpStore(string connectionString, string schema
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancel);
         await using var command = new SqlCommand(
-            $"select Version, Data from {table} where FileId = @fileId and Partition = @partition",
+            $"select Version, datalength(Data), Data from {table} where FileId = @fileId and Partition = @partition",
             connection);
         command.Parameters.AddWithValue("@fileId", fileId);
         command.Parameters.AddWithValue("@partition", partition);
-        await using var reader = await command.ExecuteReaderAsync(cancel);
+        // the state of the content is the size of the file: streamed into an array of its size, as SqlClient otherwise
+        // buffers the whole value of an asynchronous read, replaying its packets
+        await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess | CommandBehavior.SingleRow, cancel);
         if (!await reader.ReadAsync(cancel))
         {
             return null;
         }
 
-        return new(reader.GetString(0), (byte[]) reader[1]);
+        var version = reader.GetString(0);
+        var data = new byte[reader.GetInt64(1)];
+        await using var stream = reader.GetStream(2);
+        await stream.ReadExactlyAsync(data, cancel);
+        return new(version, data);
     }
 
     public Task<string?> GetVersion(string fileId, Guid partition, Cancel cancel = default) =>

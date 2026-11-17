@@ -1,15 +1,20 @@
 /// <summary>
 /// The content of a file, read from the database in chunks, each by a statement on a connection of its own: a slow
 /// reader holds no connection between chunks, nor a lock. A write of the file while it is read fails the read, rather
-/// than mixing two versions.
+/// than mixing two versions. Each chunk is streamed (<see cref="CommandBehavior.SequentialAccess"/>) into a buffer the
+/// stream keeps: without it, SqlClient buffers the whole value of an asynchronous read, replaying its packets, and the
+/// chunk would be a new array each time.
 /// </summary>
 sealed class SqlServerReadStream(string connectionString, string table, string fileId, Guid version, long length) :
     Stream
 {
     const int chunkSize = 4 * 1024 * 1024;
 
+    const CommandBehavior behavior = CommandBehavior.SequentialAccess | CommandBehavior.SingleRow;
+
     long position;
-    byte[] chunk = [];
+    byte[]? chunk;
+    int chunkLength;
     int chunkOffset;
 
     public override bool CanRead => true;
@@ -38,8 +43,11 @@ sealed class SqlServerReadStream(string connectionString, string table, string f
             using var connection = new SqlConnection(connectionString);
             connection.Open();
             using var command = ChunkCommand(connection);
-            using var reader = command.ExecuteReader(CommandBehavior.SingleRow);
-            Next(reader.Read(), reader);
+            using var reader = command.ExecuteReader(behavior);
+            Check(reader.Read(), reader);
+            using var content = reader.GetStream(1);
+            var target = Chunk();
+            Filled(content.ReadAtLeast(target, target.Length, false));
         }
 
         return Copy(buffer);
@@ -60,14 +68,23 @@ sealed class SqlServerReadStream(string connectionString, string table, string f
             await using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync(cancel);
             await using var command = ChunkCommand(connection);
-            await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleRow, cancel);
-            Next(await reader.ReadAsync(cancel), reader);
+            await using var reader = await command.ExecuteReaderAsync(behavior, cancel);
+            Check(await reader.ReadAsync(cancel), reader);
+            await using var content = reader.GetStream(1);
+            var target = Chunk();
+            Filled(await content.ReadAtLeastAsync(target, target.Length, false, cancel));
         }
 
         return Copy(buffer.Span);
     }
 
-    bool Available() => chunkOffset < chunk.Length;
+    bool Available() => chunkOffset < chunkLength;
+
+    /// <summary>
+    /// The buffer of the chunks: a chunk, or the whole file when smaller.
+    /// </summary>
+    byte[] Chunk() =>
+        chunk ??= new byte[(int) Math.Min(chunkSize, length)];
 
     SqlCommand ChunkCommand(SqlConnection connection)
     {
@@ -82,7 +99,7 @@ sealed class SqlServerReadStream(string connectionString, string table, string f
         return command;
     }
 
-    void Next(bool found, SqlDataReader reader)
+    void Check(bool found, SqlDataReader reader)
     {
         if (!found)
         {
@@ -93,10 +110,13 @@ sealed class SqlServerReadStream(string connectionString, string table, string f
         {
             throw new IOException($"The file {fileId} was written while it was read");
         }
+    }
 
-        chunk = (byte[]) reader[1];
+    void Filled(int count)
+    {
+        chunkLength = count;
         chunkOffset = 0;
-        if (chunk.Length == 0)
+        if (count == 0)
         {
             throw new IOException($"The file {fileId} is shorter than when it was opened");
         }
@@ -104,8 +124,8 @@ sealed class SqlServerReadStream(string connectionString, string table, string f
 
     int Copy(Span<byte> buffer)
     {
-        var count = Math.Min(buffer.Length, chunk.Length - chunkOffset);
-        chunk.AsSpan(chunkOffset, count).CopyTo(buffer);
+        var count = Math.Min(buffer.Length, chunkLength - chunkOffset);
+        chunk!.AsSpan(chunkOffset, count).CopyTo(buffer);
         chunkOffset += count;
         position += count;
         return count;
