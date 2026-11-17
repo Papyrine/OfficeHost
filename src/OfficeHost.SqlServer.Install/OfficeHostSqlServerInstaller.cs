@@ -9,9 +9,10 @@ public static class OfficeHostSqlServerInstaller
 {
     /// <summary>
     /// The version of the tables the script makes: 1, the tables; 2, ids, lock ids and versions compared as they are, in
-    /// a binary collation, whatever that of the database; 3, the holder of a lock.
+    /// a binary collation, whatever that of the database; 3, the holder of a lock; 4, the key of the coauthoring states
+    /// within the 900 bytes of a clustered index.
     /// </summary>
-    public const int Version = 3;
+    public const int Version = 4;
 
     const string binary = "Latin1_General_100_BIN2";
 
@@ -76,6 +77,12 @@ public static class OfficeHostSqlServerInstaller
              if @version = 2
              begin
              {Version3(locks)}
+             set @version = 3;
+             end;
+
+             if @version = 3
+             begin
+             {Version4(states)}
              end;
 
              -- tables of a later version, as an older instance of the application installs, are left as they are
@@ -119,7 +126,7 @@ public static class OfficeHostSqlServerInstaller
 
          if object_id({Literal(states)}) is null
              create table {states} (
-                 FileId nvarchar(450) collate {binary} not null,
+                 FileId nvarchar({SqlServerTables.MaxStateFileIdLength}) collate {binary} not null,
                  Partition uniqueidentifier not null,
                  Version nvarchar(max) collate {binary} not null,
                  Data varbinary(max) not null,
@@ -157,12 +164,21 @@ public static class OfficeHostSqlServerInstaller
         $"exec({Literal($"alter table {locks} add HolderId nvarchar(450) null, HolderName nvarchar(max) null, HolderClient nvarchar(16) null")});";
 
     /// <summary>
-    /// Changes the collation of a column of the primary key: the key is dropped, by the name SQL Server gave it, and
-    /// made again under a name of its own.
+    /// Version 4 from version 3: the FileId of the coauthoring states narrowed so that the key, with its Partition, fits
+    /// the 900 bytes of a clustered index, which SQL Server made with a warning only: the insert of a state of a longer id
+    /// failed. No state had one.
     /// </summary>
-    static string Rekey(string tableName, string table, string column, string key)
+    static string Version4(string states) =>
+        Rekey(SqlServerTables.FssHttpStates, states, $"FileId nvarchar({SqlServerTables.MaxStateFileIdLength})", "FileId, Partition", "4");
+
+    /// <summary>
+    /// Changes the collation of a column of the primary key: the key is dropped, by the name SQL Server gave it, and
+    /// made again under a name of its own. The variable of the statement is named after the table, and the version when
+    /// the script rekeys the table again.
+    /// </summary>
+    static string Rekey(string tableName, string table, string column, string key, string version = "")
     {
-        var variable = $"@{tableName}Drop";
+        var variable = $"@{tableName}Drop{version}";
         return
             $"""
              declare {variable} nvarchar(max) = {Literal($"alter table {table} drop constraint ")} + quotename((select name from sys.key_constraints where parent_object_id = object_id({Literal(table)}) and type = 'PK'));

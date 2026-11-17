@@ -223,6 +223,21 @@ public class SqlServerTests(SqlDatabase database) :
         await Assert.That(await store.Get(folder, partition)).IsNull();
     }
 
+    /// <summary>
+    /// A file id as long as the key of the table holds, with the partition, within the 900 bytes of a clustered index; a
+    /// longer one is refused, not a server error of SQL Server.
+    /// </summary>
+    [Test]
+    public async Task FssHttp_LongFileId()
+    {
+        var store = new SqlServerFssHttpStore(connectionString);
+        var partition = Guid.NewGuid();
+        var fileId = folder + new string('f', 442 - folder.Length);
+        await Assert.That(await store.CompareExchange(fileId, partition, null, new("1", new byte[] {1}))).IsTrue();
+        await Assert.That((await store.Get(fileId, partition))!.Version).IsEqualTo("1");
+        await Assert.That(() => store.CompareExchange(fileId + "f", partition, null, new("1", new byte[] {1}))).Throws<ArgumentException>();
+    }
+
     [Test]
     public async Task FssHttp_Race()
     {

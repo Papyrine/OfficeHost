@@ -11,7 +11,7 @@ erDiagram
     datetimeoffset LastModified
   }
   "OfficeHostFssHttpStates"["**OfficeHostFssHttpStates**"] {
-    nvarchar(450) FileId pk
+    nvarchar(442) FileId pk
     uniqueidentifier Partition pk
     nvarchar(max) Version
     varbinary(max) Data

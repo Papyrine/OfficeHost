@@ -43,7 +43,7 @@ if object_id(N'[office].[OfficeHostLocks]') is null
 
 if object_id(N'[office].[OfficeHostFssHttpStates]') is null
     create table [office].[OfficeHostFssHttpStates] (
-        FileId nvarchar(450) collate Latin1_General_100_BIN2 not null,
+        FileId nvarchar(442) collate Latin1_General_100_BIN2 not null,
         Partition uniqueidentifier not null,
         Version nvarchar(max) collate Latin1_General_100_BIN2 not null,
         Data varbinary(max) not null,
@@ -81,12 +81,21 @@ end;
 if @version = 2
 begin
 exec(N'alter table [office].[OfficeHostLocks] add HolderId nvarchar(450) null, HolderName nvarchar(max) null, HolderClient nvarchar(16) null');
+set @version = 3;
+end;
+
+if @version = 3
+begin
+declare @OfficeHostFssHttpStatesDrop4 nvarchar(max) = N'alter table [office].[OfficeHostFssHttpStates] drop constraint ' + quotename((select name from sys.key_constraints where parent_object_id = object_id(N'[office].[OfficeHostFssHttpStates]') and type = 'PK'));
+exec(@OfficeHostFssHttpStatesDrop4);
+exec(N'alter table [office].[OfficeHostFssHttpStates] alter column FileId nvarchar(442) collate Latin1_General_100_BIN2 not null');
+exec(N'alter table [office].[OfficeHostFssHttpStates] add constraint [PK_OfficeHostFssHttpStates] primary key (FileId, Partition)');
 end;
 
 -- tables of a later version, as an older instance of the application installs, are left as they are
-if @version is null or @version <= 3
+if @version is null or @version <= 4
 begin
 delete from [office].[OfficeHostSchemaVersion];
-insert into [office].[OfficeHostSchemaVersion] (Version) values (3);
+insert into [office].[OfficeHostSchemaVersion] (Version) values (4);
 end;
 commit;

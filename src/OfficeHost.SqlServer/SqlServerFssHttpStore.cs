@@ -1,7 +1,8 @@
 namespace OfficeHost;
 
 /// <summary>
-/// The states of desktop Office coauthoring in a SQL Server table, shared by all the instances of the application.
+/// The states of desktop Office coauthoring in a SQL Server table, shared by all the instances of the application. The
+/// file ids are of at most 442 characters, which the key of the table holds with the partition.
 /// </summary>
 public sealed class SqlServerFssHttpStore(string connectionString, string schema = "dbo") :
     IFssHttpStore
@@ -44,8 +45,16 @@ public sealed class SqlServerFssHttpStore(string connectionString, string schema
         return (string?) await command.ExecuteScalarAsync(cancel);
     }
 
-    public Task<bool> CompareExchange(string fileId, Guid partition, string? comparand, FssHttpState value, Cancel cancel = default) =>
-        DeadlockRetry.Once(() => CompareExchangeAttempt(fileId, partition, comparand, value, cancel));
+    /// <exception cref="ArgumentException">The file id is longer than the table holds.</exception>
+    public Task<bool> CompareExchange(string fileId, Guid partition, string? comparand, FssHttpState value, Cancel cancel = default)
+    {
+        if (fileId.Length > SqlServerTables.MaxStateFileIdLength)
+        {
+            throw new ArgumentException($"A file id is at most {SqlServerTables.MaxStateFileIdLength} characters", nameof(fileId));
+        }
+
+        return DeadlockRetry.Once(() => CompareExchangeAttempt(fileId, partition, comparand, value, cancel));
+    }
 
     async Task<bool> CompareExchangeAttempt(string fileId, Guid partition, string? comparand, FssHttpState value, Cancel cancel)
     {
