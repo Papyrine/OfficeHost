@@ -13,9 +13,12 @@ sealed class TapInputStream(Stream inner, TapBuffer? copy, Func<string, bool?>? 
     Lock gate = new();
     byte[] start = new byte[startSize];
     int startLength;
+
     bool stopped;
+
     // the copy has the start, and takes what is read
     bool copying;
+
     // whether the document is sampled, once known
     bool? wanted;
 
@@ -160,7 +163,7 @@ sealed class TapInputStream(Stream inner, TapBuffer? copy, Func<string, bool?>? 
 
     public override int EndRead(IAsyncResult asyncResult)
     {
-        var read = (PendingRead) asyncResult;
+        var read = (PendingRead)asyncResult;
         var count = inner.EndRead(read.Inner!);
         Copy(read.Buffer, read.Offset, count, read.Count);
         return count;
@@ -207,6 +210,7 @@ sealed class TapInputStream(Stream inner, TapBuffer? copy, Func<string, bool?>? 
                 {
                     wanted ??= sampled?.Invoke(Encoding.UTF8.GetString(start, 0, Math.Min(startLength, TapSampler.StartBytes)));
                 }
+
                 if (wanted == true ||
                     (wanted == null && startLength == startSize))
                 {
