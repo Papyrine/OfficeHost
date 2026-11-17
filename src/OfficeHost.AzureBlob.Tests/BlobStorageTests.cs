@@ -33,6 +33,32 @@ public class BlobStorageTests(BlobAccount account) :
     }
 
     /// <summary>
+    /// A file being renamed keeps its old name until it has the new one, so that a rename that fails, as to a name taken
+    /// meanwhile, never leaves the old name to another file: the metadata of a rename under way, as a crash leaves it.
+    /// </summary>
+    [Test]
+    public async Task Rename_KeepsOldName()
+    {
+        var file = (await Add(folder, "a.docx", Content("")))!;
+        var blob = container.GetBlobClient($"files/{file.Id}");
+        var properties = (await blob.GetPropertiesAsync()).Value;
+        var metadata = new Dictionary<string, string>(properties.Metadata)
+        {
+            ["name"] = Encode("b.docx"),
+            ["renaming"] = Encode("a.docx")
+        };
+        await blob.SetMetadataAsync(metadata);
+        await Assert.That(await Add(folder, "a.docx", Content(""))).IsNull();
+
+        // the rename that ends frees it
+        await Assert.That((await storage.Rename(file.Id, "c.docx"))!.Name).IsEqualTo("c.docx");
+        await Assert.That(await Add(folder, "a.docx", Content(""))).IsNotNull();
+    }
+
+    static string Encode(string value) =>
+        System.Buffers.Text.Base64Url.EncodeToString(Encoding.UTF8.GetBytes(value));
+
+    /// <summary>
     /// The WOPI endpoints over <see cref="OfficeHostAzureBlobExtensions.AddOfficeHostBlobStorage"/>.
     /// </summary>
     [Test]

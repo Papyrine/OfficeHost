@@ -6,7 +6,9 @@ namespace OfficeHost;
 /// file is in a folder, a path the application chooses, and file names are unique in a folder, ignoring case, as are
 /// folders, as in a database of the default collation: the blob <c>names/{hash of the folder and name}</c> holds the id
 /// of the file of that name, created only when missing, so two files never take the same name. A name left by a crash,
-/// naming a file that is gone or renamed, is taken over. The version of a file changes only with its content.
+/// naming a file that is gone or renamed, is taken over. A file being renamed keeps its old name until it has the new
+/// one, so that a rename that fails leaves the old name to no other file. The version of a file changes only with its
+/// content.
 /// </summary>
 public sealed class BlobStorage(BlobContainerClient container) :
     IOfficeStorage
@@ -15,6 +17,9 @@ public sealed class BlobStorage(BlobContainerClient container) :
     const string nameKey = "name";
     const string ownerKey = "owner";
     const string versionKey = "version";
+
+    // the name a file is renamed from, which it keeps while the rename may still fail
+    const string renamingKey = "renaming";
 
     /// <summary>
     /// Adds a file, returning it with its id. Returns null when the folder has a file of that name.
@@ -95,7 +100,16 @@ public sealed class BlobStorage(BlobContainerClient container) :
             [versionKey] = NewId()
         };
 
-    record Properties(OfficeFile File, string Folder, ETag ETag, IDictionary<string, string> Metadata);
+    record Properties(OfficeFile File, string Folder, string? Renaming, ETag ETag, IDictionary<string, string> Metadata)
+    {
+        /// <summary>
+        /// Whether the file has the name in the folder: its name, or the one it is being renamed from.
+        /// </summary>
+        public bool Has(string folder, string name) =>
+            SameName(Folder, folder) &&
+            (SameName(File.Name, name) ||
+             (Renaming != null && SameName(Renaming, name)));
+    }
 
     async Task<Properties?> GetProperties(string fileId, Cancel cancel)
     {
@@ -111,7 +125,8 @@ public sealed class BlobStorage(BlobContainerClient container) :
                 Decode(metadata[ownerKey]),
                 metadata[versionKey],
                 properties.LastModified);
-            return new(file, Decode(metadata[folderKey]), properties.ETag, metadata);
+            var renaming = metadata.TryGetValue(renamingKey, out var value) ? Decode(value) : null;
+            return new(file, Decode(metadata[folderKey]), renaming, properties.ETag, metadata);
         }
         catch (RequestFailedException exception) when (exception.Status == 404)
         {
@@ -140,8 +155,7 @@ public sealed class BlobStorage(BlobContainerClient container) :
 
         var file = await GetProperties(download.Content.ToString(), cancel);
         if (file != null &&
-            SameName(file.Folder, folder) &&
-            SameName(file.File.Name, name))
+            file.Has(folder, name))
         {
             return (file, download.Details.ETag);
         }
@@ -395,12 +409,21 @@ public sealed class BlobStorage(BlobContainerClient container) :
         // a change of case only is the same name
         if (SameName(oldName, name))
         {
-            await SetName(fileId, name, cancel);
+            await SetName(fileId, name, null, cancel);
             return (await ExistingProperties(fileId, cancel)).File;
         }
 
-        // the file has the name before the name is claimed, so that a claim always names a file that has it
-        await SetName(fileId, name, cancel);
+        // a name taken is known before anything is written
+        var (taken, _) = await ReadName(NameBlob(source.Folder, name), source.Folder, name, cancel);
+        if (taken != null &&
+            taken.File.Id != fileId)
+        {
+            return null;
+        }
+
+        // the file has the name before the name is claimed, so that a claim always names a file that has it, and keeps
+        // the old name until the claim succeeded: no other file can take it while the rename may still fail
+        await SetName(fileId, name, oldName, cancel);
         Properties? holder;
         try
         {
@@ -408,31 +431,25 @@ public sealed class BlobStorage(BlobContainerClient container) :
         }
         catch
         {
-            await Restore(source.Folder, fileId, oldName);
+            await SetName(fileId, oldName, null, Cancel.None);
             throw;
         }
 
         if (holder != null)
         {
-            await Restore(source.Folder, fileId, oldName);
+            await SetName(fileId, oldName, null, Cancel.None);
             return null;
         }
 
+        await SetName(fileId, name, null, cancel);
         await Release(source.Folder, oldName, fileId, cancel);
         return (await ExistingProperties(fileId, cancel)).File;
     }
 
     /// <summary>
-    /// Gives a file its old name back after a rename failed, whatever the request becomes, and claims the name again, as
-    /// while the file had the new one another file could take it.
+    /// Gives the file the name, and the name it is being renamed from, if any.
     /// </summary>
-    async Task Restore(string folder, string fileId, string oldName)
-    {
-        await SetName(fileId, oldName, Cancel.None);
-        await Claim(folder, oldName, fileId, Cancel.None);
-    }
-
-    async Task SetName(string fileId, string name, Cancel cancel)
+    async Task SetName(string fileId, string name, string? renaming, Cancel cancel)
     {
         while (true)
         {
@@ -441,6 +458,15 @@ public sealed class BlobStorage(BlobContainerClient container) :
             {
                 [nameKey] = Encode(name)
             };
+            if (renaming == null)
+            {
+                metadata.Remove(renamingKey);
+            }
+            else
+            {
+                metadata[renamingKey] = Encode(renaming);
+            }
+
             try
             {
                 var blob = FileBlob(fileId);
@@ -478,5 +504,9 @@ public sealed class BlobStorage(BlobContainerClient container) :
         }
 
         await Release(source.Folder, source.File.Name, fileId, cancel);
+        if (source.Renaming != null)
+        {
+            await Release(source.Folder, source.Renaming, fileId, cancel);
+        }
     }
 }
