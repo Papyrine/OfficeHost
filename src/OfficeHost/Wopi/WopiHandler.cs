@@ -294,12 +294,21 @@ sealed class WopiHandler(
 
         var requestedLock = context.Request.Header("X-WOPI-Lock");
         var current = await locks.Get(fileId, cancel);
+        OfficeLock? guard = null;
         if (current == null)
         {
             // an unlocked file can only be written while empty, as when a new file is created
             if (file.Size != 0)
             {
                 return WopiResult.Conflict(null, "The file is not locked");
+            }
+
+            // and is locked while it is written, so that a client that locks it meanwhile and saves is not overwritten
+            guard = OperationLock();
+            current = await locks.CompareExchange(fileId, null, guard, OfficeUser.From(token.Access, OfficeClient.Wopi), cancel);
+            if (current != null)
+            {
+                return WopiResult.Conflict(current.Id, "The file is locked with another lock");
             }
         }
         else if (current.Id != requestedLock ||
@@ -308,6 +317,25 @@ sealed class WopiHandler(
             return WopiResult.Conflict(current.Id, "The file is locked with another lock");
         }
 
+        try
+        {
+            return await PutContent(context, fileId, file, token.Access);
+        }
+        finally
+        {
+            if (guard != null)
+            {
+                await locks.CompareExchange(fileId, guard.Id, null, Cancel.None);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The write of a PutFile the lock allows.
+    /// </summary>
+    async Task<IResult> PutContent(HttpContext context, string fileId, OfficeFile file, OfficeAccess access)
+    {
+        var cancel = context.RequestAborted;
         // Collabora Online sends the LastModifiedTime of its CheckFileInfo: a file changed since is not overwritten, unless
         // the user chooses to, when it sends none
         var timestamp = context.Request.Header("X-COOL-WOPI-Timestamp");
@@ -327,7 +355,7 @@ sealed class WopiHandler(
             AllowFileSize(context);
             var saved = await storage.Write(fileId, context.Request.Body, cancel);
             log.LogInformation("Saved {FileId}, version {Version}", fileId, saved.Version);
-            await Saved(context, saved, token.Access);
+            await Saved(context, saved, access);
             // Collabora Online keeps it for the timestamp of its next save
             var result = WopiResult.Json(
                 new JsonObject

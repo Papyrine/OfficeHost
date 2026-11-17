@@ -521,6 +521,65 @@ public class SpecTests
     }
 
     /// <summary>
+    /// 3.3.5.3.2: an unlocked empty file is locked while a PutFile writes it, so that a client that locks it meanwhile and
+    /// saves is not overwritten by the PutFile that ends after.
+    /// </summary>
+    [Test]
+    public async Task PutFile_EmptyFile_LockedWhileWritten()
+    {
+        var (host, fileId, token) = await Open(content: "");
+        await using var _ = host;
+        var body = new HeldContent();
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/wopi/files/{fileId}/contents?access_token={token}");
+        request.Content = body;
+        var put = host.Client.SendAsync(request);
+        var store = host.Service<IOfficeLockStore>();
+        for (var attempt = 0; await store.Get(fileId) == null; attempt++)
+        {
+            await Assert.That(attempt).IsLessThan(500);
+            await Task.Delay(10);
+        }
+
+        using (var locked = await host.Post(fileId, token, "LOCK", ("X-WOPI-Lock", "L")))
+        {
+            await Assert.That(locked.StatusCode).IsEqualTo(HttpStatusCode.Conflict);
+        }
+
+        body.Release.SetResult();
+        using (var response = await put)
+        {
+            await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        }
+
+        await Assert.That(await File.ReadAllTextAsync(host.PathOf("/test.docx"))).IsEqualTo("xy");
+        await Assert.That(await store.Get(fileId)).IsNull();
+        await Lock(host, fileId, token, "L");
+    }
+
+    /// <summary>
+    /// A body that is sent in part, then the rest once released.
+    /// </summary>
+    sealed class HeldContent :
+        HttpContent
+    {
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+        {
+            await stream.WriteAsync("x"u8.ToArray());
+            await stream.FlushAsync();
+            await Release.Task;
+            await stream.WriteAsync("y"u8.ToArray());
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+    }
+
+    /// <summary>
     /// 2.2.3: the token determines the permissions, so a read-only token cannot update the file.
     /// </summary>
     [Test]
