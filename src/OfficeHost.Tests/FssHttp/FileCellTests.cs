@@ -502,6 +502,36 @@ public class FileCellTests
         await Assert.That(storage.Prune().Elements.ContainsKey(dataGroup.Id)).IsTrue();
     }
 
+    /// <summary>
+    /// An Object Group listed many times, by a revision mapped many times: each is walked once, as walking each listing
+    /// of the client's lists would be quadratic.
+    /// </summary>
+    [Test]
+    public async Task Read_ListedAgain()
+    {
+        var ids = Ids();
+        var (root, leaf, data) = (ids.NewId(), ids.NewId(), ids.NewId());
+        var leafGroup = Group(ids, leaf, [data], Node(true, 3));
+        var dataGroup = Group(ids, data, [], Zips.Text("abc"));
+        var storage = Cell(ids, root, [Group(ids, root, [leaf], Node(false, 3)), leafGroup, dataGroup]);
+        var revision = storage.Elements.Values.OfType<RevisionManifest>().Single();
+        var mapping = storage.StorageIndex.Entries.OfType<StorageIndexRevisionMapping>().Single();
+        storage = Replace(
+            storage,
+            revision with
+            {
+                ObjectGroups = [..revision.ObjectGroups, ..Enumerable.Repeat(dataGroup.Id, 10_000)]
+            },
+            storage.StorageIndex with
+            {
+                Entries = [..storage.StorageIndex.Entries, ..Enumerable.Repeat(mapping, 10_000)]
+            });
+
+        await AssertBytes(FileCell.Read(storage).Root.ToArray(), Zips.Text("abc"));
+        await Assert.That(storage.HasMissing()).IsFalse();
+        await Assert.That(storage.Prune().Elements.Count).IsEqualTo(storage.Elements.Count);
+    }
+
     static CellStorage Replace(CellStorage storage, params DataElement[] elements) => storage.With(elements, storage.StorageIndexId);
 
     static ObjectGroup GroupOf(CellStorage storage, ExtendedGuid objectId) =>

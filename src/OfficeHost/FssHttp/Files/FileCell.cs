@@ -80,11 +80,14 @@ static class FileCell
 
     /// <summary>
     /// The objects of a revision: those of its Object Groups, then those of its base revisions that it does not replace.
+    /// An Object Group listed again adds nothing, and is skipped.
     /// </summary>
     static Dictionary<ExtendedGuid, StoredObject> Objects(CellStorage storage, RevisionManifest revision)
     {
         var objects = new Dictionary<ExtendedGuid, StoredObject>();
         var revisions = new HashSet<ExtendedGuid>();
+        var groups = new HashSet<ExtendedGuid>();
+        Dictionary<ExtendedGuid, ExtendedGuid>? mappings = null;
         var current = revision;
         while (true)
         {
@@ -95,6 +98,11 @@ static class FileCell
 
             foreach (var groupId in current.ObjectGroups)
             {
+                if (!groups.Add(groupId))
+                {
+                    continue;
+                }
+
                 var group = storage.Get<ObjectGroup>(groupId);
                 if (group.Declarations.Count != group.Data.Count)
                 {
@@ -113,7 +121,8 @@ static class FileCell
                 return objects;
             }
 
-            current = storage.GetRevision(current.BaseRevisionId);
+            mappings ??= storage.RevisionMappings();
+            current = storage.GetRevision(current.BaseRevisionId, mappings);
         }
     }
 

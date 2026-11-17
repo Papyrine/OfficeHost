@@ -35,17 +35,35 @@ record CellStorage(IReadOnlyDictionary<ExtendedGuid, DataElement> Elements, Exte
     /// <summary>
     /// The revision manifest of a revision, through the revision mappings of the Storage Index.
     /// </summary>
-    public RevisionManifest GetRevision(ExtendedGuid revisionId)
+    public RevisionManifest GetRevision(ExtendedGuid revisionId) =>
+        GetRevision(revisionId, RevisionMappings());
+
+    /// <summary>
+    /// The revision manifest of a revision, through revision mappings read once by <see cref="RevisionMappings"/>, for a
+    /// walk of many revisions.
+    /// </summary>
+    public RevisionManifest GetRevision(ExtendedGuid revisionId, IReadOnlyDictionary<ExtendedGuid, ExtendedGuid> mappings)
     {
-        foreach (var mapping in StorageIndex.Entries.OfType<StorageIndexRevisionMapping>())
+        if (!mappings.TryGetValue(revisionId, out var manifestId))
         {
-            if (mapping.Revision == revisionId)
-            {
-                return Get<RevisionManifest>(mapping.MappingId);
-            }
+            throw new FssHttpDException($"No revision mapping for the revision {revisionId}");
         }
 
-        throw new FssHttpDException($"No revision mapping for the revision {revisionId}");
+        return Get<RevisionManifest>(manifestId);
+    }
+
+    /// <summary>
+    /// The Revision Manifest of each revision the Storage Index maps, by its first mapping.
+    /// </summary>
+    public Dictionary<ExtendedGuid, ExtendedGuid> RevisionMappings()
+    {
+        var mappings = new Dictionary<ExtendedGuid, ExtendedGuid>();
+        foreach (var mapping in StorageIndex.Entries.OfType<StorageIndexRevisionMapping>())
+        {
+            mappings.TryAdd(mapping.Revision, mapping.MappingId);
+        }
+
+        return mappings;
     }
 
     /// <summary>
@@ -77,15 +95,19 @@ record CellStorage(IReadOnlyDictionary<ExtendedGuid, DataElement> Elements, Exte
 
     /// <summary>
     /// The identifiers the Storage Index reaches, through the data elements the storage has: its mappings, and the Object
-    /// Groups and Object Data BLOBs of the revisions it maps.
+    /// Groups and Object Data BLOBs of the revisions it maps. A Revision Manifest mapped again, or an Object Group listed
+    /// again, is walked once: the client writes the lists, and walking each listing would be quadratic.
     /// </summary>
     IEnumerable<ExtendedGuid> Reached()
     {
         yield return StorageIndexId;
+        var revisions = new HashSet<ExtendedGuid>();
+        var groups = new HashSet<ExtendedGuid>();
         foreach (var entry in StorageIndex.Entries)
         {
             yield return entry.MappingId;
             if (entry is not StorageIndexRevisionMapping ||
+                !revisions.Add(entry.MappingId) ||
                 !Elements.TryGetValue(entry.MappingId, out var element) ||
                 element is not RevisionManifest revision)
             {
@@ -94,6 +116,11 @@ record CellStorage(IReadOnlyDictionary<ExtendedGuid, DataElement> Elements, Exte
 
             foreach (var groupId in revision.ObjectGroups)
             {
+                if (!groups.Add(groupId))
+                {
+                    continue;
+                }
+
                 yield return groupId;
                 if (!Elements.TryGetValue(groupId, out var groupElement) ||
                     groupElement is not ObjectGroup group)
