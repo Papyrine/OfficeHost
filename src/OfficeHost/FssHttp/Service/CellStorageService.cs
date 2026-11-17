@@ -526,9 +526,10 @@ class CellStorageService(
             return (null, new FailedSubResponse(put.RequestId, RequestType.PutChanges, ResponseError.Cell(CellErrorCode.StorageReadOnly)));
         }
 
+        // the lock is of the file, whatever the partition ([MS-FSSHTTP] 2.3.1.1, BypassLockID): its metadata too is
+        // written by the holder of its lock only
         var lockId = (string?) requestData.Attribute("BypassLockID") ?? (string?) requestData.Attribute("SchemaLockID");
-        if (partition == FssHttpCells.ContentPartition &&
-            !await sessions.CanWrite(site.FileId, lockId, site.Access.UserId, cancel))
+        if (!await sessions.CanWrite(site.FileId, lockId, site.Access.UserId, cancel))
         {
             return ("FileAlreadyLockedOnServer", null);
         }

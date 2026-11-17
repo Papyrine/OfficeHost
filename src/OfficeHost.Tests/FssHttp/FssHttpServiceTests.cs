@@ -463,6 +463,27 @@ public class FssHttpServiceTests
         await Assert.That(((FailedSubResponse) blocked).Error.SupplementalInfo).IsEqualTo("FileAlreadyLockedOnServer");
     }
 
+    /// <summary>
+    /// The lock is of the file, whatever the partition ([MS-FSSHTTP] 2.3.1.1): a Put Changes to the metadata of a file a
+    /// WOPI client locked is refused, as one to its content is.
+    /// </summary>
+    [Test]
+    public async Task Locks_Wopi_Metadata()
+    {
+        var (host, fileId, token) = await Start();
+        await using var _ = host;
+        using (var wopi = await host.Post(fileId, token, "LOCK", ("X-WOPI-Lock", "wopi-lock")))
+        {
+            await Assert.That(wopi.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        }
+
+        var ids = new IdAllocator(Guid.NewGuid());
+        var put = new PutChangesRequest(1, ids.NewId(), ExtendedGuid.Null, 0x48, new byte[3], new byte[] { 4, 0, 0 });
+        var request = new FssHttpBRequest(new(Guid.NewGuid(), "msword", "win", 1), [put], new([])).ToArray();
+        var result = (await new WordClient(host, token).Send(WordClient.Cell("1", request, new XAttribute("PartitionID", FssHttpCells.MetadataPartition)))).Single();
+        await Assert.That(result.ErrorCode).IsEqualTo("FileAlreadyLockedOnServer");
+    }
+
     [Test]
     public async Task Locks_Schema()
     {
