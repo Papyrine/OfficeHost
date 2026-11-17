@@ -10,41 +10,39 @@ static class TapBatch
     /// </summary>
     public static void Write(IReadOnlyList<TapItem> items, string boundary, Stream output)
     {
-        using (var gzip = new GZipStream(output, CompressionLevel.Fastest, true))
+        using var gzip = new GZipStream(output, CompressionLevel.Fastest, true);
+        foreach (var item in items)
         {
-            foreach (var item in items)
+            var head = new StringBuilder();
+            head.Append("--").Append(boundary).Append("\r\n");
+            Header(head, "X-Shadow-Sequence", item.Sequence.ToString(CultureInfo.InvariantCulture));
+            Header(head, "X-Shadow-Started", item.Started.ToString("o", CultureInfo.InvariantCulture));
+            if (item.IsTombstone)
             {
-                var head = new StringBuilder();
-                head.Append("--").Append(boundary).Append("\r\n");
-                Header(head, "X-Shadow-Sequence", item.Sequence.ToString(CultureInfo.InvariantCulture));
-                Header(head, "X-Shadow-Started", item.Started.ToString("o", CultureInfo.InvariantCulture));
-                if (item.IsTombstone)
-                {
-                    Header(head, "X-Shadow-Kind", "tombstone");
-                    Header(head, "X-Shadow-Document", item.Document ?? "");
-                    Header(head, "X-Shadow-Reason", item.Reason!);
-                }
-                else
-                {
-                    Header(head, "X-Shadow-Kind", "exchange");
-                    Header(head, "X-Shadow-Request-Length", item.RequestLength.ToString(CultureInfo.InvariantCulture));
-                }
-
-                head.Append("\r\n");
-                Write(gzip, head.ToString());
-                if (!item.IsTombstone)
-                {
-                    gzip.Write(item.RequestHead, 0, item.RequestHead.Length);
-                    item.RequestBody?.CopyTo(gzip);
-                    gzip.Write(item.ResponseHead, 0, item.ResponseHead.Length);
-                    item.ResponseBody?.CopyTo(gzip);
-                }
-
-                Write(gzip, "\r\n");
+                Header(head, "X-Shadow-Kind", "tombstone");
+                Header(head, "X-Shadow-Document", item.Document ?? "");
+                Header(head, "X-Shadow-Reason", item.Reason!);
+            }
+            else
+            {
+                Header(head, "X-Shadow-Kind", "exchange");
+                Header(head, "X-Shadow-Request-Length", item.RequestLength.ToString(CultureInfo.InvariantCulture));
             }
 
-            Write(gzip, $"--{boundary}--\r\n");
+            head.Append("\r\n");
+            Write(gzip, head.ToString());
+            if (!item.IsTombstone)
+            {
+                gzip.Write(item.RequestHead, 0, item.RequestHead.Length);
+                item.RequestBody?.CopyTo(gzip);
+                gzip.Write(item.ResponseHead, 0, item.ResponseHead.Length);
+                item.ResponseBody?.CopyTo(gzip);
+            }
+
+            Write(gzip, "\r\n");
         }
+
+        Write(gzip, $"--{boundary}--\r\n");
     }
 
     static void Header(StringBuilder head, string name, string value) =>

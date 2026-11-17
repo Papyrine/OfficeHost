@@ -4,19 +4,16 @@
 /// asks; when the sink fails three times in a row it is open: what waits becomes tombstones, the module copies nothing,
 /// and it tries again at each heartbeat with backoff, until the sink answers.
 /// </summary>
-sealed class TapSender
+sealed class TapSender(TapQueue queue, ITapSink sink, int samplePercent, Action<string> log, TimeSpan? heartbeat = null)
 {
     const int maximumItems = 50;
     const long maximumBytes = 32L * 1024 * 1024;
-    TapQueue queue;
-    ITapSink sink;
-    Action<string> log;
-    TimeSpan heartbeat;
+    TimeSpan heartbeat = heartbeat ?? TimeSpan.FromSeconds(5);
     AutoResetEvent signal = new(false);
     ManualResetEvent stopped = new(false);
     Thread? thread;
     volatile bool stopping;
-    volatile int samplePercent;
+    volatile int samplePercent = samplePercent;
     volatile bool open;
     int failures;
     DateTime nextTry;
@@ -27,15 +24,6 @@ sealed class TapSender
     // the time Stop keeps to send what waits, after waiting for the requests in flight
     static TimeSpan sendTime = TimeSpan.FromSeconds(2);
     DateTime stopBy;
-
-    public TapSender(TapQueue queue, ITapSink sink, int samplePercent, Action<string> log, TimeSpan? heartbeat = null)
-    {
-        this.queue = queue;
-        this.sink = sink;
-        this.samplePercent = samplePercent;
-        this.log = log;
-        this.heartbeat = heartbeat ?? TimeSpan.FromSeconds(5);
-    }
 
     /// <summary>
     /// The percentage of documents to copy: the settings', or the shadow's when it sent one.
@@ -118,8 +106,11 @@ sealed class TapSender
             var batch = queue.Take(maximumItems, maximumBytes, out var watermark, out var dropped);
             // final only with nothing to come: no request in flight either
             var last = final &&
-                       queue.Count == 0 &&
-                       queue.InFlight == 0;
+                       queue is
+                       {
+                           Count: 0,
+                           InFlight: 0
+                       };
             TapSent sent;
             try
             {
