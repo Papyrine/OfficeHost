@@ -95,6 +95,44 @@ public class FssHttpCellsTests : IDisposable
         await Assert.That(kept.Count()).IsEqualTo(2);
     }
 
+    /// <summary>
+    /// A storage that counts the reads of the content, each slow enough for requests to overlap.
+    /// </summary>
+    sealed class CountingStorage(IOfficeStorage inner) :
+        ForwardingStorage(inner)
+    {
+        int reads;
+
+        public int Reads => Volatile.Read(ref reads);
+
+        public override async Task<Stream> OpenRead(string fileId, Cancel cancel = default)
+        {
+            Interlocked.Increment(ref reads);
+            await Task.Delay(100, cancel);
+            return await base.OpenRead(fileId, cancel);
+        }
+    }
+
+    /// <summary>
+    /// The coauthors polling a file changed outside FSSHTTP at once: one request reads the file and writes the cell
+    /// again, the others find it written.
+    /// </summary>
+    [Test]
+    public async Task GetContent_FileChanged_AtOnce()
+    {
+        var id = Create(Zip("a"));
+        var counting = new CountingStorage(storage);
+        var cache = new FssHttpCellCache();
+        await new FssHttpCells(store, counting, cache).GetContent(id);
+        await storage.Write(id, new MemoryStream(Zip("b")));
+        var before = counting.Reads;
+
+        var cells = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(() => new FssHttpCells(store, counting, cache).GetContent(id))));
+        await Assert.That(counting.Reads - before).IsEqualTo(1);
+        await Assert.That(cells.Select(_ => _!.Version).Distinct().Count()).IsEqualTo(1);
+        await Assert.That(FileCell.Read(cells[0]!.State.Storage!).Root.ToArray().AsSpan().SequenceEqual(Zip("b"))).IsTrue();
+    }
+
     [Test]
     public async Task GetContent_NoFile()
     {

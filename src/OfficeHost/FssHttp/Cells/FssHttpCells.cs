@@ -69,24 +69,39 @@ class FssHttpCells(IFssHttpStore store, IOfficeStorage storage, FssHttpCellCache
             }
 
             // otherwise a cell the file left behind, or that was not written to the file before the file changed, is
-            // written again from the file
-
-            var bytes = await ReadFile(fileId, cancel);
-            var ids = cell.State.Ids();
-            CellUpdate update;
+            // written again from the file, by one request of the process at a time: the coauthors polling the file
+            // meanwhile then find it written, rather than each read the whole file and chunk it to lose the race
+            var gate = cache.RewriteGate(fileId);
+            await gate.WaitAsync(cancel);
             try
             {
-                update = FileCell.Write(bytes, cell.State.Storage, ids, ChunkingOptions.Default);
-            }
-            catch (FssHttpDException)
-            {
-                update = FileCell.Write(bytes, null, ids, ChunkingOptions.Default);
-            }
+                if ((await Get(fileId, ContentPartition, cancel)).Version != cell.Version)
+                {
+                    // written meanwhile
+                    continue;
+                }
 
-            var updated = await TryUpdate(fileId, ContentPartition, cell.Version, new(update.Storage, ids.Guid, ids.Next, file.Version), cancel);
-            if (updated != null)
+                var bytes = await ReadFile(fileId, cancel);
+                var ids = cell.State.Ids();
+                CellUpdate update;
+                try
+                {
+                    update = FileCell.Write(bytes, cell.State.Storage, ids, ChunkingOptions.Default);
+                }
+                catch (FssHttpDException)
+                {
+                    update = FileCell.Write(bytes, null, ids, ChunkingOptions.Default);
+                }
+
+                var updated = await TryUpdate(fileId, ContentPartition, cell.Version, new(update.Storage, ids.Guid, ids.Next, file.Version), cancel);
+                if (updated != null)
+                {
+                    return updated;
+                }
+            }
+            finally
             {
-                return updated;
+                gate.Release();
             }
         }
 

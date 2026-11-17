@@ -29,4 +29,14 @@ class FssHttpCellCache
 
     public void Remove((string FileId, Guid Partition) key) =>
         cells.TryRemove(key, out _);
+
+    // a gate per file among a fixed number, so that they need no cleanup
+    SemaphoreSlim[] rewrites = Enumerable.Range(0, 16).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
+
+    /// <summary>
+    /// The gate of the writes of the content cell of a file from the file: one request of the process at a time reads
+    /// the whole file and chunks it, and those polling the file meanwhile find the cell written.
+    /// </summary>
+    public SemaphoreSlim RewriteGate(string fileId) =>
+        rewrites[(fileId.GetHashCode() & int.MaxValue) % rewrites.Length];
 }
