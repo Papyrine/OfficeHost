@@ -237,6 +237,7 @@ New-EventLog -LogName Application -Source OfficeHost.Shadow
 | `KnownDifferences` | `ShadowRule.Defaults` | The differences that are expected. |
 | `SamplePercent` | null | The percentage of documents the module sends, given to it with each answer. |
 | `QueueCapacity` | 10,000 | Exchanges waiting; beyond, 503. |
+| `QueueMegabytes` | 1,024 | Megabytes of the exchanges waiting; beyond, 503. A larger batch is taken by an empty queue. |
 | `MaxBatchMegabytes` | 256 | The largest batch read, as sent and once its gzip is undone. |
 | `MaximumDelay` | 15 s | How long an exchange waits for a lagging server's watermark. |
 | `InstanceTimeout` | 2 min | How long a server counts as active without a batch or heartbeat. |

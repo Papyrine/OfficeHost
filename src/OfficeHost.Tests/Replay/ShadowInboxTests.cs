@@ -1,20 +1,47 @@
 /// <summary>
-/// The order <see cref="ShadowInbox"/> releases the exchanges in, across the instances of the module.
+/// The order <see cref="ShadowInbox"/> releases the exchanges in, across the instances of the module, and what it holds.
 /// </summary>
 public class ShadowInboxTests
 {
     static readonly Guid first = Guid.NewGuid();
     static readonly Guid second = Guid.NewGuid();
 
-    static (ShadowInbox Inbox, ManualTime Time) Start()
+    static (ShadowInbox Inbox, ManualTime Time) Start(int queueMegabytes = 1024)
     {
         var time = new ManualTime();
         var options = Microsoft.Extensions.Options.Options.Create(
             new OfficeHostShadowOptions
             {
-                MaximumDelay = TimeSpan.FromSeconds(15)
+                MaximumDelay = TimeSpan.FromSeconds(15),
+                QueueMegabytes = queueMegabytes
             });
         return (new(options, time), time);
+    }
+
+    static ShadowItem Exchange(long sequence, DateTimeOffset started, int bytes) =>
+        new(first, "first", sequence, started, new(1, new("POST / HTTP/1.1", [], new byte[bytes]), new("HTTP/1.1 200 OK", [], [])));
+
+    /// <summary>
+    /// The inbox holds up to QueueMegabytes of exchanges, beyond which it is full and refuses a batch, as beyond
+    /// QueueCapacity; a batch larger than it is taken by an empty inbox; replaying frees what it held.
+    /// </summary>
+    [Test]
+    public async Task Add_QueueMegabytes()
+    {
+        var (inbox, time) = Start(queueMegabytes: 1);
+        var start = time.Now;
+        const int large = 600 * 1024;
+        await Assert.That(inbox.Add(Batch(first, start, Exchange(1, start, large)))).IsTrue();
+        await Assert.That(inbox.Full).IsFalse();
+        await Assert.That(inbox.Add(Batch(first, start, Exchange(2, start, large)))).IsFalse();
+        await Assert.That(inbox.Add(Batch(first, start, Exchange(3, start, 424 * 1024)))).IsTrue();
+        await Assert.That(inbox.Full).IsTrue();
+
+        await Assert.That(inbox.Add(Batch(first, start.AddSeconds(1)))).IsTrue();
+        await Assert.That(inbox.Release().Count).IsEqualTo(2);
+        await Assert.That(inbox.Full).IsFalse();
+        await Assert.That(inbox.Add(Batch(first, start.AddSeconds(1), Exchange(4, start.AddSeconds(1), 2 * 1024 * 1024)))).IsTrue();
+        await Assert.That(inbox.Full).IsTrue();
     }
 
     static ShadowItem Item(Guid instance, long sequence, DateTimeOffset started) =>

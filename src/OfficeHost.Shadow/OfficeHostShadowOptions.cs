@@ -80,6 +80,12 @@ public class OfficeHostShadowOptions
     public int QueueCapacity { get; set; } = 10_000;
 
     /// <summary>
+    /// The most megabytes of the exchanges waiting to be replayed, their bodies; beyond it, as beyond
+    /// <see cref="QueueCapacity"/>, the ingest answers 503. A batch larger than it is taken by an empty queue.
+    /// </summary>
+    public int QueueMegabytes { get; set; } = 1024;
+
+    /// <summary>
     /// The percentage of documents the module in SharePoint sends, given to it with each answer; null to leave its own.
     /// </summary>
     public int? SamplePercent { get; set; }

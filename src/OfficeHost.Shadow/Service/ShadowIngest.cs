@@ -18,6 +18,15 @@ static class ShadowIngest
             return;
         }
 
+        // a full inbox refuses a batch with exchanges before it is read: a heartbeat, with none, still moves the
+        // watermark
+        if (request.ContentLength is not 0 &&
+            inbox.Full)
+        {
+            Refuse(response);
+            return;
+        }
+
         // a batch holds documents: beyond the default 30 MB of Kestrel
         if (context.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
         {
@@ -43,12 +52,17 @@ static class ShadowIngest
 
         if (!inbox.Add(batch))
         {
-            response.Headers.RetryAfter = "30";
-            response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            Refuse(response);
             return;
         }
 
         response.StatusCode = StatusCodes.Status202Accepted;
+    }
+
+    static void Refuse(HttpResponse response)
+    {
+        response.Headers.RetryAfter = "30";
+        response.StatusCode = StatusCodes.Status503ServiceUnavailable;
     }
 
     /// <summary>

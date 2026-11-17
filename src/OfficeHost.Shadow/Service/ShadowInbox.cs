@@ -63,6 +63,7 @@ sealed class ShadowInbox(IOptions<OfficeHostShadowOptions> options, TimeProvider
 
     Lock gate = new();
     List<ShadowItem> pending = [];
+    long pendingBytes;
     Dictionary<Guid, Instance> instances = [];
     SemaphoreSlim signal = new(0);
     long received;
@@ -80,6 +81,39 @@ sealed class ShadowInbox(IOptions<OfficeHostShadowOptions> options, TimeProvider
     }
 
     /// <summary>
+    /// Whether the inbox takes no exchange more: so many wait, or so many bytes of them, that a batch is refused before
+    /// it is read.
+    /// </summary>
+    public bool Full
+    {
+        get
+        {
+            var settings = options.Value;
+            lock (gate)
+            {
+                return pending.Count >= settings.QueueCapacity ||
+                       pendingBytes >= MaxBytes(settings);
+            }
+        }
+    }
+
+    static long MaxBytes(OfficeHostShadowOptions settings) =>
+        settings.QueueMegabytes * 1024L * 1024;
+
+    /// <summary>
+    /// The bytes an item holds: the bodies of its exchange, a tombstone none.
+    /// </summary>
+    static long Bytes(ShadowItem item)
+    {
+        if (item.Exchange is not { } exchange)
+        {
+            return 0;
+        }
+
+        return exchange.Request.Body.Length + exchange.Response.Body.Length;
+    }
+
+    /// <summary>
     /// The exchanges received and refused (the inbox full) since the start.
     /// </summary>
     public (long Received, long Refused) Totals
@@ -94,21 +128,25 @@ sealed class ShadowInbox(IOptions<OfficeHostShadowOptions> options, TimeProvider
     }
 
     /// <summary>
-    /// Adds a batch, or refuses it when the inbox is full: the module backs off, and drops with tombstones. Of a batch
-    /// sent again, as when the answer to it was lost, only the exchanges not received are added, so that none is
-    /// replayed twice.
+    /// Adds a batch, or refuses it when the inbox is full, of <see cref="OfficeHostShadowOptions.QueueCapacity"/>
+    /// exchanges or <see cref="OfficeHostShadowOptions.QueueMegabytes"/>: the module backs off, and drops with
+    /// tombstones. A batch larger than the megabytes is taken by an empty inbox. Of a batch sent again, as when the
+    /// answer to it was lost, only the exchanges not received are added, so that none is replayed twice.
     /// </summary>
     public bool Add(ShadowBatch batch)
     {
         var now = time.GetUtcNow();
+        var settings = options.Value;
         lock (gate)
         {
             instances.TryGetValue(batch.Instance, out var instance);
             var items = batch.Items
                 .Where(_ => instance == null || !instance.Has(_.Sequence))
                 .ToList();
+            var bytes = items.Sum(Bytes);
             if (items.Count > 0 &&
-                pending.Count + items.Count > options.Value.QueueCapacity)
+                (pending.Count + items.Count > settings.QueueCapacity ||
+                 (pending.Count > 0 && pendingBytes + bytes > MaxBytes(settings))))
             {
                 refused += items.Count;
                 return false;
@@ -136,6 +174,7 @@ sealed class ShadowInbox(IOptions<OfficeHostShadowOptions> options, TimeProvider
             instance.Lost = false;
             received += items.Count;
             pending.AddRange(items.Select(_ => _ with { Received = now }));
+            pendingBytes += bytes;
         }
 
         signal.Release();
@@ -180,6 +219,7 @@ sealed class ShadowInbox(IOptions<OfficeHostShadowOptions> options, TimeProvider
                 .ToList();
             // in one pass: the inbox holds up to QueueCapacity
             pending.RemoveAll(Ready);
+            pendingBytes -= ready.Sum(Bytes);
             return ready;
         }
     }
