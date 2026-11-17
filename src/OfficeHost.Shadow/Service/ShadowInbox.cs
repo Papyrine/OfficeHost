@@ -119,8 +119,20 @@ sealed class ShadowInbox(IOptions<OfficeHostShadowOptions> options, TimeProvider
                 .Where(_ => !_.Final && now - _.LastSeen < settings.InstanceTimeout)
                 .Select(_ => _.Watermark)
                 .ToList();
+            // an exchange that waited long enough is released with those that started before it, which may have come
+            // after it: released later, they would be replayed after it
+            var waited = DateTimeOffset.MinValue;
+            foreach (var item in pending)
+            {
+                if (now - item.Received >= settings.MaximumDelay &&
+                    item.Started > waited)
+                {
+                    waited = item.Started;
+                }
+            }
+
             bool Ready(ShadowItem item) =>
-                now - item.Received >= settings.MaximumDelay ||
+                item.Started <= waited ||
                 watermarks.All(_ => _ >= item.Started);
 
             var ready = pending
