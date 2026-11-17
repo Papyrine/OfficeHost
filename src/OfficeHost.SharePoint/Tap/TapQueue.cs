@@ -22,6 +22,20 @@ sealed class TapQueue(int capacity = 1000, int tombstoneCapacity = 10_000)
         }
     }
 
+    /// <summary>
+    /// The requests started and not yet ended.
+    /// </summary>
+    public int InFlight
+    {
+        get
+        {
+            lock (gate)
+            {
+                return inFlight.Count;
+            }
+        }
+    }
+
     public void Started(long sequence, DateTime started)
     {
         lock (gate)

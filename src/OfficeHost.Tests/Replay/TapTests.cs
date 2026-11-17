@@ -252,6 +252,41 @@ public class TapTests
     }
 
     /// <summary>
+    /// Stopping waits for the requests in flight, which the app domain drains as it stops, and sends their exchanges in
+    /// the final batch; one that does not end in time leaves the last batch not final, so that the shadow knows of the
+    /// loss.
+    /// </summary>
+    [Test]
+    public async Task Sender_StopWaitsForRequestsInFlight()
+    {
+        var queue = new TapQueue();
+        var sink = new Sink(_ => new() { Sent = true });
+        var sender = new TapSender(queue, sink, 100, _ => { }, TimeSpan.FromMinutes(1));
+        sender.Start();
+        queue.Started(1, DateTime.UtcNow);
+        var ending = Task.Run(async () =>
+        {
+            await Task.Delay(300);
+            queue.TryAdd(TapItem.Exchange(1, DateTime.UtcNow, null, [1], null, [2], null));
+            queue.Ended(1);
+            sender.Signal();
+        });
+        sender.Stop(TimeSpan.FromSeconds(10));
+        await ending;
+        await Assert.That(sink.Batches.SelectMany(_ => _).Select(_ => _.Sequence)).IsEquivalentTo([1L]);
+        await Assert.That(sink.Final).IsTrue();
+
+        queue = new();
+        sink = new(_ => new() { Sent = true });
+        sender = new(queue, sink, 100, _ => { }, TimeSpan.FromMinutes(1));
+        sender.Start();
+        queue.Started(2, DateTime.UtcNow);
+        sender.Stop(TimeSpan.FromSeconds(3));
+        await Assert.That(sink.Calls).IsGreaterThan(0);
+        await Assert.That(sink.Final).IsFalse();
+    }
+
+    /// <summary>
     /// The paths copied are those under a prefix of Include by whole segments.
     /// </summary>
     [Test]

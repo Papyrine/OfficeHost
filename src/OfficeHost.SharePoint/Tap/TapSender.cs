@@ -21,6 +21,10 @@ sealed class TapSender
     int failures;
     DateTime nextTry;
 
+    // the time Stop keeps to send what waits, after waiting for the requests in flight
+    static TimeSpan sendTime = TimeSpan.FromSeconds(2);
+    DateTime stopBy;
+
     public TapSender(TapQueue queue, ITapSink sink, int samplePercent, Action<string> log, TimeSpan? heartbeat = null)
     {
         this.queue = queue;
@@ -53,10 +57,13 @@ sealed class TapSender
     public void Signal() => signal.Set();
 
     /// <summary>
-    /// Sends what waits, and the final batch, within the time given, then stops.
+    /// Sends what waits, and the final batch, within the time given, then stops. The requests in flight, which the app
+    /// domain drains as it stops, are waited for first, keeping time to send: the final batch is final only once none
+    /// is, so that the shadow knows of the loss of the exchanges of those that end after it.
     /// </summary>
     public void Stop(TimeSpan flush)
     {
+        stopBy = TapClock.UtcNow + flush - sendTime;
         stopping = true;
         signal.Set();
         stopped.WaitOne(flush);
@@ -70,6 +77,12 @@ sealed class TapSender
             {
                 signal.WaitOne(heartbeat);
                 SendAll(false);
+            }
+
+            while (queue.InFlight > 0 &&
+                   TapClock.UtcNow < stopBy)
+            {
+                signal.WaitOne(TimeSpan.FromMilliseconds(100));
             }
 
             SendAll(true);
@@ -100,7 +113,10 @@ sealed class TapSender
         do
         {
             var batch = queue.Take(maximumItems, maximumBytes, out var watermark, out var dropped);
-            var last = final && queue.Count == 0;
+            // final only with nothing to come: no request in flight either
+            var last = final &&
+                       queue.Count == 0 &&
+                       queue.InFlight == 0;
             TapSent sent;
             try
             {
