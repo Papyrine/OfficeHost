@@ -187,8 +187,13 @@ class CoauthSessions(IFssHttpStore store, IOfficeLockStore locks, TimeProvider t
                 return result;
             }
 
-            // the lock is put back, so that it does not stand for a session that was not stored, unless it changed again
-            if (lockChanged)
+            // the lock is put back, so that it does not stand for a session that was not stored, unless it changed again:
+            // the store compares lock ids only, and a request of the session that refreshed the lock since, with the same
+            // id and the session it stored, keeps it
+            if (lockChanged &&
+                await locks.Get(fileId, Cancel.None) is var now &&
+                now?.Id == wanted?.Id &&
+                now?.Expires == wanted?.Expires)
             {
                 await locks.CompareExchange(fileId, wanted?.Id, existing, existing?.Holder, Cancel.None);
             }

@@ -351,6 +351,90 @@ public class FssHttpServiceTests
     }
 
     /// <summary>
+    /// A store of coauthoring sessions whose first write of a session loses the race: another request of the session
+    /// refreshes its lock (the same id, a later expiry) and stores its own session meanwhile.
+    /// </summary>
+    sealed class RacingSessionStore(Func<Task> race) :
+        IFssHttpStore
+    {
+        MemoryFssHttpStore inner = new();
+        bool raced;
+
+        public Task<FssHttpState?> Get(string fileId, Guid partition, Cancel cancel = default) =>
+            inner.Get(fileId, partition, cancel);
+
+        public async Task<bool> CompareExchange(string fileId, Guid partition, string? comparand, FssHttpState value, Cancel cancel = default)
+        {
+            if (partition == CoauthSessions.SessionPartition &&
+                !raced)
+            {
+                raced = true;
+                await race();
+                return false;
+            }
+
+            return await inner.CompareExchange(fileId, partition, comparand, value, cancel);
+        }
+
+        public Task Delete(string fileId, Cancel cancel = default) =>
+            inner.Delete(fileId, cancel);
+    }
+
+    /// <summary>
+    /// The lock exchanges of a store, as they come.
+    /// </summary>
+    sealed class RecordingLocks(IOfficeLockStore inner) :
+        IOfficeLockStore
+    {
+        public List<OfficeLock?> Values { get; } = [];
+
+        public Task<OfficeLock?> Get(string fileId, Cancel cancel = default) =>
+            inner.Get(fileId, cancel);
+
+        public Task<OfficeLock?> CompareExchange(string fileId, string? comparand, OfficeLock? value, Cancel cancel = default) =>
+            CompareExchange(fileId, comparand, value, null, cancel);
+
+        public Task<OfficeLock?> CompareExchange(string fileId, string? comparand, OfficeLock? value, OfficeUser? user, Cancel cancel = default)
+        {
+            lock (Values)
+            {
+                Values.Add(value);
+            }
+
+            return inner.CompareExchange(fileId, comparand, value, user, cancel);
+        }
+    }
+
+    /// <summary>
+    /// A change of a session whose write loses the race puts its lock back only when the lock is still the one it wrote:
+    /// refreshed meanwhile by another request of the session, the same id, it is kept, not dropped until the next poll.
+    /// </summary>
+    [Test]
+    public async Task Session_LockRefreshedMeanwhile()
+    {
+        var memory = new MemoryLockStore(TimeProvider.System);
+        var locks = new RecordingLocks(memory);
+        string? fileId = null;
+        var store = new RacingSessionStore(async () =>
+        {
+            var current = (await memory.Get(fileId!))!;
+            await memory.CompareExchange(fileId!, current.Id, current with { Expires = current.Expires.AddMinutes(10) });
+        });
+        var (host, id, token) = await Start(services: _ =>
+        {
+            _.AddSingleton<IFssHttpStore>(store);
+            _.AddSingleton<IOfficeLockStore>(locks);
+        });
+        fileId = id;
+        await using var _ = host;
+        var word = new WordClient(host, token);
+        await Assert.That((await word.Send(word.Join())).Single().ErrorCode).IsEqualTo("Success");
+        // the join took the lock, and never let go of it
+        await Assert.That(locks.Values).DoesNotContain(_ => _ == null);
+        await Assert.That(await memory.Get(fileId)).IsNotNull();
+    }
+
+    /// <summary>
     /// A save is applied before the parts waiting for the file are cleaned: failing to clean them does not fail the
     /// save, which Word would then put again, against the file it just wrote.
     /// </summary>
