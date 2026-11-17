@@ -369,7 +369,8 @@ sealed class WopiHandler(
         {
             return WopiResult.NotFound();
         }
-        catch (IOException exception) when (exception is not BadHttpRequestException)
+        catch (IOException exception) when (exception is not BadHttpRequestException &&
+                                            !cancel.IsCancellationRequested)
         {
             log.LogError(exception, "PutFile of {FileId} failed", fileId);
             return WopiResult.ServerError("Failed to write the file");
@@ -928,7 +929,8 @@ sealed class WopiHandler(
         {
             return WopiResult.NotImplemented("The storage does not allow creating files here");
         }
-        catch (IOException exception) when (exception is not BadHttpRequestException)
+        catch (IOException exception) when (exception is not BadHttpRequestException &&
+                                            !cancel.IsCancellationRequested)
         {
             log.LogError(exception, "PutRelativeFile of {FileId} failed", fileId);
             return WopiResult.ServerError("Failed to create the file");

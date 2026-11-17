@@ -75,11 +75,25 @@ public static class OfficeHostExtensions
                 {
                     return await next(context);
                 }
-                catch (BadHttpRequestException exception) when (exception.StatusCode == StatusCodes.Status413PayloadTooLarge)
+                catch (BadHttpRequestException exception)
                 {
-                    return WopiResult.Text("The file is too large", StatusCodes.Status413PayloadTooLarge);
+                    // a request body too large (413), sent too slowly (408) or cut short (400): the client's, answered as
+                    // Kestrel would, not a failure of the server
+                    log.LogInformation("{Method} {Path}: the request body could not be read: {Message}", http.Request.Method, http.Request.Path, exception.Message);
+                    if (exception.StatusCode == StatusCodes.Status413PayloadTooLarge)
+                    {
+                        return WopiResult.Text("The file is too large", StatusCodes.Status413PayloadTooLarge);
+                    }
+
+                    return WopiResult.Text("The request body could not be read", exception.StatusCode);
                 }
-                catch (Exception exception) when (!http.RequestAborted.IsCancellationRequested)
+                catch (Exception exception) when (http.RequestAborted.IsCancellationRequested)
+                {
+                    // the client went away, as during an upload: no one reads the answer, and nothing failed
+                    log.LogDebug(exception, "{Method} {Path} aborted by the client", http.Request.Method, http.Request.Path);
+                    return Results.Empty;
+                }
+                catch (Exception exception)
                 {
                     log.LogError(exception, "Unexpected failure of {Method} {Path}", http.Request.Method, http.Request.Path);
                     return WopiResult.ServerError("Internal error");

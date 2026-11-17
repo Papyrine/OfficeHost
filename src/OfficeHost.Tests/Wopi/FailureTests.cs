@@ -84,6 +84,22 @@ public class FailureTests
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
     }
 
+    /// <summary>
+    /// A request body the server cannot read, sent too slowly (408) or cut short (400), is answered with its status, as
+    /// Kestrel would, not as a failure of the server logged as an error.
+    /// </summary>
+    [Test]
+    [Arguments(StatusCodes.Status408RequestTimeout)]
+    [Arguments(StatusCodes.Status400BadRequest)]
+    public async Task PutFile_BodyUnreadable(int status)
+    {
+        await using var context = await Start("");
+        context.Fail(nameof(IOfficeStorage.Write), new BadHttpRequestException("the request body", status));
+        using var response = await context.Host.PutFile(context.FileId, context.Token, "new");
+        await Assert.That((int) response.StatusCode).IsEqualTo(status);
+        await Assert.That(context.Host.Log.Lines).DoesNotContain(_ => _.StartsWith("Error ", StringComparison.Ordinal));
+    }
+
     [Test]
     public async Task PutRelativeFile_CreateFails()
     {
