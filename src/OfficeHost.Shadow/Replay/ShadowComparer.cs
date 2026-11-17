@@ -4,8 +4,6 @@
 /// </summary>
 static class ShadowComparer
 {
-    public static XNamespace Soap { get; } = SoapBody.Soap;
-
     // the attributes whose values each server makes its own: compared by whether they are there
     static HashSet<string> volatileAttributes =
     [
@@ -42,11 +40,11 @@ static class ShadowComparer
     public static List<(ShadowDocument Document, bool Makes)> Documents(SoapBody request)
     {
         var documents = new List<(ShadowDocument, bool)>();
-        foreach (var item in request.Document.Descendants(Soap + "Request"))
+        foreach (var item in request.Document.Descendants(Soap.Request))
         {
             if (ShadowDocument.From((string?) item.Attribute("Url")) is { } document)
             {
-                documents.Add((document, item.Elements(Soap + "SubRequest").Any(_ => Makes(_, request))));
+                documents.Add((document, item.Elements(Soap.SubRequest).Any(_ => Makes(_, request))));
             }
         }
 
@@ -63,7 +61,7 @@ static class ShadowComparer
             return false;
         }
 
-        var subRequestData = body.Binary(subRequest.Element(Soap + "SubRequestData"));
+        var subRequestData = body.Binary(subRequest.Element(Soap.SubRequestData));
         return RequestOf(subRequestData)?
             .SubRequests
             .OfType<PutChangesRequest>()
@@ -75,7 +73,7 @@ static class ShadowComparer
     /// </summary>
     public static bool Opens(SoapBody request) =>
         request.Document
-            .Descendants(Soap + "SubRequestData")
+            .Descendants(Soap.SubRequestData)
             .Any(_ => (string?) _.Attribute("CoauthRequestType") == "JoinCoauthoring" ||
                       (string?) _.Attribute("SchemaLockRequestType") == "GetLock" ||
                       (string?) _.Attribute("ExclusiveLockRequestType") == "GetLock");
@@ -92,8 +90,8 @@ static class ShadowComparer
             yield break;
         }
 
-        var requests = request.Document.Descendants(Soap + "Request").ToList();
-        foreach (var item in response.Document.Descendants(Soap + "Response"))
+        var requests = request.Document.Descendants(Soap.Request).ToList();
+        foreach (var item in response.Document.Descendants(Soap.Response))
         {
             var requestToken = (string?) item.Attribute("RequestToken");
             var matching = requests.FirstOrDefault(_ => (string?) _.Attribute("RequestToken") == requestToken);
@@ -103,15 +101,15 @@ static class ShadowComparer
                 continue;
             }
 
-            var contentTokens = matching.Elements(Soap + "SubRequest")
+            var contentTokens = matching.Elements(Soap.SubRequest)
                 .Where(_ => (string?) _.Attribute("Type") == "Cell" &&
-                            PartitionOf(_.Element(Soap + "SubRequestData")) == FssHttpCells.ContentPartition)
+                            PartitionOf(_.Element(Soap.SubRequestData)) == FssHttpCells.ContentPartition)
                 .Select(_ => (string?) _.Attribute("SubRequestToken"))
                 .ToHashSet();
-            foreach (var subResponse in item.Elements(Soap + "SubResponse")
+            foreach (var subResponse in item.Elements(Soap.SubResponse)
                          .Where(_ => contentTokens.Contains((string?) _.Attribute("SubRequestToken"))))
             {
-                if (FileOf(response.Binary(subResponse.Element(Soap + "SubResponseData"))) is { } file)
+                if (FileOf(response.Binary(subResponse.Element(Soap.SubResponseData))) is { } file)
                 {
                     yield return file;
                 }
@@ -132,7 +130,7 @@ static class ShadowComparer
         long? version = null;
         foreach (var etag in response
                      .Document
-                     .Descendants(Soap + "SubResponseData")
+                     .Descendants(Soap.SubResponseData)
                      .Select(_ => (string?) _.Attribute("Etag")))
         {
             if (etag != null &&
@@ -259,7 +257,7 @@ static class ShadowComparer
         }
 
         var type = (string?) subRequest.Attribute("Type") ?? "?";
-        var data = subRequest.Element(Soap + "SubRequestData");
+        var data = subRequest.Element(Soap.SubRequestData);
         if (type == "Cell")
         {
             if (RequestOf(request.Binary(data)) is not { } fssHttpB)
@@ -309,7 +307,7 @@ static class ShadowComparer
             facets["ErrorMessage"] = message;
         }
 
-        var data = subResponse.Element(Soap + "SubResponseData");
+        var data = subResponse.Element(Soap.SubResponseData);
         if (data == null)
         {
             return facets;

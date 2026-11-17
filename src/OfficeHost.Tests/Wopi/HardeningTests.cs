@@ -272,8 +272,8 @@ public class HardeningTests
         var context = new DefaultHttpContext();
         // the path base is not in the path, and the decoded path keeps %2F, as Kestrel's
         var raw = $"/base{signed}?access_token=t";
-        context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpRequestFeature>()!.RawTarget = raw;
-        context.Request.Path = new PathString(Uri.UnescapeDataString(signed.Replace("%2F", "%252F")));
+        context.Features.Get<IHttpRequestFeature>()!.RawTarget = raw;
+        context.Request.Path = new(Uri.UnescapeDataString(signed.Replace("%2F", "%252F")));
         var segments = context.Request.Path.Value!.Split('/');
         var routeValue = segments[^fromEnd];
 

@@ -10,7 +10,7 @@ class FssHttpCells(IFssHttpStore store, IOfficeStorage storage, FssHttpCellCache
     /// The partitions of [MS-FSSHTTP] 2.3.3.1 (PartitionID): the content of the file, its metadata, and the editors
     /// table.
     /// </summary>
-    public static Guid ContentPartition { get; } = Guid.Empty;
+    public static Guid ContentPartition => Guid.Empty;
 
     public static Guid MetadataPartition { get; } = new("383ADC0B-E66E-4438-95E6-E39EF9720122");
 

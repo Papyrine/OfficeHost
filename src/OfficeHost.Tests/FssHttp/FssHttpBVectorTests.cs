@@ -49,7 +49,7 @@ public class FssHttpBVectorTests
     public async Task Spec_QueryChangesSubResponse()
     {
         var bytes = FssHttpB.Hex(FssHttpBVectors.SpecQueryChangesSubResponse);
-        var response = (QueryChangesResponse)FssHttpB.Read(bytes, (ref FssHttpBReader _) => SubResponse.Read(ref _));
+        var response = (QueryChangesResponse)FssHttpB.Read(bytes, (ref _) => SubResponse.Read(ref _));
         await Assert.That(response.RequestId).IsEqualTo(1ul);
         await Assert.That(response.StorageIndex).IsEqualTo(new(FssHttpB.Guid("A00D98FD-40FD-4D99-930A-6322D7689136"), 1));
         await Assert.That(response.Partial).IsFalse();
@@ -119,7 +119,7 @@ public class FssHttpBVectorTests
     [Test]
     public async Task Spec_StorageManifest()
     {
-        var manifest = (StorageManifest)FssHttpB.Read(FssHttpB.Hex(FssHttpBVectors.SpecStorageManifest), (ref FssHttpBReader _) => DataElement.Read(ref _));
+        var manifest = (StorageManifest)FssHttpB.Read(FssHttpB.Hex(FssHttpBVectors.SpecStorageManifest), (ref _) => DataElement.Read(ref _));
         await Assert.That(manifest.Id).IsEqualTo(new(FssHttpB.Guid("D730FA99-122C-4288-B722-0A125CFDA7E5"), 1));
         await Assert.That(manifest.SerialNumber).IsEqualTo(new(FssHttpB.Guid("5430AF47-6E71-409B-9806-707E818DC102"), 0x32));
         await Assert.That(manifest.SchemaId).IsEqualTo(FssHttpB.Guid("0EB93394-571D-41E9-AAD3-880D92D31955"));
@@ -137,7 +137,7 @@ public class FssHttpBVectorTests
     [Test]
     public async Task Spec_CellManifest()
     {
-        var manifest = (CellManifest)FssHttpB.Read(FssHttpB.Hex(FssHttpBVectors.SpecCellManifest), (ref FssHttpBReader _) => DataElement.Read(ref _));
+        var manifest = (CellManifest)FssHttpB.Read(FssHttpB.Hex(FssHttpBVectors.SpecCellManifest), (ref _) => DataElement.Read(ref _));
         await Assert.That(manifest.Id).IsEqualTo(new(FssHttpB.Guid("2C0BFC8E-9B04-4C61-AB49-4845E603ECA0"), 0x31));
         await Assert.That(manifest.CurrentRevision).IsEqualTo(new(FssHttpB.Guid("7128FE3A-DCBE-4301-BD84-716C456C808A"), 1));
     }
@@ -150,7 +150,7 @@ public class FssHttpBVectorTests
     [Test]
     public async Task Spec_RevisionManifest()
     {
-        var manifest = (RevisionManifest)FssHttpB.Read(FssHttpB.Hex(FssHttpBVectors.SpecRevisionManifest), (ref FssHttpBReader _) => DataElement.Read(ref _));
+        var manifest = (RevisionManifest)FssHttpB.Read(FssHttpB.Hex(FssHttpBVectors.SpecRevisionManifest), (ref _) => DataElement.Read(ref _));
         await Assert.That(manifest.RevisionId).IsEqualTo(new(FssHttpB.Guid("7128FE3A-DCBE-4301-BD84-716C456C808A"), 1));
         await Assert.That(manifest.BaseRevisionId).IsEqualTo(ExtendedGuid.Null);
         var root = manifest.Roots.Single();
@@ -165,7 +165,7 @@ public class FssHttpBVectorTests
     [Test]
     public async Task Spec_StorageIndex()
     {
-        var index = (StorageIndex)FssHttpB.Read(FssHttpB.Hex(FssHttpBVectors.SpecStorageIndex), (ref FssHttpBReader _) => DataElement.Read(ref _));
+        var index = (StorageIndex)FssHttpB.Read(FssHttpB.Hex(FssHttpBVectors.SpecStorageIndex), (ref _) => DataElement.Read(ref _));
         var manifest = (StorageIndexManifestMapping)index.Entries[0];
         await Assert.That(manifest.MappingId).IsEqualTo(new(FssHttpB.Guid("D730FA99-122C-4288-B722-0A125CFDA7E5"), 1));
         await Assert.That(manifest.MappingSerialNumber.Value).IsEqualTo(0x3Eul);

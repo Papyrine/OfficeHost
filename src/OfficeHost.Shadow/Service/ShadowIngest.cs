@@ -1,5 +1,3 @@
-using Microsoft.AspNetCore.Http.Features;
-
 /// <summary>
 /// The endpoint the module in SharePoint posts its batches to (<see cref="ShadowProtocol"/>): checks the key, reads the
 /// batch, and hands it to the <see cref="ShadowInbox"/>; it never replays. 202, or 503 with Retry-After when the inbox

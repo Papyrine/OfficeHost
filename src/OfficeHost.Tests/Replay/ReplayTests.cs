@@ -117,15 +117,15 @@ public class ReplayTests
         var message = new HttpMessage("POST /_vti_bin/cellstorage.svc/CellStorageService HTTP/1.1", [("Content-Type", contentType)], body);
 
         var read = SoapBody.Read(message);
-        var data = read.Document.Descendants(SoapBody.Soap + "SubRequestData").Single();
+        var data = read.Document.Descendants(Soap.SubRequestData).Single();
         await Assert.That(read.Binary(data)!.SequenceEqual(binary)).IsTrue();
 
         var document = new XDocument(read.Document);
-        document.Descendants(SoapBody.Soap + "Request").Single().SetAttributeValue("Url", "http://localhost/fsshttp/token/doc.docx");
+        document.Descendants(Soap.Request).Single().SetAttributeValue("Url", "http://localhost/fsshttp/token/doc.docx");
         var again = SoapBody.Read(message with { Body = read.With(document) });
-        var request = again.Document.Descendants(SoapBody.Soap + "Request").Single();
+        var request = again.Document.Descendants(Soap.Request).Single();
         await Assert.That((string?) request.Attribute("Url")).IsEqualTo("http://localhost/fsshttp/token/doc.docx");
-        await Assert.That(again.Binary(request.Descendants(SoapBody.Soap + "SubRequestData").Single())!.SequenceEqual(binary)).IsTrue();
+        await Assert.That(again.Binary(request.Descendants(Soap.SubRequestData).Single())!.SequenceEqual(binary)).IsTrue();
 
         // a message is read once, however many times it is asked: another message, though equal, is read again
         await Assert.That(SoapBody.TryRead(message)).IsSameReferenceAs(SoapBody.TryRead(message));

@@ -36,15 +36,15 @@ static class FssHttpB
 
     public static object ParseResponse(byte[] bytes) => FssHttpBResponse.Read(bytes);
 
-    public static object ParseSubRequest(byte[] bytes) => Read(bytes, (ref FssHttpBReader _) => SubRequest.Read(ref _));
+    public static object ParseSubRequest(byte[] bytes) => Read(bytes, (ref _) => SubRequest.Read(ref _));
 
-    public static object ParseSubResponse(byte[] bytes) => Read(bytes, (ref FssHttpBReader _) => SubResponse.Read(ref _));
+    public static object ParseSubResponse(byte[] bytes) => Read(bytes, (ref _) => SubResponse.Read(ref _));
 
-    public static object ParseElement(byte[] bytes) => Read(bytes, (ref FssHttpBReader _) => DataElement.Read(ref _));
+    public static object ParseElement(byte[] bytes) => Read(bytes, (ref _) => DataElement.Read(ref _));
 
-    public static object ParseKnowledge(byte[] bytes) => Read(bytes, (ref FssHttpBReader _) => Knowledge.Read(ref _));
+    public static object ParseKnowledge(byte[] bytes) => Read(bytes, (ref _) => Knowledge.Read(ref _));
 
-    public static object ParseError(byte[] bytes) => Read(bytes, (ref FssHttpBReader _) => ResponseError.Read(ref _));
+    public static object ParseError(byte[] bytes) => Read(bytes, (ref _) => ResponseError.Read(ref _));
 
     /// <summary>
     /// Writes a part of a message on its own.
@@ -54,11 +54,11 @@ static class FssHttpB
         {
             FssHttpBRequest request => request.ToArray(),
             FssHttpBResponse response => response.ToArray(),
-            SubRequest subRequest => Bytes((ref FssHttpBWriter _) => subRequest.Write(ref _)),
+            SubRequest subRequest => Bytes((ref _) => subRequest.Write(ref _)),
             SubResponse subResponse => subResponse.ToArray(),
-            DataElement element => Bytes((ref FssHttpBWriter _) => element.Write(ref _)),
-            Knowledge knowledge => Bytes((ref FssHttpBWriter _) => knowledge.Write(ref _)),
-            ResponseError error => Bytes((ref FssHttpBWriter _) => error.Write(ref _)),
+            DataElement element => Bytes((ref _) => element.Write(ref _)),
+            Knowledge knowledge => Bytes((ref _) => knowledge.Write(ref _)),
+            ResponseError error => Bytes((ref _) => error.Write(ref _)),
             _ => throw new ArgumentException(value.GetType().Name)
         };
 

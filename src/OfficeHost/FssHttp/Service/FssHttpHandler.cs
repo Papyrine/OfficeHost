@@ -186,16 +186,15 @@ class FssHttpHandler(
         }
 
         var alone = session.Clients.Count <= 1 && !session.TransitionPending;
-        var soap = SoapMessage.Soap;
         var envelope = new XElement(
-            SoapMessage.Envelope + "Envelope",
-            new XAttribute(XNamespace.Xmlns + "soap", SoapMessage.Envelope),
+            Soap.Envelope,
+            new XAttribute(XNamespace.Xmlns + "soap", Soap.EnvelopeNamespace),
             new XElement(
-                SoapMessage.Envelope + "Body",
+                Soap.Body,
                 new XElement(
-                    soap + "IsOnlyClientResponse",
-                    new XAttribute("xmlns", soap.NamespaceName),
-                    new XElement(soap + "IsOnlyClientResult", XmlConvert.ToString(alone)))));
+                    Soap.IsOnlyClientResponse,
+                    new XAttribute("xmlns", Soap.Namespace.NamespaceName),
+                    new XElement(Soap.IsOnlyClientResult, XmlConvert.ToString(alone)))));
         context.Response.ContentType = "text/xml; charset=utf-8";
         await context.Response.WriteAsync(new XDeclaration("1.0", "utf-8", null) + envelope.ToString(SaveOptions.DisableFormatting), cancel);
     }

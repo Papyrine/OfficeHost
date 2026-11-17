@@ -53,7 +53,6 @@ class CellStorageService(
     IOptions<OfficeHostOptions> options,
     ILogger<CellStorageService> log)
 {
-    static XNamespace soap = SoapMessage.Soap;
     // E_FAIL, the HResult of SharePoint with an error code (MS-FSSHTTP 4.1.2)
     const long failHResult = 2147500037;
     const string success = "Success";
@@ -75,12 +74,12 @@ class CellStorageService(
 
     public async Task<XElement> Execute(SoapMessage message, FssHttpSite site, MtomResponse mtom, Cancel cancel)
     {
-        var body = message.Document.Root?.Element(SoapMessage.Envelope + "Body") ??
+        var body = message.Document.Root?.Element(Soap.Body) ??
                    throw new InvalidDataException("No SOAP body");
         // Office sends a few requests of a few sub-requests: many more are refused before any runs
-        var requests = body.Descendants(soap + "Request").ToList();
+        var requests = body.Descendants(Soap.Request).ToList();
         if (requests.Count > maxRequests ||
-            requests.Any(_ => _.Elements(soap + "SubRequest").Skip(maxSubRequests).Any()))
+            requests.Any(_ => _.Elements(Soap.SubRequest).Skip(maxSubRequests).Any()))
         {
             throw new InvalidDataException($"More than {maxRequests} requests, or {maxSubRequests} sub-requests in a request");
         }
@@ -92,13 +91,13 @@ class CellStorageService(
         }
 
         return new(
-            SoapMessage.Envelope + "Envelope",
-            new XAttribute(XNamespace.Xmlns + "s", SoapMessage.Envelope),
+            Soap.Envelope,
+            new XAttribute(XNamespace.Xmlns + "s", Soap.EnvelopeNamespace),
             new XElement(
-                SoapMessage.Envelope + "Body",
+                Soap.Body,
                 // 2.2.3.7: SharePoint answers MinorVersion 3, which XORs the signatures of small zip items (MS-FSSHTTPD 2.4.1)
-                new XElement(soap + "ResponseVersion", new XAttribute("Version", "2"), new XAttribute("MinorVersion", "3")),
-                new XElement(soap + "ResponseCollection", new XAttribute("WebUrl", site.WebUrl), responses)));
+                new XElement(Soap.ResponseVersion, new XAttribute("Version", "2"), new XAttribute("MinorVersion", "3")),
+                new XElement(Soap.ResponseCollection, new XAttribute("WebUrl", site.WebUrl), responses)));
     }
 
     /// <summary>
@@ -115,7 +114,7 @@ class CellStorageService(
             return await Request(message, request, target.Site, mtom, cancel);
         }
 
-        var putTokens = request.Elements(soap + "SubRequest")
+        var putTokens = request.Elements(Soap.SubRequest)
             .Where(_ => (string?) _.Attribute("Type") == "Cell" && Puts(message, _))
             .Select(_ => (string?) _.Attribute("SubRequestToken") ?? "")
             .ToList();
@@ -157,7 +156,7 @@ class CellStorageService(
         }
 
         var response = await Request(message, request, fileSite, mtom, cancel);
-        var failed = response.Elements(soap + "SubResponse")
+        var failed = response.Elements(Soap.SubResponse)
             .Any(_ => putTokens.Contains((string?) _.Attribute("SubRequestToken") ?? "") &&
                       (string?) _.Attribute("ErrorCode") != success);
         if (failed)
@@ -188,7 +187,7 @@ class CellStorageService(
     /// </summary>
     static bool Puts(SoapMessage message, XElement subRequest)
     {
-        if (subRequest.Element(soap + "SubRequestData") is not { } data)
+        if (subRequest.Element(Soap.SubRequestData) is not { } data)
         {
             return false;
         }
@@ -208,26 +207,26 @@ class CellStorageService(
     /// </summary>
     static XElement Failed(XElement request, string errorCode) =>
         new(
-            soap + "Response",
+            Soap.Response,
             new XAttribute("Url", (string?) request.Attribute("Url") ?? ""),
             new XAttribute("RequestToken", (string?) request.Attribute("RequestToken") ?? "1"),
             new XAttribute("HealthScore", "0"),
-            request.Elements(soap + "SubRequest")
+            request.Elements(Soap.SubRequest)
                 .Select(_ => new XElement(
-                    soap + "SubResponse",
+                    Soap.SubResponse,
                     new XAttribute("SubRequestToken", (string?) _.Attribute("SubRequestToken") ?? ""),
                     new XAttribute("ErrorCode", errorCode),
                     new XAttribute("HResult", failHResult),
-                    new XElement(soap + "SubResponseData"))));
+                    new XElement(Soap.SubResponseData))));
 
     async Task<XElement> Request(SoapMessage message, XElement request, FssHttpSite site, MtomResponse mtom, Cancel cancel)
     {
         var results = new Dictionary<string, string>();
         var subResponses = new List<XElement>();
-        foreach (var subRequest in request.Elements(soap + "SubRequest"))
+        foreach (var subRequest in request.Elements(Soap.SubRequest))
         {
             var token = (string?) subRequest.Attribute("SubRequestToken") ?? "";
-            var data = new XElement(soap + "SubResponseData");
+            var data = new XElement(Soap.SubResponseData);
             var errorCode = Dependency(subRequest, results) ??
                             await SubRequest(message, subRequest, site, data, mtom, cancel);
             results[token] = errorCode;
@@ -238,7 +237,7 @@ class CellStorageService(
             }
 
             var subResponse = new XElement(
-                soap + "SubResponse",
+                Soap.SubResponse,
                 new XAttribute("SubRequestToken", token),
                 new XAttribute("ErrorCode", errorCode));
             // SharePoint names the user who has the lock in the ErrorMessage of a lock refused, which Excel shows in its
@@ -255,7 +254,7 @@ class CellStorageService(
         }
 
         return new(
-            soap + "Response",
+            Soap.Response,
             new XAttribute("Url", (string?) request.Attribute("Url") ?? ""),
             new XAttribute("RequestToken", (string?) request.Attribute("RequestToken") ?? "1"),
             new XAttribute("HealthScore", "0"),
@@ -293,7 +292,7 @@ class CellStorageService(
 
     async Task<string> SubRequest(SoapMessage message, XElement subRequest, FssHttpSite site, XElement data, MtomResponse mtom, Cancel cancel)
     {
-        var requestData = subRequest.Element(soap + "SubRequestData");
+        var requestData = subRequest.Element(Soap.SubRequestData);
         try
         {
             return (string?) subRequest.Attribute("Type") switch
@@ -1311,7 +1310,7 @@ class CellStorageService(
     }
 
     static XElement Property(string key, object value) =>
-        new(soap + "Property", new XAttribute("Key", key), new XAttribute("Value", value));
+        new(Soap.Property, new XAttribute("Key", key), new XAttribute("Value", value));
 
     /// <summary>
     /// GetDocMetaInfo (3.1.4.9): some of the vti properties of the file ([MS-FPSE] 2.2.4) SharePoint returns, and of its
@@ -1356,7 +1355,7 @@ class CellStorageService(
             properties.Add(Property("vti_sourcecontrollocktype", "1"));
         }
 
-        data.Add(new XElement(soap + "DocProps", properties), new XElement(soap + "FolderProps"));
+        data.Add(new XElement(Soap.DocProps, properties), new XElement(Soap.FolderProps));
         return success;
     }
 
@@ -1499,7 +1498,7 @@ class CellStorageService(
             return "RequestNotSupported";
         }
 
-        data.Add(new XElement(soap + "PropertyValues"));
+        data.Add(new XElement(Soap.PropertyValues));
         return success;
     }
 

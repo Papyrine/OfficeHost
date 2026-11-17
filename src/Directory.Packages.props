@@ -4,7 +4,7 @@
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="ProjectDefaults" Version="1.0.189" />
+    <PackageVersion Include="ProjectDefaults" Version="1.0.190" />
     <PackageVersion Include="Polyfill" Version="11.4.5" />
     <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="11.0.0" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="11.0.0" />
@@ -12,13 +12,13 @@
     <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="11.0.0" />
     <PackageVersion Include="Morph.Blazor" Version="1.27.0" />
     <PackageVersion Include="Morph.Wopi" Version="1.27.0" />
-    <PackageVersion Include="TUnit" Version="1.85.0" />
+    <PackageVersion Include="TUnit" Version="1.86.0" />
     <PackageVersion Include="Verify.TUnit" Version="33.5.0" />
     <PackageVersion Include="Verify.SqlServer" Version="12.5.0" />
     <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.12.0" />
     <PackageVersion Include="Microsoft.Playwright" Version="1.64.1" />
     <PackageVersion Include="Azure.Storage.Blobs" Version="12.30.1" />
-    <PackageVersion Include="Testcontainers.Azurite" Version="4.16.0" />
+    <PackageVersion Include="Testcontainers.Azurite" Version="4.17.0" />
     <PackageVersion Include="Microsoft.Data.SqlClient" Version="7.1.2" />
     <!-- Pins the transitive package of Microsoft.Data.SqlClient past known vulnerabilities. -->
     <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="11.0.0" />

@@ -1,6 +1,3 @@
-using Microsoft.AspNetCore.WebUtilities;
-using Microsoft.Net.Http.Headers;
-
 /// <summary>
 /// A sub-response of the cell storage service, with the binary data of a Cell sub-response.
 /// </summary>

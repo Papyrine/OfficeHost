@@ -4,10 +4,6 @@
 /// </summary>
 class SoapBody
 {
-    public static XNamespace Soap { get; } = "http://schemas.microsoft.com/sharepoint/soap/";
-
-    static XNamespace xop = "http://www.w3.org/2004/08/xop/include";
-
     string? boundary;
     List<(Dictionary<string, StringValues> Headers, byte[] Body)> sections = [];
 
@@ -85,7 +81,7 @@ class SoapBody
             return null;
         }
 
-        if ((string?) data.Element(xop + "Include")?.Attribute("href") is { } href)
+        if ((string?) data.Element(Soap.Include)?.Attribute("href") is { } href)
         {
             return Parts.GetValueOrDefault(Normalize(href));
         }

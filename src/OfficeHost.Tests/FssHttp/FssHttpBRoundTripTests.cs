@@ -50,7 +50,7 @@ public class FssHttpBRoundTripTests
 
     static Knowledge FullKnowledge()
     {
-        var unknown = FssHttpB.Bytes((ref FssHttpBWriter _) =>
+        var unknown = FssHttpB.Bytes((ref _) =>
         {
             _.WriteStart(StreamObjectType.ObjectDataBlob, 2);
             _.WriteBytes([1, 2]);
@@ -193,7 +193,7 @@ public class FssHttpBRoundTripTests
         // the data element start, then the Object Data BLOB start with the length field at 32767
         var blobStart = 2 + 17 + 25 + 1;
         await Assert.That(FssHttpB.Hex(bytes.AsSpan(blobStart, 4))).IsEqualTo("1200FEFF");
-        await Assert.That(FssHttpB.Read(bytes.AsSpan(blobStart + 4, 3).ToArray(), (ref FssHttpBReader _) => _.ReadCompactUInt64())).IsEqualTo(70000ul);
+        await Assert.That(FssHttpB.Read(bytes.AsSpan(blobStart + 4, 3).ToArray(), (ref _) => _.ReadCompactUInt64())).IsEqualTo(70000ul);
     }
 
     /// <summary>

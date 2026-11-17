@@ -1,16 +1,9 @@
-using Microsoft.AspNetCore.WebUtilities;
-using Microsoft.Net.Http.Headers;
-
 /// <summary>
 /// A request to a SOAP service of Office ([MS-FSSHTTP] 2.1): the envelope, and the binary parts of an MTOM message
 /// ([XOP10]) by their Content-ID.
 /// </summary>
 class SoapMessage(XDocument envelope, Dictionary<string, ReadOnlyMemory<byte>> parts)
 {
-    public static XNamespace Soap { get; } = "http://schemas.microsoft.com/sharepoint/soap/";
-    public static XNamespace Envelope { get; } = "http://schemas.xmlsoap.org/soap/envelope/";
-    public static XNamespace Xop { get; } = "http://www.w3.org/2004/08/xop/include";
-
     public XDocument Document => envelope;
 
     // the FSSHTTPB of the parts, read once however many sub-requests include a part
@@ -23,7 +16,7 @@ class SoapMessage(XDocument envelope, Dictionary<string, ReadOnlyMemory<byte>> p
     /// <exception cref="FssHttpBException">The data is not an FSSHTTPB request.</exception>
     public FssHttpBRequest? FssHttpB(XElement element)
     {
-        var href = (string?) element.Element(Xop + "Include")?.Attribute("href");
+        var href = (string?) element.Element(Soap.Include)?.Attribute("href");
         if (href != null &&
             requests.TryGetValue(Normalize(href), out var cached))
         {
@@ -117,7 +110,7 @@ class SoapMessage(XDocument envelope, Dictionary<string, ReadOnlyMemory<byte>> p
     /// <exception cref="InvalidDataException">The part is missing, or the text is not base64.</exception>
     public ReadOnlyMemory<byte>? Binary(XElement element)
     {
-        var include = element.Element(Xop + "Include");
+        var include = element.Element(Soap.Include);
         if (include != null)
         {
             var href = (string?) include.Attribute("href") ?? "";
@@ -163,9 +156,9 @@ class MtomResponse
         var id = $"http://tempuri.org/1/{parts.Count}";
         parts.Add((id, data));
         return new(
-            SoapMessage.Xop + "Include",
+            Soap.Include,
             new XAttribute("href", $"cid:{id}"),
-            new XAttribute(XNamespace.Xmlns + "xop", SoapMessage.Xop));
+            new XAttribute(XNamespace.Xmlns + "xop", Soap.XopNamespace));
     }
 
     public async Task Write(HttpResponse response, XElement envelope, Cancel cancel)

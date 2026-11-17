@@ -55,8 +55,6 @@ record ShadowReplayed(List<ShadowFinding> Findings, string? NotReplayed = null);
 /// </summary>
 class ShadowReplay(IShadowTarget target, IShadowFiles files, IReadOnlyList<ShadowRule> rules)
 {
-    static XNamespace soap = SoapBody.Soap;
-
     static Regex guids = new(@"\{?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}?");
 
     Dictionary<string, ShadowDocumentState> documents = [];
@@ -121,7 +119,7 @@ class ShadowReplay(IShadowTarget target, IShadowFiles files, IReadOnlyList<Shado
 
         var named = ShadowComparer.Documents(body).Select(_ => State(_.Document)).ToList();
         var document = Translate(body.Document, named);
-        var requests = document.Descendants(soap + "Request").ToList();
+        var requests = document.Descendants(Soap.Request).ToList();
         var translations = new Dictionary<(int Request, string? Token), ReplayCells.Translation>();
         string? site = null;
         for (var index = 0; index < requests.Count; index++)
@@ -145,9 +143,9 @@ class ShadowReplay(IShadowTarget target, IShadowFiles files, IReadOnlyList<Shado
             site ??= file.Site;
             request.SetAttributeValue("Url", $"http://localhost{file.Site}/{Uri.EscapeDataString(shadowDocument.Name)}");
             var state = State(shadowDocument);
-            foreach (var subRequest in request.Elements(soap + "SubRequest").Where(_ => (string?) _.Attribute("Type") == "Cell"))
+            foreach (var subRequest in request.Elements(Soap.SubRequest).Where(_ => (string?) _.Attribute("Type") == "Cell"))
             {
-                var data = subRequest.Element(soap + "SubRequestData");
+                var data = subRequest.Element(Soap.SubRequestData);
                 if (ShadowComparer.RequestOf(body.Binary(data)) is not { } cell)
                 {
                     continue;
@@ -302,7 +300,7 @@ class ShadowReplay(IShadowTarget target, IShadowFiles files, IReadOnlyList<Shado
 
     List<ShadowFinding> Compare(Exchange exchange, SoapBody request, HttpMessage response, Dictionary<(int Request, string? Token), ReplayCells.Translation> translations)
     {
-        var requests = request.Document.Descendants(soap + "Request").ToList();
+        var requests = request.Document.Descendants(Soap.Request).ToList();
         var first = ShadowDocument.From((string?) requests.FirstOrDefault()?.Attribute("Url"))?.Key;
         if (exchange.Response.Status != 200 ||
             response.Status != 200)
@@ -319,8 +317,8 @@ class ShadowReplay(IShadowTarget target, IShadowFiles files, IReadOnlyList<Shado
         // read already by the processor and the comparer; read again only to throw why it cannot be
         var expected = SoapBody.TryRead(exchange.Response) ?? SoapBody.Read(exchange.Response);
         var actual = SoapBody.Read(response);
-        var expectedResponses = expected.Document.Descendants(soap + "Response").ToList();
-        var actualResponses = actual.Document.Descendants(soap + "Response").ToList();
+        var expectedResponses = expected.Document.Descendants(Soap.Response).ToList();
+        var actualResponses = actual.Document.Descendants(Soap.Response).ToList();
         for (var index = 0; index < expectedResponses.Count; index++)
         {
             var shadowDocument = ShadowDocument.From((string?) requests.ElementAtOrDefault(index)?.Attribute("Url"));
@@ -344,9 +342,9 @@ class ShadowReplay(IShadowTarget target, IShadowFiles files, IReadOnlyList<Shado
                 }
             }
 
-            var subRequests = requests.ElementAtOrDefault(index)?.Elements(soap + "SubRequest").ToList() ?? [];
-            var actualSubResponses = actualResponse.Elements(soap + "SubResponse").ToList();
-            foreach (var expectedSubResponse in expectedResponse.Elements(soap + "SubResponse"))
+            var subRequests = requests.ElementAtOrDefault(index)?.Elements(Soap.SubRequest).ToList() ?? [];
+            var actualSubResponses = actualResponse.Elements(Soap.SubResponse).ToList();
+            foreach (var expectedSubResponse in expectedResponse.Elements(Soap.SubResponse))
             {
                 var token = (string?) expectedSubResponse.Attribute("SubRequestToken");
                 var subRequest = subRequests.FirstOrDefault(_ => (string?) _.Attribute("SubRequestToken") == token);
@@ -359,8 +357,8 @@ class ShadowReplay(IShadowTarget target, IShadowFiles files, IReadOnlyList<Shado
                     continue;
                 }
 
-                var expectedData = expectedSubResponse.Element(soap + "SubResponseData");
-                var actualData = actualSubResponse.Element(soap + "SubResponseData");
+                var expectedData = expectedSubResponse.Element(Soap.SubResponseData);
+                var actualData = actualSubResponse.Element(Soap.SubResponseData);
                 if (state != null)
                 {
                     Learn(state, (string?) expectedData?.Attribute("TransitionID"), (string?) actualData?.Attribute("TransitionID"));

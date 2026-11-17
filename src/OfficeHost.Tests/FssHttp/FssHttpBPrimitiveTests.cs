@@ -9,9 +9,9 @@ public class FssHttpBPrimitiveTests
     static readonly Guid guid = FssHttpB.Guid("84DEFAB9-AAA3-4A0D-A3A8-520C77AC7073");
     const string guidHex = "B9FADE84A3AA0D4AA3A8520C77AC7073";
 
-    static string Compact(ulong value) => FssHttpB.Hex(FssHttpB.Bytes((ref FssHttpBWriter _) => _.WriteCompactUInt64(value)));
+    static string Compact(ulong value) => FssHttpB.Hex(FssHttpB.Bytes((ref _) => _.WriteCompactUInt64(value)));
 
-    static ulong ReadCompact(string hex) => FssHttpB.Read(FssHttpB.Hex(hex), (ref FssHttpBReader _) => _.ReadCompactUInt64());
+    static ulong ReadCompact(string hex) => FssHttpB.Read(FssHttpB.Hex(hex), (ref _) => _.ReadCompactUInt64());
 
     /// <summary>
     /// 2.2.1.1: the encodings of the spec examples (4.1 to 4.4) and of each size at its limits.
@@ -73,10 +73,10 @@ public class FssHttpBPrimitiveTests
 
         foreach (var value in values)
         {
-            var bytes = FssHttpB.Bytes((ref FssHttpBWriter _) => _.WriteCompactUInt64(value));
+            var bytes = FssHttpB.Bytes((ref _) => _.WriteCompactUInt64(value));
             await Assert.That(bytes.Length).IsEqualTo(CompactUInt64.Size(value));
             await Assert.That(bytes.Length).IsEqualTo(ExpectedCompactSize(value));
-            await Assert.That(FssHttpB.Read(bytes, (ref FssHttpBReader _) => _.ReadCompactUInt64())).IsEqualTo(value);
+            await Assert.That(FssHttpB.Read(bytes, (ref _) => _.ReadCompactUInt64())).IsEqualTo(value);
         }
     }
 
@@ -112,10 +112,10 @@ public class FssHttpBPrimitiveTests
         await Assert.That(() => ReadCompact(hex)).Throws<FssHttpBException>();
 
     static string ExtendedGuidHex(ExtendedGuid value) =>
-        FssHttpB.Hex(FssHttpB.Bytes((ref FssHttpBWriter _) => _.WriteExtendedGuid(value)));
+        FssHttpB.Hex(FssHttpB.Bytes((ref _) => _.WriteExtendedGuid(value)));
 
     static ExtendedGuid ReadExtendedGuid(string hex) =>
-        FssHttpB.Read(FssHttpB.Hex(hex), (ref FssHttpBReader _) => _.ReadExtendedGuid());
+        FssHttpB.Read(FssHttpB.Hex(hex), (ref _) => _.ReadExtendedGuid());
 
     /// <summary>
     /// 2.2.1.7: the forms of the spec examples (the 5-bit 0C and 14, the 10-bit 600C, the 32-bit 80 13380CDE of 4.3.5),
@@ -166,9 +166,9 @@ public class FssHttpBPrimitiveTests
             for (var index = 0; index < 50; index++)
             {
                 var value = new ExtendedGuid(Guid.NewGuid(), (uint) random.NextInt64(0, (long) limit + 1));
-                var bytes = FssHttpB.Bytes((ref FssHttpBWriter _) => _.WriteExtendedGuid(value));
+                var bytes = FssHttpB.Bytes((ref _) => _.WriteExtendedGuid(value));
                 await Assert.That(bytes.Length).IsEqualTo(value.Size);
-                await Assert.That(FssHttpB.Read(bytes, (ref FssHttpBReader _) => _.ReadExtendedGuid())).IsEqualTo(value);
+                await Assert.That(FssHttpB.Read(bytes, (ref _) => _.ReadExtendedGuid())).IsEqualTo(value);
             }
         }
     }
@@ -203,16 +203,16 @@ public class FssHttpBPrimitiveTests
     public async Task SerialNumber_Encoding()
     {
         var value = new SerialNumber(guid, 0x32);
-        var bytes = FssHttpB.Bytes((ref FssHttpBWriter _) => _.WriteSerialNumber(value));
+        var bytes = FssHttpB.Bytes((ref _) => _.WriteSerialNumber(value));
         await Assert.That(FssHttpB.Hex(bytes)).IsEqualTo("80" + guidHex + "3200000000000000");
         await Assert.That(value.Size).IsEqualTo(25);
-        await Assert.That(FssHttpB.Read(bytes, (ref FssHttpBReader _) => _.ReadSerialNumber())).IsEqualTo(value);
+        await Assert.That(FssHttpB.Read(bytes, (ref _) => _.ReadSerialNumber())).IsEqualTo(value);
         await Assert.That(value.ToString()).IsEqualTo("{84defab9-aaa3-4a0d-a3a8-520c77ac7073},50");
 
-        var empty = FssHttpB.Bytes((ref FssHttpBWriter _) => _.WriteSerialNumber(SerialNumber.Null));
+        var empty = FssHttpB.Bytes((ref _) => _.WriteSerialNumber(SerialNumber.Null));
         await Assert.That(FssHttpB.Hex(empty)).IsEqualTo("00");
         await Assert.That(SerialNumber.Null.Size).IsEqualTo(1);
-        await Assert.That(FssHttpB.Read(empty, (ref FssHttpBReader _) => _.ReadSerialNumber()).IsNull).IsTrue();
+        await Assert.That(FssHttpB.Read(empty, (ref _) => _.ReadSerialNumber()).IsNull).IsTrue();
     }
 
     [Test]
@@ -221,11 +221,11 @@ public class FssHttpBPrimitiveTests
     [Arguments("80000000000000000000000000000000000100000000000000")]
     [Arguments("80" + guidHex + "01")]
     public async Task SerialNumber_Invalid(string hex) =>
-        await Assert.That(() => FssHttpB.Read(FssHttpB.Hex(hex), (ref FssHttpBReader _) => _.ReadSerialNumber())).Throws<FssHttpBException>();
+        await Assert.That(() => FssHttpB.Read(FssHttpB.Hex(hex), (ref _) => _.ReadSerialNumber())).Throws<FssHttpBException>();
 
     [Test]
     public async Task SerialNumber_EmptyGuidWithValue() =>
-        await Assert.That(() => FssHttpB.Bytes((ref FssHttpBWriter _) => _.WriteSerialNumber(new(Guid.Empty, 1)))).Throws<ArgumentException>();
+        await Assert.That(() => FssHttpB.Bytes((ref _) => _.WriteSerialNumber(new(Guid.Empty, 1)))).Throws<ArgumentException>();
 
     /// <summary>
     /// 2.2.1.10, 2.2.1.11: a Cell ID is two Extended GUIDs, and the null Cell ID two null ones.
@@ -235,11 +235,11 @@ public class FssHttpBPrimitiveTests
     {
         var cell = new CellId(new(guid, 1), new(guid, 2));
         CellId[] cells = [cell, CellId.Null];
-        var bytes = FssHttpB.Bytes((ref FssHttpBWriter _) => _.WriteCellIdArray(cells));
+        var bytes = FssHttpB.Bytes((ref _) => _.WriteCellIdArray(cells));
         await Assert.That(FssHttpB.Hex(bytes)).IsEqualTo("05" + "0C" + guidHex + "14" + guidHex + "0000");
         await Assert.That(FssHttpBSize.CellIdArray(cells)).IsEqualTo(bytes.Length);
         await Assert.That(CellId.Null.Size).IsEqualTo(2);
-        var read = FssHttpB.Read(bytes, (ref FssHttpBReader _) => _.ReadCellIdArray());
+        var read = FssHttpB.Read(bytes, (ref _) => _.ReadCellIdArray());
         await Assert.That(read).IsEquivalentTo(cells);
     }
 
@@ -250,10 +250,10 @@ public class FssHttpBPrimitiveTests
     public async Task FileChunkReference_Encoding()
     {
         var chunk = new FileChunkReference(0x80, 3670016);
-        var bytes = FssHttpB.Bytes((ref FssHttpBWriter _) => _.WriteFileChunkReference(chunk));
+        var bytes = FssHttpB.Bytes((ref _) => _.WriteFileChunkReference(chunk));
         await Assert.That(FssHttpB.Hex(bytes)).IsEqualTo("0202" + "08008003");
         await Assert.That(chunk.Size).IsEqualTo(6);
-        await Assert.That(FssHttpB.Read(bytes, (ref FssHttpBReader _) => _.ReadFileChunkReference())).IsEqualTo(chunk);
+        await Assert.That(FssHttpB.Read(bytes, (ref _) => _.ReadFileChunkReference())).IsEqualTo(chunk);
     }
 
     /// <summary>
@@ -263,11 +263,11 @@ public class FssHttpBPrimitiveTests
     public async Task ExtendedGuidArray_Encoding()
     {
         ExtendedGuid[] values = [new(guid, 1), ExtendedGuid.Null, new(guid, 0x31)];
-        var bytes = FssHttpB.Bytes((ref FssHttpBWriter _) => _.WriteExtendedGuidArray(values));
+        var bytes = FssHttpB.Bytes((ref _) => _.WriteExtendedGuidArray(values));
         await Assert.That(FssHttpB.Hex(bytes)).IsEqualTo("07" + "0C" + guidHex + "00" + "600C" + guidHex);
         await Assert.That(FssHttpBSize.ExtendedGuidArray(values)).IsEqualTo(bytes.Length);
-        await Assert.That(FssHttpB.Read(bytes, (ref FssHttpBReader _) => _.ReadExtendedGuidArray())).IsEquivalentTo(values);
-        var empty = FssHttpB.Read(FssHttpB.Hex("00"), (ref FssHttpBReader _) => _.ReadExtendedGuidArray());
+        await Assert.That(FssHttpB.Read(bytes, (ref _) => _.ReadExtendedGuidArray())).IsEquivalentTo(values);
+        var empty = FssHttpB.Read(FssHttpB.Hex("00"), (ref _) => _.ReadExtendedGuidArray());
         await Assert.That(empty.Length).IsEqualTo(0);
     }
 
@@ -278,22 +278,22 @@ public class FssHttpBPrimitiveTests
     [Test]
     public async Task Items_Encoding()
     {
-        var binary = FssHttpB.Bytes((ref FssHttpBWriter _) => _.WriteBinaryItem([1, 2, 3]));
+        var binary = FssHttpB.Bytes((ref _) => _.WriteBinaryItem([1, 2, 3]));
         await Assert.That(FssHttpB.Hex(binary)).IsEqualTo("07010203");
         await Assert.That(FssHttpBSize.BinaryItem(3)).IsEqualTo(4);
-        var read = FssHttpB.Read(binary, (ref FssHttpBReader _) => _.ReadBinaryItem());
+        var read = FssHttpB.Read(binary, (ref _) => _.ReadBinaryItem());
         await Assert.That(FssHttpB.Hex(read.Span)).IsEqualTo("010203");
 
-        var text = FssHttpB.Bytes((ref FssHttpBWriter _) => _.WriteStringItem("Wé"));
+        var text = FssHttpB.Bytes((ref _) => _.WriteStringItem("Wé"));
         await Assert.That(FssHttpB.Hex(text)).IsEqualTo("055700E900");
         await Assert.That(FssHttpBSize.StringItem("Wé")).IsEqualTo(5);
-        await Assert.That(FssHttpB.Read(text, (ref FssHttpBReader _) => _.ReadStringItem())).IsEqualTo("Wé");
+        await Assert.That(FssHttpB.Read(text, (ref _) => _.ReadStringItem())).IsEqualTo("Wé");
 
         string[] strings = ["a", "", "bc"];
-        var array = FssHttpB.Bytes((ref FssHttpBWriter _) => _.WriteStringItemArray(strings));
+        var array = FssHttpB.Bytes((ref _) => _.WriteStringItemArray(strings));
         await Assert.That(FssHttpB.Hex(array)).IsEqualTo("07" + "036100" + "00" + "0562006300");
         await Assert.That(FssHttpBSize.StringItemArray(strings)).IsEqualTo(array.Length);
-        await Assert.That(FssHttpB.Read(array, (ref FssHttpBReader _) => _.ReadStringItemArray())).IsEquivalentTo(strings);
+        await Assert.That(FssHttpB.Read(array, (ref _) => _.ReadStringItemArray())).IsEquivalentTo(strings);
     }
 
     /// <summary>
@@ -306,18 +306,18 @@ public class FssHttpBPrimitiveTests
     public async Task Count_LargerThanData(string hex)
     {
         var bytes = FssHttpB.Hex(hex);
-        await Assert.That(() => FssHttpB.Read(bytes, (ref FssHttpBReader _) => _.ReadExtendedGuidArray())).Throws<FssHttpBException>();
-        await Assert.That(() => FssHttpB.Read(bytes, (ref FssHttpBReader _) => _.ReadCellIdArray())).Throws<FssHttpBException>();
-        await Assert.That(() => FssHttpB.Read(bytes, (ref FssHttpBReader _) => _.ReadBinaryItem())).Throws<FssHttpBException>();
-        await Assert.That(() => FssHttpB.Read(bytes, (ref FssHttpBReader _) => _.ReadStringItem())).Throws<FssHttpBException>();
-        await Assert.That(() => FssHttpB.Read(bytes, (ref FssHttpBReader _) => _.ReadStringItemArray())).Throws<FssHttpBException>();
+        await Assert.That(() => FssHttpB.Read(bytes, (ref _) => _.ReadExtendedGuidArray())).Throws<FssHttpBException>();
+        await Assert.That(() => FssHttpB.Read(bytes, (ref _) => _.ReadCellIdArray())).Throws<FssHttpBException>();
+        await Assert.That(() => FssHttpB.Read(bytes, (ref _) => _.ReadBinaryItem())).Throws<FssHttpBException>();
+        await Assert.That(() => FssHttpB.Read(bytes, (ref _) => _.ReadStringItem())).Throws<FssHttpBException>();
+        await Assert.That(() => FssHttpB.Read(bytes, (ref _) => _.ReadStringItemArray())).Throws<FssHttpBException>();
     }
 
     [Test]
     public async Task FixedWidth_RoundTrip()
     {
         var value = Guid.NewGuid();
-        var bytes = FssHttpB.Bytes((ref FssHttpBWriter _) =>
+        var bytes = FssHttpB.Bytes((ref _) =>
         {
             _.WriteByte(0xAB);
             _.WriteUInt16(0x1234);
@@ -351,7 +351,7 @@ public class FssHttpBPrimitiveTests
     }
 
     static StreamObjectHeader ReadHeader(string hex) =>
-        FssHttpB.Read(FssHttpB.Hex(hex), (ref FssHttpBReader _) => _.ReadHeader());
+        FssHttpB.Read(FssHttpB.Hex(hex), (ref _) => _.ReadHeader());
 
     /// <summary>
     /// 2.2.1.5.1, 2.2.1.5.2: the starts of the spec examples, read and written back.
@@ -371,7 +371,7 @@ public class FssHttpBPrimitiveTests
     {
         var type = (StreamObjectType) code;
         await Assert.That(ReadHeader(hex)).IsEqualTo(new(type, type.IsCompound(), false, length));
-        var written = FssHttpB.Bytes((ref FssHttpBWriter _) => _.WriteStart(type, length));
+        var written = FssHttpB.Bytes((ref _) => _.WriteStart(type, length));
         await Assert.That(FssHttpB.Hex(written)).IsEqualTo(hex);
     }
 
@@ -397,7 +397,7 @@ public class FssHttpBPrimitiveTests
     {
         var type = (StreamObjectType) code;
         await Assert.That(ReadHeader(hex)).IsEqualTo(new(type, true, true, 0));
-        var written = FssHttpB.Bytes((ref FssHttpBWriter _) => _.WriteEnd(type));
+        var written = FssHttpB.Bytes((ref _) => _.WriteEnd(type));
         await Assert.That(FssHttpB.Hex(written)).IsEqualTo(hex);
     }
 
@@ -413,7 +413,7 @@ public class FssHttpBPrimitiveTests
     public async Task Header_Width(ushort code, ulong length, string hex)
     {
         var type = (StreamObjectType) code;
-        var written = FssHttpB.Bytes((ref FssHttpBWriter _) => _.WriteStart(type, length));
+        var written = FssHttpB.Bytes((ref _) => _.WriteStart(type, length));
         await Assert.That(FssHttpB.Hex(written)).IsEqualTo(hex);
         await Assert.That(ReadHeader(written)).IsEqualTo(new(type, type.IsCompound(), false, length));
     }
@@ -427,7 +427,7 @@ public class FssHttpBPrimitiveTests
     [Arguments(1ul << 40, "1200FEFF" + "200000000040")]
     public async Task Header_LargeLength(ulong length, string hex)
     {
-        var written = FssHttpB.Bytes((ref FssHttpBWriter _) => _.WriteStart(StreamObjectType.ObjectDataBlob, length));
+        var written = FssHttpB.Bytes((ref _) => _.WriteStart(StreamObjectType.ObjectDataBlob, length));
         await Assert.That(FssHttpB.Hex(written)).IsEqualTo(hex);
         await Assert.That(ReadHeader(hex)).IsEqualTo(new(StreamObjectType.ObjectDataBlob, false, false, length));
     }
@@ -441,21 +441,21 @@ public class FssHttpBPrimitiveTests
     [Arguments(ulong.MaxValue)]
     public async Task Header_LengthBeyondData(ulong length)
     {
-        var bytes = FssHttpB.Bytes((ref FssHttpBWriter _) =>
+        var bytes = FssHttpB.Bytes((ref _) =>
         {
             _.WriteStart(StreamObjectType.ObjectDataBlob, length);
             _.WriteBytes([1, 2, 3]);
         });
-        var exception = Assert.Throws<FssHttpBException>(() => FssHttpB.Read(bytes, (ref FssHttpBReader _) => _.ReadStart(StreamObjectType.ObjectDataBlob).Remaining));
+        var exception = Assert.Throws<FssHttpBException>(() => FssHttpB.Read(bytes, (ref _) => _.ReadStart(StreamObjectType.ObjectDataBlob).Remaining));
         await Assert.That(exception.Message).Contains("does not fit");
-        await Assert.That(() => FssHttpB.Read(bytes, (ref FssHttpBReader _) => _.ReadSingle())).Throws<FssHttpBException>();
+        await Assert.That(() => FssHttpB.Read(bytes, (ref _) => _.ReadSingle())).Throws<FssHttpBException>();
     }
 
     static int Start(string hex, StreamObjectType type) =>
-        FssHttpB.Read(FssHttpB.Hex(hex), (ref FssHttpBReader _) => _.ReadStart(type).Remaining);
+        FssHttpB.Read(FssHttpB.Hex(hex), (ref _) => _.ReadStart(type).Remaining);
 
     static int End(string hex, StreamObjectType type) =>
-        FssHttpB.Read(FssHttpB.Hex(hex), (ref FssHttpBReader _) =>
+        FssHttpB.Read(FssHttpB.Hex(hex), (ref _) =>
         {
             _.ReadEnd(type);
             return 0;
@@ -479,9 +479,9 @@ public class FssHttpBPrimitiveTests
         await Assert.That(() => End("41", StreamObjectType.CellKnowledge)).Throws<FssHttpBException>();
         await Assert.That(() => End("8400", StreamObjectType.Knowledge)).Throws<FssHttpBException>();
         // a single object is expected: neither a compound start, nor a compound type without its bit, nor an end
-        await Assert.That(() => FssHttpB.Read(FssHttpB.Hex("8400"), (ref FssHttpBReader _) => _.ReadSingle())).Throws<FssHttpBException>();
-        await Assert.That(() => FssHttpB.Read(FssHttpB.Hex("8000"), (ref FssHttpBReader _) => _.ReadSingle())).Throws<FssHttpBException>();
-        await Assert.That(() => FssHttpB.Read(FssHttpB.Hex("41"), (ref FssHttpBReader _) => _.ReadSingle())).Throws<FssHttpBException>();
+        await Assert.That(() => FssHttpB.Read(FssHttpB.Hex("8400"), (ref _) => _.ReadSingle())).Throws<FssHttpBException>();
+        await Assert.That(() => FssHttpB.Read(FssHttpB.Hex("8000"), (ref _) => _.ReadSingle())).Throws<FssHttpBException>();
+        await Assert.That(() => FssHttpB.Read(FssHttpB.Hex("41"), (ref _) => _.ReadSingle())).Throws<FssHttpBException>();
     }
 
     [Test]
@@ -503,7 +503,7 @@ public class FssHttpBPrimitiveTests
         await Assert.That(atEnd).IsTrue();
         await Assert.That(single.Type).IsEqualTo(StreamObjectType.ObjectGroupObjectData);
         await Assert.That(single.Data.Length).IsEqualTo(502);
-        var written = FssHttpB.Bytes((ref FssHttpBWriter _) => _.WriteSingle(single));
+        var written = FssHttpB.Bytes((ref _) => _.WriteSingle(single));
         await Assert.That(written).IsEquivalentTo(bytes);
     }
 

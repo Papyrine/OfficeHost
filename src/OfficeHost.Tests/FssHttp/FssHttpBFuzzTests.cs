@@ -178,7 +178,7 @@ public class FssHttpBFuzzTests
     [Test]
     public async Task HugeCounts()
     {
-        var addedCount = FssHttpB.Bytes((ref FssHttpBWriter _) =>
+        var addedCount = FssHttpB.Bytes((ref _) =>
         {
             _.WriteStart(StreamObjectType.SubResponse, 3);
             _.WriteCompactUInt64(1);
@@ -188,7 +188,7 @@ public class FssHttpBFuzzTests
             _.WriteExtendedGuid(ExtendedGuid.Null);
             _.WriteCompactUInt64(ulong.MaxValue);
         });
-        var hashLength = FssHttpB.Bytes((ref FssHttpBWriter _) =>
+        var hashLength = FssHttpB.Bytes((ref _) =>
         {
             _.WriteStart(StreamObjectType.DataElement, 3);
             _.WriteExtendedGuid(ExtendedGuid.Null);
@@ -198,7 +198,7 @@ public class FssHttpBFuzzTests
             _.WriteCompactUInt64(1);
             _.WriteCompactUInt64(1UL << 40);
         });
-        var largeLength = FssHttpB.Bytes((ref FssHttpBWriter _) =>
+        var largeLength = FssHttpB.Bytes((ref _) =>
         {
             _.WriteStart(StreamObjectType.DataElement, 3);
             _.WriteExtendedGuid(ExtendedGuid.Null);
@@ -206,7 +206,7 @@ public class FssHttpBFuzzTests
             _.WriteCompactUInt64((ulong) DataElementType.ObjectDataBlob);
             _.WriteStart(StreamObjectType.ObjectDataBlob, ulong.MaxValue);
         });
-        var supplementalLength = FssHttpB.Bytes((ref FssHttpBWriter _) =>
+        var supplementalLength = FssHttpB.Bytes((ref _) =>
         {
             ResponseError.Cell(CellErrorCode.Unknown).Write(ref _);
         });
@@ -214,7 +214,7 @@ public class FssHttpBFuzzTests
         supplementalLength =
         [
             ..supplementalLength[..^2],
-            ..FssHttpB.Bytes((ref FssHttpBWriter _) =>
+            ..FssHttpB.Bytes((ref _) =>
             {
                 _.WriteStart(StreamObjectType.ErrorStringSupplementalInfo, 9);
                 _.WriteCompactUInt64(1UL << 62);
@@ -238,7 +238,7 @@ public class FssHttpBFuzzTests
     }
 
     static byte[] UnknownKnowledge(int depth) =>
-        FssHttpB.Bytes((ref FssHttpBWriter _) =>
+        FssHttpB.Bytes((ref _) =>
         {
             _.WriteStart(StreamObjectType.Knowledge, 0);
             _.WriteStart(StreamObjectType.SpecializedKnowledge, 16);
@@ -300,7 +300,7 @@ public class FssHttpBFuzzTests
     }
 
     static byte[] Element(ulong type, Writing body) =>
-        FssHttpB.Bytes((ref FssHttpBWriter _) =>
+        FssHttpB.Bytes((ref _) =>
         {
             _.WriteStart(StreamObjectType.DataElement, 3);
             _.WriteExtendedGuid(ExtendedGuid.Null);
@@ -311,7 +311,7 @@ public class FssHttpBFuzzTests
         });
 
     static byte[] ObjectGroup(Writing declarations, Writing data) =>
-        Element((ulong) DataElementType.ObjectGroup, (ref FssHttpBWriter _) =>
+        Element((ulong) DataElementType.ObjectGroup, (ref _) =>
         {
             _.WriteStart(StreamObjectType.ObjectGroupDeclarations, 0);
             declarations(ref _);
@@ -332,7 +332,7 @@ public class FssHttpBFuzzTests
     }
 
     static byte[] SubRequest(ulong type) =>
-        FssHttpB.Bytes((ref FssHttpBWriter _) =>
+        FssHttpB.Bytes((ref _) =>
         {
             _.WriteStart(StreamObjectType.SubRequest, 3);
             _.WriteCompactUInt64(1);
@@ -342,7 +342,7 @@ public class FssHttpBFuzzTests
         });
 
     static byte[] SubResponse(ulong type) =>
-        FssHttpB.Bytes((ref FssHttpBWriter _) =>
+        FssHttpB.Bytes((ref _) =>
         {
             _.WriteStart(StreamObjectType.SubResponse, 3);
             _.WriteCompactUInt64(1);
@@ -384,7 +384,7 @@ public class FssHttpBFuzzTests
     }
 
     static byte[] QueryChangesFlags(int length) =>
-        FssHttpB.Bytes((ref FssHttpBWriter _) =>
+        FssHttpB.Bytes((ref _) =>
         {
             _.WriteStart(StreamObjectType.SubRequest, 3);
             _.WriteCompactUInt64(1);
@@ -408,7 +408,7 @@ public class FssHttpBFuzzTests
     }
 
     static byte[] CellKnowledgeWithBlob() =>
-        FssHttpB.Bytes((ref FssHttpBWriter _) =>
+        FssHttpB.Bytes((ref _) =>
         {
             _.WriteStart(StreamObjectType.Knowledge, 0);
             _.WriteStart(StreamObjectType.SpecializedKnowledge, 16);
