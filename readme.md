@@ -585,7 +585,7 @@ How it works, its guarantees to SharePoint, its configuration and limits are in 
 
 ## Proof keys
 
-WOPI clients that publish a `proof-key` in their discovery sign their requests ([MS-WOPI] 2.2.1). The requests that carry `X-WOPI-Proof` are validated against the keys of `DiscoveryUrls`: the current and the old key, for clients that rotate theirs. The keys are cached for an hour, and refetched on a mismatch when over a minute old, so forged requests do not turn into a discovery request each. When a client is down, its last keys are kept, and its discovery is attempted again once a minute.
+WOPI clients that publish a `proof-key` in their discovery sign their requests ([MS-WOPI] 2.2.1). The requests that carry `X-WOPI-Proof` are validated against the keys of `DiscoveryUrls`: the current and the old key, for clients that rotate theirs. The keys are cached for an hour, and refetched on a mismatch when over a minute old, so forged requests do not turn into a discovery request each. When a client is down, its last keys are kept, and its discovery is attempted again once a minute. A request whose proof matches keys over an hour old fetches the discovery of that client only, so that it never waits for a client that is down.
 
 Requests without proof are accepted unless `RequireProof` is set. The signed URL is `BaseUrl` (or the request's) and the path and query of the request, so `BaseUrl` must be the URL the clients call.
 

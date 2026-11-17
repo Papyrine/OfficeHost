@@ -87,6 +87,19 @@ sealed class WopiDiscovery(IHttpClientFactory httpFactory, TimeProvider time, IL
     }
 
     /// <summary>
+    /// The discovery last fetched, whatever its age, with no fetch: null when none was.
+    /// </summary>
+    public Document? Last(string url)
+    {
+        if (!clients.TryGetValue(url, out var client))
+        {
+            return null;
+        }
+
+        return client.Cached?.Document;
+    }
+
+    /// <summary>
     /// Whether the cache answers, without a fetch.
     /// </summary>
     bool FromCache(Cached? cached, bool refetch, out Document? document)

@@ -57,8 +57,10 @@ sealed class ProofKeys(WopiDiscovery discovery, IOptions<OfficeHostOptions> opti
         var expected = ExpectedProof(accessToken, requestUrl, ticks);
         var proofOld = request.Header("X-WOPI-ProofOld");
         // the keys of the WOPI clients fetched recently first, so that the requests of one neither fetch nor wait for
-        // the discovery of another, as of a WOPI client that is down; then those of the others, fetched as needed
+        // the discovery of another, as of a WOPI client that is down; then those fetched earlier, of which only the
+        // client the request matches is fetched again; then those of the others, fetched as needed
         if (VerifyRecent(expected, proof, proofOld) ||
+            await VerifyStale(expected, proof, proofOld, cancel) ||
             await Verify(expected, proof, proofOld, false, cancel) ||
             // a WOPI client may have rotated its keys since its discovery was fetched
             await Verify(expected, proof, proofOld, true, cancel))
@@ -79,6 +81,29 @@ sealed class ProofKeys(WopiDiscovery discovery, IOptions<OfficeHostOptions> opti
             {
                 return true;
             }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The keys of a discovery older than an hour, which the request matches: that discovery is fetched again, and the
+    /// request verified against it, so that an hourly refresh waits for no other WOPI client.
+    /// </summary>
+    async Task<bool> VerifyStale(byte[] expected, string proof, string? proofOld, Cancel cancel)
+    {
+        foreach (var url in Options.DiscoveryUrls)
+        {
+            var last = discovery.Last(url);
+            if (last == null ||
+                !Verify(expected, proof, proofOld, last.Keys))
+            {
+                continue;
+            }
+
+            var document = await discovery.Get(url, false, cancel);
+            return document != null &&
+                   Verify(expected, proof, proofOld, document.Keys);
         }
 
         return false;

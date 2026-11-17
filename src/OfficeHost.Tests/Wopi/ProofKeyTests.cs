@@ -491,4 +491,28 @@ public class ProofKeyTests
         await Assert.That(down.Attempts).IsEqualTo(1);
         await Assert.That(context.Client.Fetches).IsEqualTo(1);
     }
+
+    /// <summary>
+    /// Once the keys of a WOPI client are an hour old, its requests fetch its discovery again, and not first that of a
+    /// client that is down, listed before it.
+    /// </summary>
+    [Test]
+    public async Task SeveralClients_OneDown_Hourly()
+    {
+        using var down = new WopiClient
+        {
+            Url = "https://down/hosting/discovery",
+            Unreachable = true
+        };
+        await using var context = await Start(other: down);
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            using var response = await context.CheckFileInfo(context.Client.Current);
+            await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+            context.Time.Advance(TimeSpan.FromMinutes(61));
+        }
+
+        await Assert.That(down.Attempts).IsEqualTo(1);
+        await Assert.That(context.Client.Fetches).IsEqualTo(2);
+    }
 }
