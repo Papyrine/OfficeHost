@@ -5,9 +5,11 @@
 sealed class ProofKeys(WopiDiscovery discovery, IOptions<OfficeHostOptions> options, TimeProvider time)
 {
     /// <summary>
-    /// The keys of a discovery: either may be missing.
+    /// The keys of a discovery: either may be missing. They are imported once, with the discovery, and verify the
+    /// requests concurrently; a discovery replaced leaves its keys to the garbage collector, as requests may still be
+    /// verifying with them.
     /// </summary>
-    public record Keys(RSAParameters? Current, RSAParameters? Old);
+    public record Keys(RSA? Current, RSA? Old);
 
     OfficeHostOptions Options => options.Value;
 
@@ -154,7 +156,7 @@ sealed class ProofKeys(WopiDiscovery discovery, IOptions<OfficeHostOptions> opti
         Verify(expected, proof, keys.Old) ||
         Verify(expected, proofOld, keys.Current);
 
-    static bool Verify(byte[] expected, string? signature, RSAParameters? key)
+    static bool Verify(byte[] expected, string? signature, RSA? key)
     {
         if (string.IsNullOrEmpty(signature) ||
             key == null)
@@ -164,8 +166,7 @@ sealed class ProofKeys(WopiDiscovery discovery, IOptions<OfficeHostOptions> opti
 
         try
         {
-            using var rsa = RSA.Create(key.Value);
-            return rsa.VerifyData(expected, Convert.FromBase64String(signature), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            return key.VerifyData(expected, Convert.FromBase64String(signature), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         }
         catch (Exception exception) when (exception is FormatException or CryptographicException)
         {
@@ -190,18 +191,19 @@ sealed class ProofKeys(WopiDiscovery discovery, IOptions<OfficeHostOptions> opti
             Key(element, "oldmodulus", "oldexponent", "oldvalue"));
     }
 
-    static RSAParameters? Key(XElement element, string modulus, string exponent, string blob)
+    static RSA? Key(XElement element, string modulus, string exponent, string blob)
     {
         var modulusValue = (string?) element.Attribute(modulus);
         var exponentValue = (string?) element.Attribute(exponent);
         if (!string.IsNullOrEmpty(modulusValue) &&
             !string.IsNullOrEmpty(exponentValue))
         {
-            return new RSAParameters
-            {
-                Modulus = Convert.FromBase64String(modulusValue),
-                Exponent = Convert.FromBase64String(exponentValue)
-            };
+            return RSA.Create(
+                new RSAParameters
+                {
+                    Modulus = Convert.FromBase64String(modulusValue),
+                    Exponent = Convert.FromBase64String(exponentValue)
+                });
         }
 
         var blobValue = (string?) element.Attribute(blob);
@@ -210,8 +212,8 @@ sealed class ProofKeys(WopiDiscovery discovery, IOptions<OfficeHostOptions> opti
             return null;
         }
 
-        using var rsa = new RSACryptoServiceProvider();
-        rsa.ImportCspBlob(Convert.FromBase64String(blobValue));
-        return rsa.ExportParameters(false);
+        using var csp = new RSACryptoServiceProvider();
+        csp.ImportCspBlob(Convert.FromBase64String(blobValue));
+        return RSA.Create(csp.ExportParameters(false));
     }
 }

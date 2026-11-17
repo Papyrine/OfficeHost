@@ -181,8 +181,8 @@ public class ProofKeyTests
             };
             using var response = await client.Handle(new(HttpMethod.Get, discoveryUrl));
             var keys = WopiDiscovery.Parse(await response.Content.ReadAsStringAsync()).Keys;
-            await Assert.That(keys.Current!.Value.Modulus!.SequenceEqual(client.Current.ExportParameters(false).Modulus!)).IsTrue();
-            await Assert.That(keys.Old!.Value.Modulus!.SequenceEqual(client.Old!.ExportParameters(false).Modulus!)).IsTrue();
+            await Assert.That(keys.Current!.ExportParameters(false).Modulus!.SequenceEqual(client.Current.ExportParameters(false).Modulus!)).IsTrue();
+            await Assert.That(keys.Old!.ExportParameters(false).Modulus!.SequenceEqual(client.Old!.ExportParameters(false).Modulus!)).IsTrue();
         }
     }
 
