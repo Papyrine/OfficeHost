@@ -57,6 +57,12 @@ jobs:
         # Packs as a side effect (GeneratePackageOnBuild), populating ./nugets.
         run: dotnet build src --configuration Release ${{ env.VERSION_ARGUMENT }}
 
+      # The module in SharePoint (net462, no dependencies) is not in the solution, and the tests compile its Tap/ on
+      # .NET: only its own build catches what .NET Framework lacks, as System.Index. Its package is not published.
+      - name: Build the SharePoint module
+        if: runner.os == 'Windows'
+        run: dotnet build src/OfficeHost.SharePoint --configuration Release
+
       # TUnit runs on Microsoft.Testing.Platform: run the test executable rather than `dotnet test`.
       - name: Test
         run: >-
