@@ -307,9 +307,20 @@ public sealed class BlobStorage(BlobContainerClient container) :
     /// again with the new one. A content that cannot be read twice, as a request body, is first kept in a temporary
     /// file.
     /// </summary>
-    public async Task<OfficeFile> Write(string fileId, Stream content, Cancel cancel = default)
+    public async Task<OfficeFile> Write(string fileId, Stream content, Cancel cancel = default) =>
+        await TryWrite(fileId, content, cancel) ??
+        throw new FileNotFoundException($"No file {fileId}");
+
+    /// <summary>
+    /// <see cref="Write"/>, or null when the file is gone, the content not read.
+    /// </summary>
+    async Task<OfficeFile?> TryWrite(string fileId, Stream content, Cancel cancel)
     {
-        var source = await ExistingProperties(fileId, cancel);
+        if (await GetProperties(fileId, cancel) is not { } source)
+        {
+            return null;
+        }
+
         await using var temporary = await Buffer(content, cancel);
         var buffered = temporary ?? content;
         var start = buffered.Position;
@@ -393,29 +404,40 @@ public sealed class BlobStorage(BlobContainerClient container) :
                 return null;
             }
 
-            return await Write(holder.File.Id, content, cancel);
+            // the file of the name may be deleted meanwhile: then the content, not read yet, makes a file of its own
+            if (await TryWrite(holder.File.Id, content, cancel) is { } overwritten)
+            {
+                return overwritten;
+            }
         }
 
         var file = await Upload(NewId(), source.Folder, name, source.File.OwnerId, content, cancel);
         var named = false;
         try
         {
-            holder = await Claim(source.Folder, name, file.Id, cancel);
-            if (holder == null)
+            while (true)
             {
-                named = true;
-                return file;
-            }
+                holder = await Claim(source.Folder, name, file.Id, cancel);
+                if (holder == null)
+                {
+                    named = true;
+                    return file;
+                }
 
-            // created meanwhile: the content was read, so the one uploaded is what replaces it
-            if (overwrite)
-            {
+                if (!overwrite)
+                {
+                    return null;
+                }
+
+                // created meanwhile: the content was read, so the one uploaded is what replaces it, or, the file
+                // deleted since, takes the name
                 var blob = FileBlob(file.Id);
                 await using var uploaded = await blob.OpenReadAsync(cancellationToken: cancel);
-                return await Write(holder.File.Id, uploaded, cancel);
+                if (await TryWrite(holder.File.Id, uploaded, cancel) is { } overwritten)
+                {
+                    return overwritten;
+                }
             }
-
-            return null;
         }
         finally
         {
