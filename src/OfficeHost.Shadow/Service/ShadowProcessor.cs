@@ -217,21 +217,29 @@ sealed class ShadowProcessor
     /// Starts a document the shadow sees for the first time: writes its content to the storage, from a content query of
     /// the exchange that SharePoint answered in full (the document as it was, exactly), else from
     /// <see cref="IShadowContent"/>, and clears OfficeHost's state of it (sessions, cells, lock). A document the
-    /// exchange makes (a Save As) is left for OfficeHost to make.
+    /// exchange makes (a Save As) is left for OfficeHost to make. The document is seeded once all of it is done: a seeding
+    /// that fails, as on an error of the storage, leaves OfficeHost's state of it unknown, and the next exchange of the
+    /// document seeds it again.
     /// </summary>
     async Task<Tracked> Seed(ShadowDocument document, bool makes, Exchange exchange, bool opens, ShadowItem item, Cancel cancel)
     {
         replay.Forget(document.Key);
         files.Forget(document.Key);
         var state = Track(document);
+        await SeedState(state, document, makes, exchange, opens, item, cancel);
         state.Seeded = true;
+        return state;
+    }
+
+    async Task SeedState(Tracked state, ShadowDocument document, bool makes, Exchange exchange, bool opens, ShadowItem item, Cancel cancel)
+    {
         var fileId = await documents.Find(document, cancel);
         var captured = ShadowComparer.Contents(exchange, document.Key).FirstOrDefault();
         if (captured == null &&
             makes &&
             fileId == null)
         {
-            return state;
+            return;
         }
 
         ShadowContent? content = null;
@@ -256,7 +264,7 @@ sealed class ShadowProcessor
             if (fileId == null)
             {
                 state.Untrust("no content of the document: none in the traffic, nor from SharePoint", true);
-                return state;
+                return;
             }
 
             state.Untrust("the content of the document as SharePoint has it is not known: the shadow's file may be older", false);
@@ -293,8 +301,6 @@ sealed class ShadowProcessor
         {
             state.Untrust("first seen within a session: its locks and coauthoring are not known", true);
         }
-
-        return state;
     }
 
     /// <summary>

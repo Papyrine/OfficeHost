@@ -49,7 +49,7 @@ public class ShadowTests
         return (Exchange.ReadFolder(folder), original);
     }
 
-    internal static Task<TestServerHost> StartShadow(byte[] file, Action<OfficeHostShadowOptions>? configure = null, Func<IOfficeStorage, IOfficeStorage>? wrapStorage = null) =>
+    internal static Task<TestServerHost> StartShadow(byte[] file, Action<OfficeHostShadowOptions>? configure = null, Func<IOfficeStorage, IOfficeStorage>? wrapStorage = null, Func<IShadowDocuments, IShadowDocuments>? wrapDocuments = null) =>
         TestServerHost.Start(
             wrapStorage: wrapStorage,
             services: _ =>
@@ -61,7 +61,11 @@ public class ShadowTests
                     _.Levels[ShadowOutcome.Same] = LogLevel.Information;
                     configure?.Invoke(_);
                 });
-                _.AddSingleton<IShadowDocuments>(_ => new FileSystemShadowDocuments(_.GetRequiredService<FileSystemStorage>()));
+                _.AddSingleton<IShadowDocuments>(_ =>
+                {
+                    var documents = new FileSystemShadowDocuments(_.GetRequiredService<FileSystemStorage>());
+                    return wrapDocuments?.Invoke(documents) ?? documents;
+                });
                 _.AddSingleton<IShadowContent>(new Content(file));
             },
             endpoints: _ => _.MapOfficeHostShadow());
@@ -226,6 +230,51 @@ public class ShadowTests
         Console.WriteLine(shadow.Log);
 
         await Assert.That(findings).Contains(_ => _.StartsWith("Error ShadowProcessor: OfficeHostFailed: ", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The documents of the shadow, whose first Add fails, as a storage may.
+    /// </summary>
+    sealed class FailingDocuments(IShadowDocuments inner) :
+        IShadowDocuments
+    {
+        int adds;
+
+        public int Adds => Volatile.Read(ref adds);
+
+        public Task<string?> Find(ShadowDocument document, Cancel cancel = default) =>
+            inner.Find(document, cancel);
+
+        public Task<string> Add(ShadowDocument document, Stream content, Cancel cancel = default)
+        {
+            if (Interlocked.Increment(ref adds) == 1)
+            {
+                throw new IOException("the disk is full");
+            }
+
+            return inner.Add(document, content, cancel);
+        }
+    }
+
+    /// <summary>
+    /// A seeding that fails leaves the document unseeded, as OfficeHost's state of it is then unknown: the next exchange
+    /// of it seeds it again, rather than being replayed against a file the shadow never wrote.
+    /// </summary>
+    [Test]
+    public async Task Seed_FailedThenAgain()
+    {
+        using var folder = new TempDirectory();
+        var (exchanges, file) = await Record(folder);
+        FailingDocuments? documents = null;
+        await using var shadow = await StartShadow(file, wrapDocuments: _ => documents = new(_));
+        await Post(shadow, exchanges, Guid.NewGuid());
+        for (var attempt = 0; documents == null || documents.Adds < 2; attempt++)
+        {
+            await Assert.That(attempt).IsLessThan(200);
+            await Task.Delay(50);
+        }
+
+        await Assert.That(shadow.Log.Lines.Count(_ => _.Contains("ShadowFailed: ", StringComparison.Ordinal))).IsEqualTo(1);
     }
 
     /// <summary>
