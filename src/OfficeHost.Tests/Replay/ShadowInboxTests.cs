@@ -47,4 +47,25 @@ public class ShadowInboxTests
         await Assert.That(released.Select(_ => _.Started).SequenceEqual([earlier.Started, later.Started])).IsTrue();
         await Assert.That(inbox.Count).IsEqualTo(0);
     }
+
+    /// <summary>
+    /// A batch sent again, as when the answer to it was lost, adds only the exchanges not received, whether those were
+    /// replayed since or still wait: none is replayed twice.
+    /// </summary>
+    [Test]
+    public async Task Add_SentAgain()
+    {
+        var (inbox, time) = Start();
+        var start = time.Now;
+        var one = Item(first, 1, start);
+        var two = Item(first, 2, start.AddSeconds(1));
+        await Assert.That(inbox.Add(Batch(first, start.AddSeconds(2), one))).IsTrue();
+        await Assert.That(inbox.Add(Batch(first, start.AddSeconds(2), one, two))).IsTrue();
+        await Assert.That(inbox.Count).IsEqualTo(2);
+        await Assert.That(inbox.Release().Select(_ => _.Sequence).SequenceEqual([1L, 2L])).IsTrue();
+
+        await Assert.That(inbox.Add(Batch(first, start.AddSeconds(2), one, two))).IsTrue();
+        await Assert.That(inbox.Count).IsEqualTo(0);
+        await Assert.That(inbox.Totals.Received).IsEqualTo(2);
+    }
 }

@@ -32,6 +32,33 @@ sealed class ShadowInbox(IOptions<OfficeHostShadowOptions> options, TimeProvider
         public bool Final { get; set; }
         public long Dropped { get; set; }
         public bool Lost { get; set; }
+
+        // the sequences received, in the order received, to know an exchange of a batch sent again
+        HashSet<long> sequences = [];
+        Queue<(long Sequence, DateTimeOffset Received)> received = new();
+
+        public bool Has(long sequence) => sequences.Contains(sequence);
+
+        public void Received(long sequence, DateTimeOffset now)
+        {
+            if (sequences.Add(sequence))
+            {
+                received.Enqueue((sequence, now));
+            }
+        }
+
+        /// <summary>
+        /// Forgets the sequences received before the time: a batch is not sent again after so long.
+        /// </summary>
+        public void Forget(DateTimeOffset before)
+        {
+            while (received.TryPeek(out var oldest) &&
+                   oldest.Received < before)
+            {
+                received.Dequeue();
+                sequences.Remove(oldest.Sequence);
+            }
+        }
     }
 
     Lock gate = new();
@@ -67,24 +94,35 @@ sealed class ShadowInbox(IOptions<OfficeHostShadowOptions> options, TimeProvider
     }
 
     /// <summary>
-    /// Adds a batch, or refuses it when the inbox is full: the module backs off, and drops with tombstones.
+    /// Adds a batch, or refuses it when the inbox is full: the module backs off, and drops with tombstones. Of a batch
+    /// sent again, as when the answer to it was lost, only the exchanges not received are added, so that none is
+    /// replayed twice.
     /// </summary>
     public bool Add(ShadowBatch batch)
     {
         var now = time.GetUtcNow();
         lock (gate)
         {
-            if (batch.Items.Count > 0 &&
-                pending.Count + batch.Items.Count > options.Value.QueueCapacity)
+            instances.TryGetValue(batch.Instance, out var instance);
+            var items = batch.Items
+                .Where(_ => instance == null || !instance.Has(_.Sequence))
+                .ToList();
+            if (items.Count > 0 &&
+                pending.Count + items.Count > options.Value.QueueCapacity)
             {
-                refused += batch.Items.Count;
+                refused += items.Count;
                 return false;
             }
 
-            if (!instances.TryGetValue(batch.Instance, out var instance))
+            if (instance == null)
             {
                 instance = new(batch.Server);
                 instances[batch.Instance] = instance;
+            }
+
+            foreach (var item in items)
+            {
+                instance.Received(item.Sequence, now);
             }
 
             if (batch.Watermark > instance.Watermark)
@@ -96,8 +134,8 @@ sealed class ShadowInbox(IOptions<OfficeHostShadowOptions> options, TimeProvider
             instance.Final |= batch.Final;
             instance.Dropped += batch.Dropped;
             instance.Lost = false;
-            received += batch.Items.Count;
-            pending.AddRange(batch.Items.Select(_ => _ with { Received = now }));
+            received += items.Count;
+            pending.AddRange(items.Select(_ => _ with { Received = now }));
         }
 
         signal.Release();
@@ -158,6 +196,7 @@ sealed class ShadowInbox(IOptions<OfficeHostShadowOptions> options, TimeProvider
         {
             foreach (var (id, instance) in instances.ToList())
             {
+                instance.Forget(now - settings.IdleTimeout);
                 if (instance.Dropped > 0)
                 {
                     losses.Add(new(id, instance.Server, $"{instance.Dropped} exchanges dropped without a tombstone"));
