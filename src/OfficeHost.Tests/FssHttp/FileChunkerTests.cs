@@ -297,6 +297,71 @@ public class FileChunkerTests
         }
     }
 
+    /// <summary>
+    /// An output that cannot seek, as a zip writer streaming to a response has.
+    /// </summary>
+    sealed class ForwardOnly(Stream inner) :
+        Stream
+    {
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Write(byte[] buffer, int offset, int count) => inner.Write(buffer, offset, count);
+
+        public override void Flush() => inner.Flush();
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+    }
+
+    /// <summary>
+    /// A zip written to an output that cannot seek has data descriptors ([PKWARE-Zip] 4.3.9): its local headers have no
+    /// CRC or sizes, which come from the central directory. It is chunked by item as the zip of the same items written
+    /// with them in the headers, the data of each with the same signature.
+    /// </summary>
+    [Test]
+    public async Task Zip_DataDescriptors()
+    {
+        (string Name, byte[] Data)[] items = [("a.xml", Zips.Text(new('a', 10_000))), ("b.bin", Zips.Random(20_000, 1)), ("c.txt", Zips.Text("c"))];
+        using var output = new MemoryStream();
+        using (var archive = new ZipArchive(new ForwardOnly(output), ZipArchiveMode.Create))
+        {
+            foreach (var (name, data) in items)
+            {
+                await using var entry = await archive.CreateEntry(name).OpenAsync();
+                await entry.WriteAsync(data);
+            }
+        }
+
+        var streamed = output.ToArray();
+        await Assert.That(BinaryPrimitives.ReadUInt16LittleEndian(streamed.AsSpan(6)) & 0x08).IsEqualTo(0x08);
+        var chunks = FileChunker.Chunk(streamed, ChunkingOptions.Default);
+        AssertContiguous(chunks, streamed.Length);
+        await Assert.That(chunks.Count).IsGreaterThanOrEqualTo(items.Length + 1);
+
+        var seekable = Zips.Create(items);
+        var expected = FileChunker.Chunk(seekable, ChunkingOptions.Default);
+        // a.xml with its header, the header and the data of b.bin, c.txt with its header, the central directory; the data
+        // of b.bin, a chunk of its own, with its descriptor of 16 bytes
+        await Assert.That(chunks.Count).IsEqualTo(expected.Count);
+        await Assert.That(chunks[2].Length).IsEqualTo(expected[2].Length + 16);
+        await Assert.That(FssHttpB.Hex(chunks[2].Signature.Span)).IsEqualTo(FssHttpB.Hex(expected[2].Signature.Span));
+
+        var written = FileCell.Write(streamed, null, new(Guid.NewGuid()), ChunkingOptions.Default);
+        await Assert.That(FileCell.Read(written.Storage).Root.ToArray().AsSpan().SequenceEqual(streamed)).IsTrue();
+    }
+
     [Test]
     [Arguments("", 0u)]
     [Arguments("Hello", 0xF7D18982u)]
