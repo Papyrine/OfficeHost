@@ -1002,7 +1002,11 @@ sealed class WopiHandler(
             existing = await storage.GetSibling(fileId, name, cancel);
             if (existing == null)
             {
-                return (WopiResult.ServerError("The relative target was taken and released meanwhile"), null);
+                // the name is not a file the storage can create, as a folder, which is never replaced
+                var taken = WopiResult.Text("The relative target cannot be created", StatusCodes.Status409Conflict);
+                taken.Headers["X-WOPI-Lock"] = "";
+                await AddValidTarget(taken, fileId, name, cancel, taken: true);
+                return (taken, null);
             }
 
             return (await RelativeConflict(request, fileId, name, existing, await locks.Get(existing.Id, cancel), cancel), null);
@@ -1033,9 +1037,10 @@ sealed class WopiHandler(
     /// <summary>
     /// Adds the X-WOPI-ValidRelativeTarget a client can use instead.
     /// </summary>
-    async Task AddValidTarget(WopiResult result, string fileId, string name, Cancel cancel)
+    /// <param name="taken">Whether the name is known not to be free, though no file has it.</param>
+    async Task AddValidTarget(WopiResult result, string fileId, string name, Cancel cancel, bool taken = false)
     {
-        var free = await FreeName(fileId, name, cancel);
+        var free = await FreeName(fileId, name, taken, cancel);
         if (free != null)
         {
             result.Headers["X-WOPI-ValidRelativeTarget"] = FileNames.EncodeUtf7(free);
@@ -1043,14 +1048,16 @@ sealed class WopiHandler(
     }
 
     /// <summary>
-    /// The name, or the first of `name (2).ext`, `name (3).ext` and so on that is free in the folder of the file.
+    /// The name, unless <paramref name="taken"/>, or the first of `name (2).ext`, `name (3).ext` and so on that is free
+    /// in the folder of the file.
     /// </summary>
-    async Task<string?> FreeName(string fileId, string name, Cancel cancel)
+    async Task<string?> FreeName(string fileId, string name, bool taken, Cancel cancel)
     {
         var candidate = name;
         for (var number = 2; number <= maxNumber; number++)
         {
-            if (await storage.GetSibling(fileId, candidate, cancel) == null)
+            if ((!taken || number > 2) &&
+                await storage.GetSibling(fileId, candidate, cancel) == null)
             {
                 return candidate;
             }

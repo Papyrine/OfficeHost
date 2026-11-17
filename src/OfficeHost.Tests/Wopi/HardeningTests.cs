@@ -251,6 +251,22 @@ public class HardeningTests
     }
 
     /// <summary>
+    /// A relative target that names a folder is a conflict, not a server error, with a valid target to use instead.
+    /// </summary>
+    [Test]
+    public async Task PutRelative_RelativeTargetFolder()
+    {
+        var (host, fileId) = await Start();
+        await using var _ = host;
+        Directory.CreateDirectory(host.PathOf("copy.docx"));
+        var token = await host.Token(TestServerHost.Access(fileId));
+        using var response = await PutRelative(host, fileId, token, "copy", ("X-WOPI-RelativeTarget", "copy.docx"));
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Conflict);
+        await Assert.That(response.Headers.GetValues("X-WOPI-ValidRelativeTarget").Single()).IsEqualTo("copy (2).docx");
+        await Assert.That(Directory.Exists(host.PathOf("copy.docx"))).IsTrue();
+    }
+
+    /// <summary>
     /// Tokens signed with a previous key stay valid, those of an unknown key do not.
     /// </summary>
     [Test]
