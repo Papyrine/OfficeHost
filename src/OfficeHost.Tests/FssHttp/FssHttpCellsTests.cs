@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 /// <summary>
 /// <see cref="CellState"/>, and <see cref="FssHttpCells"/>, which keeps the content partition of a file in step with the
 /// file.
@@ -28,7 +30,12 @@ public class FssHttpCellsTests : IDisposable
         var ids = new IdAllocator(Guid.NewGuid(), 5);
         var update = FileCell.Write(Zip("a"), null, ids, ChunkingOptions.Default);
         var state = new CellState(update.Storage, ids.Guid, ids.Next, "version");
-        var read = CellState.Read(state.ToArray());
+        var memory = state.ToMemory();
+        // the buffer is the exact size: no grown buffer kept, and the SQL Server store passes the array as it is
+        await Assert.That(MemoryMarshal.TryGetArray(memory, out var segment) &&
+                          segment.Offset == 0 &&
+                          segment.Array!.Length == memory.Length).IsTrue();
+        var read = CellState.Read(memory);
         await Assert.That(read.IdGuid).IsEqualTo(ids.Guid);
         await Assert.That(read.NextId).IsEqualTo(ids.Next);
         await Assert.That(read.FileVersion).IsEqualTo("version");
@@ -38,7 +45,7 @@ public class FssHttpCellsTests : IDisposable
         await Assert.That(FileCell.Read(read.Storage).Root.ToArray().AsSpan().SequenceEqual(Zip("a"))).IsTrue();
 
         var empty = CellState.New();
-        var readEmpty = CellState.Read(empty.ToArray());
+        var readEmpty = CellState.Read(empty.ToMemory());
         await Assert.That(readEmpty.Storage).IsNull();
         await Assert.That(readEmpty.FileVersion).IsNull();
         await Assert.That(readEmpty.NextId).IsEqualTo(1ul);
@@ -195,7 +202,7 @@ public class FssHttpCellsTests : IDisposable
             // another instance writes the same file meanwhile, with a state of an older version of the file
             var ids = new IdAllocator(Guid.NewGuid());
             var other = FileCell.Write(Zips.Text("other"), null, ids, ChunkingOptions.Default);
-            await inner.CompareExchange(fileId, partition, comparand, new(Guid.NewGuid().ToString(), new CellState(other.Storage, ids.Guid, ids.Next, "older").ToArray()), cancel);
+            await inner.CompareExchange(fileId, partition, comparand, new(Guid.NewGuid().ToString(), new CellState(other.Storage, ids.Guid, ids.Next, "older").ToMemory()), cancel);
             return false;
         }
 

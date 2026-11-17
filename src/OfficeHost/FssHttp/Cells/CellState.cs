@@ -20,13 +20,25 @@ record CellState(CellStorage? Storage, Guid IdGuid, ulong NextId, string? FileVe
     public IdAllocator Ids() => new(IdGuid, NextId);
 
     /// <summary>
+    /// The state as stored, in a buffer of its exact size: the cell of the content holds the whole file, so the bytes are
+    /// counted first, then written once, with no buffer grown and no copy.
+    /// </summary>
+    public ReadOnlyMemory<byte> ToMemory()
+    {
+        var counter = new ByteCounter();
+        Write(counter);
+        var output = new ArrayBufferWriter<byte>((int) counter.Count);
+        Write(output);
+        return output.WrittenMemory;
+    }
+
+    /// <summary>
     /// The magic and format version, the file version and the base file version as optional String Items, the GUID and
     /// next value of the identifiers, then the Storage Index and a Data Element Package ([MS-FSSHTTPB] 2.2.1), when there
     /// is a storage.
     /// </summary>
-    public byte[] ToArray()
+    void Write(IBufferWriter<byte> output)
     {
-        var output = new ArrayBufferWriter<byte>();
         var writer = new FssHttpBWriter(output);
         writer.WriteBytes(magic);
         WriteOptional(ref writer, FileVersion != null);
@@ -49,8 +61,6 @@ record CellState(CellStorage? Storage, Guid IdGuid, ulong NextId, string? FileVe
             writer.WriteExtendedGuid(Storage.StorageIndexId);
             new DataElementPackage(Storage.Elements.Values.ToList()).Write(ref writer);
         }
-
-        return output.WrittenSpan.ToArray();
     }
 
     static void WriteOptional(ref FssHttpBWriter writer, bool present)
@@ -65,7 +75,7 @@ record CellState(CellStorage? Storage, Guid IdGuid, ulong NextId, string? FileVe
     }
 
     /// <summary>
-    /// The state of <see cref="ToArray"/>, whose data elements are slices of <paramref name="data"/>.
+    /// The state of <see cref="ToMemory"/>, whose data elements are slices of <paramref name="data"/>.
     /// </summary>
     public static CellState Read(ReadOnlyMemory<byte> data)
     {

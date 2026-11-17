@@ -81,7 +81,7 @@ class FssHttpCells(IFssHttpStore store, IOfficeStorage storage, FssHttpCellCache
                     continue;
                 }
 
-                var bytes = await ReadFile(fileId, cancel);
+                var bytes = await ReadFile(fileId, file.Size, cancel);
                 var ids = cell.State.Ids();
                 CellUpdate update;
                 try
@@ -128,11 +128,21 @@ class FssHttpCells(IFssHttpStore store, IOfficeStorage storage, FssHttpCellCache
                };
     }
 
-    async Task<byte[]> ReadFile(string fileId, Cancel cancel)
+    /// <summary>
+    /// The bytes of the file, in a buffer of the size the storage gave: the file is read whole, up to
+    /// <see cref="OfficeHostOptions.MaxFileSize"/>, and the buffer becomes the data of the cell. The size is only a hint,
+    /// as the file can change after it was taken.
+    /// </summary>
+    async Task<byte[]> ReadFile(string fileId, long size, Cancel cancel)
     {
         await using var stream = await storage.OpenRead(fileId, cancel);
-        using var memory = new MemoryStream();
+        using var memory = new MemoryStream((int) size);
         await stream.CopyToAsync(memory, cancel);
+        if (memory.Length == memory.Capacity)
+        {
+            return memory.GetBuffer();
+        }
+
         return memory.ToArray();
     }
 
@@ -161,7 +171,7 @@ class FssHttpCells(IFssHttpStore store, IOfficeStorage storage, FssHttpCellCache
     public async Task<StoredCell?> TryUpdate(string fileId, Guid partition, string? comparand, CellState state, Cancel cancel = default)
     {
         var version = Guid.NewGuid().ToString("N");
-        if (!await store.CompareExchange(fileId, partition, comparand, new(version, state.ToArray()), cancel))
+        if (!await store.CompareExchange(fileId, partition, comparand, new(version, state.ToMemory()), cancel))
         {
             return null;
         }
