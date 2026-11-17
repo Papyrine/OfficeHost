@@ -591,7 +591,16 @@ class CellStorageService(
             byte[] bytes;
             try
             {
-                bytes = FileCell.Read(outcome.State.Storage!).Root.ToArray();
+                // the file a Put makes is bounded as the file of a PutFile: a Put can refer to the data elements of
+                // earlier revisions, so its file can be larger than the request
+                var root = FileCell.Read(outcome.State.Storage!).Root;
+                if (options.Value.MaxFileSize is { } max &&
+                    root.DataSize > (ulong) max)
+                {
+                    throw new BadHttpRequestException($"The save of {site.FileId} makes a file of {root.DataSize} bytes, larger than MaxFileSize", StatusCodes.Status413PayloadTooLarge);
+                }
+
+                bytes = root.ToArray();
             }
             catch (FssHttpDException)
             {

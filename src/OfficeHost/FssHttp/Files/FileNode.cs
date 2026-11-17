@@ -17,7 +17,7 @@ abstract record FileNode(ExtendedGuid Id, ulong DataSize, IReadOnlyList<FileNode
 
     public byte[] ToArray()
     {
-        if (DataSize > int.MaxValue)
+        if (DataSize > (ulong) Array.MaxLength)
         {
             throw new FssHttpDException($"The file of {DataSize} bytes is too large for an array");
         }

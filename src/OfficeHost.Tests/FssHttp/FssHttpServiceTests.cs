@@ -299,6 +299,30 @@ public class FssHttpServiceTests
     }
 
     /// <summary>
+    /// The file a save makes is bounded by <see cref="OfficeHostOptions.MaxFileSize"/>, as the file of a PutFile, though
+    /// the save sends only its changes: a save that makes a file over it is answered 413, and the file stays as it was.
+    /// </summary>
+    [Test]
+    public async Task Save_FileOverMaxFileSize()
+    {
+        const long limit = 200_000;
+        var (host, _, token) = await Start(configure: options => options.MaxFileSize = limit);
+        await using var _ = host;
+        var word = new WordClient(host, token);
+        await word.Send(word.Join());
+        await word.Sync();
+        var image = Zips.Random(150_000, 2);
+        var first = Zips.Create(("word/document.xml", Zips.Text("first")), ("word/media/image1.png", image));
+        await Assert.That(await word.Save(first)).IsTypeOf<PutChangesResponse>();
+
+        // changes of about 100 KB, within the limit, to a file over it
+        var second = Zips.Create(("word/document.xml", Zips.Text("first")), ("word/media/image1.png", image), ("word/media/image2.png", Zips.Random(100_000, 3)));
+        var refused = await Assert.ThrowsAsync<Exception>(async () => await word.Save(second));
+        await Assert.That(refused!.Message).Contains("413");
+        await Assert.That((await FileOf(host)).SameAs(first)).IsTrue();
+    }
+
+    /// <summary>
     /// A store that fails to read the parts waiting for a file, while it does.
     /// </summary>
     sealed class PartsFailingStore :

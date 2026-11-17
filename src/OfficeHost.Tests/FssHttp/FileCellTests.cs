@@ -615,6 +615,24 @@ public class FileCellTests
                 Data = [data with { ObjectReferences = [..data.ObjectReferences, data.ObjectReferences[0]] }]
             });
         }, "in the tree more than once");
+        // two Data Node Objects of one Object Data BLOB: a tree of a small request could stand for a file of gigabytes
+        yield return ("BlobTwice", () =>
+        {
+            var ids = Ids();
+            var (root, first, second, firstData, secondData, blob) = (ids.NewId(), ids.NewId(), ids.NewId(), ids.NewId(), ids.NewId(), ids.NewId());
+            var blobGroup = new ObjectGroup(
+                ids.NewId(),
+                ids.NewSerialNumber(),
+                null,
+                [new ObjectDataBlobDeclaration(firstData, blob, 1, 0, 0), new ObjectDataBlobDeclaration(secondData, blob, 1, 0, 0)],
+                null,
+                [new ObjectDataBlobReference([], [], blob), new ObjectDataBlobReference([], [], blob)]);
+            return Cell(
+                ids,
+                root,
+                [Group(ids, root, [first, second], Node(false, 6)), Group(ids, first, [firstData], Node(true, 3)), Group(ids, second, [secondData], Node(true, 3)), blobGroup],
+                [new ObjectDataBlob(blob, ids.NewSerialNumber(), Zips.Text("abc"))]);
+        }, "Object Data BLOB");
         yield return ("SizeMismatch", () =>
         {
             var (storage, root, _) = Sample();

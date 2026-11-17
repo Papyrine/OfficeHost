@@ -120,19 +120,30 @@ static class FileCell
     class TreeReader(CellStorage storage, Dictionary<ExtendedGuid, StoredObject> objects)
     {
         HashSet<ExtendedGuid> visited = [];
+        HashSet<ExtendedGuid> blobs = [];
 
         ReadOnlyMemory<byte> Data(ExtendedGuid id, ObjectGroupData data) =>
             data switch
             {
                 ObjectData value => value.Data,
-                ObjectDataBlobReference value => storage.Get<ObjectDataBlob>(value.BlobId).Data,
+                ObjectDataBlobReference value => Blob(id, value.BlobId),
                 _ => throw new FssHttpDException($"The data of the object {id} is excluded")
             };
 
+        ReadOnlyMemory<byte> Blob(ExtendedGuid id, ExtendedGuid blobId)
+        {
+            if (!blobs.Add(blobId))
+            {
+                throw new FssHttpDException($"The Object Data BLOB {blobId} of the object {id} is in the tree more than once");
+            }
+
+            return storage.Get<ObjectDataBlob>(blobId).Data;
+        }
+
         /// <summary>
         /// A node and the nodes under it. Under a leaf, an object without references is a Data Node Object; any other
-        /// object is a node object. Each object is in the tree once, so that a tree cannot loop or stand for more data
-        /// than its objects hold.
+        /// object is a node object. Each object, and each Object Data BLOB, is in the tree once, so that a tree cannot
+        /// loop or stand for more data than its objects hold.
         /// </summary>
         public FileNode Read(ExtendedGuid id, bool underLeaf, int depth)
         {
