@@ -350,6 +350,36 @@ public class TapTests
         await Assert.That(queue.Take(1, long.MaxValue, out _, out _).Single().IsTombstone).IsFalse();
     }
 
+    /// <summary>
+    /// A shadow that answers 503 then cannot be reached: the third failure makes what waits tombstones all the same,
+    /// rather than keeping the exchanges for the whole outage.
+    /// </summary>
+    [Test]
+    public async Task Sender_PausedThenUnreachable()
+    {
+        var queue = new TapQueue();
+        queue.TryAdd(TapItem.Exchange(1, DateTime.UtcNow, "http://sp/doc.docx", [1], null, [2], null));
+        var logged = new List<string>();
+        var sink = new Sink(_ =>
+        {
+            if (_ == 1)
+            {
+                return new() { RetryAfter = TimeSpan.Zero };
+            }
+
+            return new() { Error = "unreachable" };
+        });
+        var sender = new TapSender(queue, sink, 100, logged.Add);
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            sender.SendAll(final: true);
+        }
+
+        await Assert.That(sender.Open).IsTrue();
+        await Assert.That(queue.Take(10, long.MaxValue, out _, out _).Single().IsTombstone).IsTrue();
+        await Assert.That(logged).Contains(_ => _.StartsWith("The shadow cannot be reached", StringComparison.Ordinal));
+    }
+
     static List<TapItem> Items(List<Exchange> exchanges, TapBudget budget) =>
         exchanges
             .Select(_ =>

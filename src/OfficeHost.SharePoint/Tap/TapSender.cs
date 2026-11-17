@@ -21,6 +21,9 @@ sealed class TapSender
     int failures;
     DateTime nextTry;
 
+    // whether what waited became tombstones since the shadow last answered: once an outage
+    bool unreachable;
+
     // the time Stop keeps to send what waits, after waiting for the requests in flight
     static TimeSpan sendTime = TimeSpan.FromSeconds(2);
     DateTime stopBy;
@@ -149,24 +152,28 @@ sealed class TapSender
 
                 failures = 0;
                 open = false;
+                unreachable = false;
                 continue;
             }
 
             queue.Return(batch, dropped);
             if (sent.RetryAfter is { } retryAfter)
             {
-                // full or paused: wait as asked, the exchanges kept within the budget
+                // full or paused: the shadow answers, so wait as asked, the exchanges kept within the budget
                 nextTry = TapClock.UtcNow + retryAfter;
                 open = true;
+                failures = 0;
                 return;
             }
 
             failures++;
             nextTry = TapClock.UtcNow + TimeSpan.FromSeconds(Math.Min(60, Math.Pow(2, failures)));
+            // once an outage, whether the shadow paused the module before it or not
             if (failures >= 3 &&
-                !open)
+                !unreachable)
             {
                 open = true;
+                unreachable = true;
                 queue.Bury("the shadow could not be reached");
                 log($"The shadow cannot be reached ({sent.Error}): copying nothing until it answers");
             }
