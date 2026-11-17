@@ -880,8 +880,6 @@ sealed class WopiHandler(
             OfficeFile? created;
             if (!string.IsNullOrEmpty(suggested))
             {
-                // the content may be written more than once, when another file takes the name meanwhile
-                request.EnableBuffering();
                 created = await CreateSuggested(request, file, FileNames.DecodeUtf7(suggested), cancel);
                 if (created == null)
                 {
@@ -947,17 +945,25 @@ sealed class WopiHandler(
             name = FileNames.Legal(suggested);
         }
 
-        // a name taken meanwhile, or that the storage cannot create (as a folder of that name), moves on to the next
+        // a name taken meanwhile, or that the storage cannot create (as a folder of that name), moves on to the next. The
+        // body is read once, by the storage that creates the file, not kept in a temporary file to be written again: a
+        // name the storage finds taken after reading the body, a file of that name created at the same time, fails the
+        // request
+        var body = new ReadOnceStream(request.Body);
         var candidate = name;
         for (var number = 2; number <= maxNumber; number++)
         {
             if (await storage.GetSibling(file.Id, candidate, cancel) == null)
             {
-                request.Body.Position = 0;
-                var created = await storage.CreateSibling(file.Id, candidate, request.Body, false, cancel);
+                var created = await storage.CreateSibling(file.Id, candidate, body, false, cancel);
                 if (created != null)
                 {
                     return created;
+                }
+
+                if (body.Started)
+                {
+                    throw new IOException($"The suggested target {candidate} was taken while the file was written");
                 }
             }
 

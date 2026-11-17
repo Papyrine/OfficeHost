@@ -310,6 +310,57 @@ public class EdgeCaseTests
     }
 
     /// <summary>
+    /// A storage where another file takes the name of a sibling while it is created: once after reading the content, as
+    /// most storages read it before they know the name is taken, or once before.
+    /// </summary>
+    sealed class RacingStorage(IOfficeStorage inner, bool afterRead) :
+        ForwardingStorage(inner)
+    {
+        bool raced;
+
+        public override async Task<OfficeFile?> CreateSibling(string fileId, string name, Stream content, bool overwrite, Cancel cancel = default)
+        {
+            if (raced)
+            {
+                return await base.CreateSibling(fileId, name, content, overwrite, cancel);
+            }
+
+            raced = true;
+            if (afterRead)
+            {
+                await content.CopyToAsync(Stream.Null, cancel);
+            }
+
+            await base.CreateSibling(fileId, name, new MemoryStream("other"u8.ToArray()), false, cancel);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// A suggested target taken while the file is created moves on to the next name while the body is unread; once read,
+    /// it cannot be written again, as it is not kept to be, and the request fails.
+    /// </summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task PutRelativeFile_SuggestedTarget_TakenMeanwhile(bool afterRead)
+    {
+        var (host, fileId, token) = await Open(wrapStorage: _ => new RacingStorage(_, afterRead));
+        await using var _ = host;
+        using var response = await PutRelative(host, fileId, token, "X-WOPI-SuggestedTarget", "copy.docx");
+        await Assert.That(await File.ReadAllTextAsync(host.PathOf("/copy.docx"))).IsEqualTo("other");
+        if (afterRead)
+        {
+            await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.InternalServerError);
+            await Assert.That(File.Exists(host.PathOf("/copy (2).docx"))).IsFalse();
+            return;
+        }
+
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+        await Assert.That(await File.ReadAllTextAsync(host.PathOf("/copy (2).docx"))).IsEqualTo("body");
+    }
+
+    /// <summary>
     /// ScrubOrNull_ReturnsNull_ForEmptyOrPathNav, TryBuildValidCandidateAsync_EmptyOrPathNavStem_SubstitutesFallback:
     /// a suggested name with nothing usable left still gives a legal file.
     /// </summary>
