@@ -36,6 +36,20 @@ sealed class TapQueue(int capacity = 1000, int tombstoneCapacity = 10_000)
         }
     }
 
+    /// <summary>
+    /// A request in flight from now, the time of its start: taken under the lock of <see cref="Take"/>, so that no
+    /// watermark passes it, as one taken between reading the clock and registering the request could.
+    /// </summary>
+    public DateTime Start(long sequence)
+    {
+        lock (gate)
+        {
+            var now = TapClock.UtcNow;
+            inFlight[sequence] = now;
+            return now;
+        }
+    }
+
     public void Started(long sequence, DateTime started)
     {
         lock (gate)

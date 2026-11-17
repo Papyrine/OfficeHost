@@ -213,6 +213,42 @@ public class TapTests
         await Assert.That(queue.Count).IsEqualTo(2);
     }
 
+    /// <summary>
+    /// A request in flight from its start: the start is taken as it is registered, so that no watermark taken at the same
+    /// time passes it, while the request is in flight, nor after it ended, as an exchange queued then.
+    /// </summary>
+    [Test]
+    public async Task Queue_Start()
+    {
+        var queue = new TapQueue();
+        var watermarks = new List<DateTime>();
+        var taking = Task.Run(() =>
+        {
+            for (var index = 0; index < 1000; index++)
+            {
+                queue.Take(10, long.MaxValue, out var watermark, out _);
+                lock (watermarks)
+                {
+                    watermarks.Add(watermark);
+                }
+            }
+        });
+        var starts = new List<DateTime>();
+        for (var sequence = 0; sequence < 1000; sequence++)
+        {
+            starts.Add(queue.Start(sequence));
+        }
+
+        await taking;
+        await Assert.That(queue.InFlight).IsEqualTo(1000);
+        // every watermark is at most the start of the first request still in flight after it, here all of them: the
+        // watermarks taken before a start are before it
+        var after = queue.Take(10, long.MaxValue, out var last, out _);
+        await Assert.That(after).IsEmpty();
+        await Assert.That(last).IsEqualTo(starts[0]);
+        await Assert.That(watermarks.All(_ => _ <= starts[^1])).IsTrue();
+    }
+
     sealed class Sink(Func<int, TapSent> answer) : ITapSink
     {
         public int Calls { get; private set; }

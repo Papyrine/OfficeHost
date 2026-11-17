@@ -65,8 +65,10 @@ public sealed class ShadowModule : IHttpModule
             }
 
             var capture = new TapCapture(context, runtime, kind, copying);
-            context.Response.Filter = new TapFilter(context.Response.Filter, capture);
+            // completed first, which ends the request in flight whatever comes after, as a filter refused (an
+            // HttpException when the response does not write through its HttpWriter): else the watermark would stay
             context.AddOnRequestCompleted(_ => capture.Completed());
+            context.Response.Filter = new TapFilter(context.Response.Filter, capture);
             context.Items[key] = capture;
         }
         catch (Exception exception)

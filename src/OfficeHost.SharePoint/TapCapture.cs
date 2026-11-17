@@ -61,16 +61,24 @@ sealed class TapCapture
         this.kind = kind;
         this.copying = copying;
         sequence = runtime.NextSequence();
-        started = TapClock.UtcNow;
-        requestHead = RequestHead(context, started);
-        if (kind == "sharedaccess")
+        // in flight from its start, so that the watermark never passes it
+        started = runtime.Queue.Start(sequence);
+        try
         {
-            // read before SharePoint, through the buffered input stream as the ASMX handler reads it: IsOnlyClient is a
-            // few hundred bytes, and the lab's recorder read it so with no change to SharePoint's answers
-            CopyRequestBody();
+            requestHead = RequestHead(context, started);
+            if (kind == "sharedaccess")
+            {
+                // read before SharePoint, through the buffered input stream as the ASMX handler reads it: IsOnlyClient is
+                // a few hundred bytes, and the lab's recorder read it so with no change to SharePoint's answers
+                CopyRequestBody();
+            }
         }
-
-        runtime.Queue.Started(sequence, started);
+        catch
+        {
+            // not copied: no longer in flight, or the watermark would stay at its start
+            runtime.Queue.Ended(sequence);
+            throw;
+        }
     }
 
     /// <summary>
