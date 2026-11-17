@@ -44,17 +44,62 @@ sealed class WopiHandler(
         $"{baseUrl}/wopi/files/{Uri.EscapeDataString(fileId)}";
 
     /// <summary>
-    /// The file id of a route value: the server leaves the escaped slash of an id in it.
+    /// The file id of the request, the segment of its path at <paramref name="fromEnd"/> (1 the last), as
+    /// <see cref="FileUrl"/> escaped it: from the path as the client sent it, as the path of the server decodes %25 but
+    /// keeps %2F, so that an id with %2F in it would read as one with a slash. Without the raw path, from the route value.
     /// </summary>
-    public static string RouteFileId(string value) =>
-        value.Replace("%2F", "/", StringComparison.OrdinalIgnoreCase);
+    public static string RouteFileId(HttpContext context, string value, int fromEnd)
+    {
+        if (RawSegments(context.Request) is { } raw)
+        {
+            return Uri.UnescapeDataString(raw[^fromEnd]);
+        }
+
+        return value.Replace("%2F", "/", StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>
-    /// The path of the request escaped as <see cref="FileUrl"/> escapes it, which is how the WOPI client signs it: the
-    /// server unescapes the characters a path allows unescaped, as parentheses or @.
+    /// The segments of the path of the request as the client sent them, escaped: the raw target the server read, the
+    /// end of which is the path (after the path base). Null when the server gives none, or not of the path's segments.
     /// </summary>
-    static string ProofPath(HttpRequest request) =>
-        string.Join('/', (request.Path.Value ?? "").Split('/').Select(_ => Uri.EscapeDataString(Uri.UnescapeDataString(_))));
+    static string[]? RawSegments(HttpRequest request)
+    {
+        var raw = request.HttpContext.Features.Get<IHttpRequestFeature>()?.RawTarget;
+        if (string.IsNullOrEmpty(raw) ||
+            raw[0] != '/')
+        {
+            return null;
+        }
+
+        var query = raw.IndexOf('?');
+        if (query >= 0)
+        {
+            raw = raw[..query];
+        }
+
+        // the server splits the path at the slashes it decodes, and keeps %2F: a segment each, after the empty one
+        // before the first slash
+        var count = (request.Path.Value ?? "").Split('/').Length - 1;
+        var segments = raw.Split('/');
+        if (count < 1 ||
+            segments.Length - 1 < count)
+        {
+            return null;
+        }
+
+        return ["", .. segments[^count..]];
+    }
+
+    /// <summary>
+    /// The path of the request escaped as <see cref="FileUrl"/> escapes it, which is how the WOPI client signs it: from
+    /// the path the client sent, its segments unescaped then escaped again, as the client may leave unescaped the
+    /// characters a path allows, as parentheses or @.
+    /// </summary>
+    public static string ProofPath(HttpRequest request)
+    {
+        var segments = RawSegments(request) ?? (request.Path.Value ?? "").Split('/');
+        return string.Join('/', segments.Select(_ => Uri.EscapeDataString(Uri.UnescapeDataString(_))));
+    }
 
     /// <summary>
     /// The access token of the request: the access_token parameter of [MS-WOPI] 3.3.5, or else the bearer token of the

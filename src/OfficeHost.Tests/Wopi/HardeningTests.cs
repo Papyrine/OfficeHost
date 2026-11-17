@@ -251,6 +251,37 @@ public class HardeningTests
     }
 
     /// <summary>
+    /// The file id and the signed path of a request from the path as the client sent it, escaped as
+    /// <see cref="WopiHandler.FileUrl"/> escapes them: the server's path decodes %25 and keeps %2F, so an id with a %
+    /// of its own, or a %2F, read from it would be another, and its proof would not match.
+    /// </summary>
+    [Test]
+    [Arguments("50%25off", 1)]
+    [Arguments("a%2Fb", 1)]
+    [Arguments("a/b", 1)]
+    [Arguments("x (1)@y", 2)]
+    public async Task FileId_AsSent(string fileId, int fromEnd)
+    {
+        var escaped = Uri.EscapeDataString(fileId);
+        var signed = $"/wopi/files/{escaped}";
+        if (fromEnd == 2)
+        {
+            signed += "/contents";
+        }
+
+        var context = new DefaultHttpContext();
+        // the path base is not in the path, and the decoded path keeps %2F, as Kestrel's
+        var raw = $"/base{signed}?access_token=t";
+        context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpRequestFeature>()!.RawTarget = raw;
+        context.Request.Path = new PathString(Uri.UnescapeDataString(signed.Replace("%2F", "%252F")));
+        var segments = context.Request.Path.Value!.Split('/');
+        var routeValue = segments[^fromEnd];
+
+        await Assert.That(WopiHandler.RouteFileId(context, routeValue, fromEnd)).IsEqualTo(fileId);
+        await Assert.That(WopiHandler.ProofPath(context.Request)).IsEqualTo(signed);
+    }
+
+    /// <summary>
     /// A relative target that names a folder is a conflict, not a server error, with a valid target to use instead.
     /// </summary>
     [Test]

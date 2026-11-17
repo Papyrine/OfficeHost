@@ -100,10 +100,10 @@ public static class OfficeHostExtensions
                 }
             });
 
-        group.MapGet("/files/{fileId}", (HttpContext context, string fileId, WopiHandler handler) => handler.CheckFileInfo(context, WopiHandler.RouteFileId(fileId)));
-        group.MapGet("/files/{fileId}/contents", (HttpContext context, string fileId, WopiHandler handler) => handler.GetFile(context, WopiHandler.RouteFileId(fileId)));
-        group.MapPost("/files/{fileId}", (HttpContext context, string fileId, WopiHandler handler) => handler.FilesPost(context, WopiHandler.RouteFileId(fileId)));
-        group.MapPost("/files/{fileId}/contents", (HttpContext context, string fileId, WopiHandler handler) => handler.PutFile(context, WopiHandler.RouteFileId(fileId)));
+        group.MapGet("/files/{fileId}", (HttpContext context, string fileId, WopiHandler handler) => handler.CheckFileInfo(context, WopiHandler.RouteFileId(context, fileId, 1)));
+        group.MapGet("/files/{fileId}/contents", (HttpContext context, string fileId, WopiHandler handler) => handler.GetFile(context, WopiHandler.RouteFileId(context, fileId, 2)));
+        group.MapPost("/files/{fileId}", (HttpContext context, string fileId, WopiHandler handler) => handler.FilesPost(context, WopiHandler.RouteFileId(context, fileId, 1)));
+        group.MapPost("/files/{fileId}/contents", (HttpContext context, string fileId, WopiHandler handler) => handler.PutFile(context, WopiHandler.RouteFileId(context, fileId, 2)));
         // the folder operations of [MS-WOPI] 3.3.5.4 and up, and the ecosystem ones, are not supported
         group.Map("/{**path}", () => WopiResult.NotImplemented("Unsupported WOPI endpoint"));
         return group;
