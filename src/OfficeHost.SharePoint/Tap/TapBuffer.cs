@@ -56,7 +56,7 @@ sealed class TapBuffer(TapBudget budget, long limit)
 
             var length = Math.Min(count, chunkSize - used);
             // not ^1: no System.Index on .NET Framework without System.ValueTuple
-            Buffer.BlockCopy(buffer, offset, chunks[^1], used, length);
+            Buffer.BlockCopy(buffer, offset, chunks[chunks.Count - 1], used, length);
             used += length;
             offset += length;
             count -= length;
