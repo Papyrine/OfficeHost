@@ -126,6 +126,10 @@ public class ReplayTests
         var request = again.Document.Descendants(SoapBody.Soap + "Request").Single();
         await Assert.That((string?) request.Attribute("Url")).IsEqualTo("http://localhost/fsshttp/token/doc.docx");
         await Assert.That(again.Binary(request.Descendants(SoapBody.Soap + "SubRequestData").Single())!.SequenceEqual(binary)).IsTrue();
+
+        // a message is read once, however many times it is asked: another message, though equal, is read again
+        await Assert.That(SoapBody.TryRead(message)).IsSameReferenceAs(SoapBody.TryRead(message));
+        await Assert.That(SoapBody.TryRead(message with { })).IsNotSameReferenceAs(SoapBody.TryRead(message));
     }
 
     /// <summary>

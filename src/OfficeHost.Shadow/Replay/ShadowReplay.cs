@@ -316,7 +316,8 @@ class ShadowReplay(IShadowTarget target, IShadowFiles files, IReadOnlyList<Shado
         }
 
         var findings = new List<ShadowFinding>();
-        var expected = SoapBody.Read(exchange.Response);
+        // read already by the processor and the comparer; read again only to throw why it cannot be
+        var expected = SoapBody.TryRead(exchange.Response) ?? SoapBody.Read(exchange.Response);
         var actual = SoapBody.Read(response);
         var expectedResponses = expected.Document.Descendants(soap + "Response").ToList();
         var actualResponses = actual.Document.Descendants(soap + "Response").ToList();

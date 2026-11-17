@@ -19,7 +19,14 @@ class SoapBody
     /// The body, or null when it is no SOAP message: a body the recorder found empty, as one of PowerPoint's
     /// (docs/replay.md).
     /// </summary>
-    public static SoapBody? TryRead(HttpMessage message)
+    public static SoapBody? TryRead(HttpMessage message) =>
+        read.GetValue(message, _ => new(ReadOrNull(_))).Value;
+
+    // the messages of an exchange are read by the processor, the replay and the comparer, a body of megabytes each
+    // time: read once, by the message itself, while it lives. The bodies are only read; the replay translates a copy
+    static ConditionalWeakTable<HttpMessage, StrongBox<SoapBody?>> read = new();
+
+    static SoapBody? ReadOrNull(HttpMessage message)
     {
         try
         {
