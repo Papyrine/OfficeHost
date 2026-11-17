@@ -189,6 +189,28 @@ public abstract class StorageContractTests
     }
 
     /// <summary>
+    /// A rename, and a rename that fails, keep the time the content was last written, which Collabora Online compares
+    /// before it saves (X-COOL-WOPI-Timestamp): a rename is no change of the document.
+    /// </summary>
+    [Test]
+    public async Task Storage_Rename_KeepsLastModified()
+    {
+        var file = (await Add(folder, "a.docx", Content("")))!;
+        await Add(folder, "taken.docx", Content(""));
+        // past the second a store may keep the time to
+        await Task.Delay(1100);
+        await Assert.That(await Storage.Rename(file.Id, "taken.docx")).IsNull();
+        await Assert.That((await Storage.GetFile(file.Id))!.LastModified).IsEqualTo(file.LastModified);
+        var renamed = (await Storage.Rename(file.Id, "b.docx"))!;
+        await Assert.That(renamed.LastModified).IsEqualTo(file.LastModified);
+        await Assert.That((await Storage.GetFile(file.Id))!.LastModified).IsEqualTo(file.LastModified);
+
+        var written = await Storage.Write(file.Id, Content("changed"));
+        await Assert.That(written.LastModified).IsGreaterThan(file.LastModified);
+        await Assert.That((await Storage.GetFile(file.Id))!.LastModified).IsEqualTo(written.LastModified);
+    }
+
+    /// <summary>
     /// Of renames at once to the same name, one is.
     /// </summary>
     [Test]

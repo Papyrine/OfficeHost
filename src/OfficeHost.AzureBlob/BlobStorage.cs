@@ -21,6 +21,9 @@ public sealed class BlobStorage(BlobContainerClient container) :
     // the name a file is renamed from, which it keeps while the rename may still fail
     const string renamingKey = "renaming";
 
+    // when the content was last written, in UTC ticks
+    const string modifiedKey = "modified";
+
     /// <summary>
     /// Adds a file, returning it with its id. Returns null when the folder has a file of that name.
     /// </summary>
@@ -97,8 +100,27 @@ public sealed class BlobStorage(BlobContainerClient container) :
             [folderKey] = Encode(folder),
             [nameKey] = Encode(name),
             [ownerKey] = Encode(ownerId),
-            [versionKey] = NewId()
+            [versionKey] = NewId(),
+            [modifiedKey] = Modified(DateTimeOffset.UtcNow)
         };
+
+    static string Modified(DateTimeOffset time) =>
+        time.UtcTicks.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// When the content was last written: the time of the metadata, as Azure changes the Last-Modified of a blob with its
+    /// metadata too, as on a rename; that of the blob for a file written before the metadata had it.
+    /// </summary>
+    static DateTimeOffset LastModified(BlobProperties properties)
+    {
+        if (properties.Metadata.TryGetValue(modifiedKey, out var value) &&
+            long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var ticks))
+        {
+            return new(ticks, TimeSpan.Zero);
+        }
+
+        return properties.LastModified;
+    }
 
     record Properties(OfficeFile File, string Folder, string? Renaming, ETag ETag, IDictionary<string, string> Metadata)
     {
@@ -124,7 +146,7 @@ public sealed class BlobStorage(BlobContainerClient container) :
                 properties.ContentLength,
                 Decode(metadata[ownerKey]),
                 metadata[versionKey],
-                properties.LastModified);
+                LastModified(properties));
             var renaming = metadata.TryGetValue(renamingKey, out var value) ? Decode(value) : null;
             return new(file, Decode(metadata[folderKey]), renaming, properties.ETag, metadata);
         }
@@ -295,14 +317,16 @@ public sealed class BlobStorage(BlobContainerClient container) :
         var version = NewId();
         while (true)
         {
+            var modified = DateTimeOffset.UtcNow;
             var metadata = new Dictionary<string, string>(source.Metadata)
             {
-                [versionKey] = version
+                [versionKey] = version,
+                [modifiedKey] = Modified(modified)
             };
             try
             {
                 var blob = FileBlob(fileId);
-                BlobContentInfo info = await blob.UploadAsync(
+                await blob.UploadAsync(
                         buffered,
                         new BlobUploadOptions
                         {
@@ -318,7 +342,7 @@ public sealed class BlobStorage(BlobContainerClient container) :
                 {
                     Size = size,
                     Version = version,
-                    LastModified = info.LastModified
+                    LastModified = modified
                 };
             }
             catch (RequestFailedException exception) when (exception.Status == 412)

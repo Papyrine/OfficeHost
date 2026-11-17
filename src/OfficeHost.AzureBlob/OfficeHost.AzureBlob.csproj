@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Using Include="System.Buffers.Text" />
+    <Using Include="System.Globalization" />
     <Using Include="System.Security.Cryptography" />
     <Using Include="System.Text" />
     <Using Include="Azure" />
