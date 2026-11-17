@@ -33,12 +33,14 @@ sealed class HttpSink(TapSettings settings, Guid instance, string server) : ITap
         else
         {
             var boundary = Guid.NewGuid().ToString("N");
-            var body = TapBatch.Body(items, boundary);
             request.ContentType = $"multipart/mixed; boundary=\"{boundary}\"";
             request.Headers["Content-Encoding"] = "gzip";
-            request.ContentLength = body.Length;
+            // gzip written to the request as it goes, chunked: neither a copy of the batch in memory, nor one that
+            // HttpWebRequest keeps to send it again (the ingest asks for no authentication to send it again for)
+            request.SendChunked = true;
+            request.AllowWriteStreamBuffering = false;
             using var stream = request.GetRequestStream();
-            stream.Write(body, 0, body.Length);
+            TapBatch.Write(items, boundary, stream);
         }
 
         try

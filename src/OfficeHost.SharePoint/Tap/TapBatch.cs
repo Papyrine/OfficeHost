@@ -4,9 +4,12 @@
 /// </summary>
 static class TapBatch
 {
-    public static byte[] Body(IReadOnlyList<TapItem> items, string boundary)
+    /// <summary>
+    /// Writes the body to the output, as it is sent: a batch holds documents, megabytes, which the module in
+    /// SharePoint's process does not copy again.
+    /// </summary>
+    public static void Write(IReadOnlyList<TapItem> items, string boundary, Stream output)
     {
-        using var output = new MemoryStream();
         using (var gzip = new GZipStream(output, CompressionLevel.Fastest, true))
         {
             foreach (var item in items)
@@ -42,8 +45,6 @@ static class TapBatch
 
             Write(gzip, $"--{boundary}--\r\n");
         }
-
-        return output.ToArray();
     }
 
     static void Header(StringBuilder head, string name, string value) =>

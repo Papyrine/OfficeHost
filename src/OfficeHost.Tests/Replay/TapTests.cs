@@ -380,6 +380,25 @@ public class TapTests
         await Assert.That(logged).Contains(_ => _.StartsWith("The shadow cannot be reached", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// A batch written to the request as it is sent, chunked, as <c>HttpSink</c> sends it.
+    /// </summary>
+    sealed class BatchContent(IReadOnlyList<TapItem> items, string boundary) :
+        HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+        {
+            TapBatch.Write(items, boundary, stream);
+            return Task.CompletedTask;
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+    }
+
     static List<TapItem> Items(List<Exchange> exchanges, TapBudget budget) =>
         exchanges
             .Select(_ =>
@@ -428,7 +447,8 @@ public class TapTests
 
         var boundary = Guid.NewGuid().ToString("N");
         using var request = new HttpRequestMessage(HttpMethod.Post, "/officehost-shadow/exchanges");
-        request.Content = new ByteArrayContent(TapBatch.Body(items, boundary));
+        // as the module sends it: written as it goes, of no length known before
+        request.Content = new BatchContent(items, boundary);
         request.Content.Headers.TryAddWithoutValidation("Content-Type", $"multipart/mixed; boundary=\"{boundary}\"");
         request.Content.Headers.ContentEncoding.Add("gzip");
         request.Headers.Add("X-OfficeHost-Shadow-Key", ShadowTests.Key);
