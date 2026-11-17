@@ -194,6 +194,10 @@ public class FileChunkerTests
         AssertContiguous(chunks, huge.Length);
         await Assert.That(chunks[1].Signature.Length).IsEqualTo(12);
         await Assert.That(chunks[1].SubChunks.Select(_ => _.Length).ToList()).IsEquivalentTo([3 * megabyte, megabyte]);
+        // signed by its subchunks: the same bytes the same, a byte changed another
+        await Assert.That(FssHttpB.Hex(FileChunker.Chunk(huge, ChunkingOptions.Default)[1].Signature.Span)).IsEqualTo(FssHttpB.Hex(chunks[1].Signature.Span));
+        byte[] changed = [..huge[..^1], 1];
+        await Assert.That(FssHttpB.Hex(FileChunker.Chunk(changed, ChunkingOptions.Default)[1].Signature.Span)).IsNotEqualTo(FssHttpB.Hex(chunks[1].Signature.Span));
     }
 
     /// <summary>

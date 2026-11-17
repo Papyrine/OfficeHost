@@ -92,17 +92,21 @@ static class FileChunker
         }
 
         var length = file.Length - position;
-        byte[] signature;
         if (length <= megabyte)
         {
-            signature = SHA1.HashData(file[position..]);
-        }
-        else
-        {
-            signature = UniqueSignature(file, position, length, 12);
+            chunks.Add(Chunk(file, position, length, SHA1.HashData(file[position..])));
+            return chunks;
         }
 
-        chunks.Add(Chunk(file, position, length, signature));
+        if (length <= subChunkSize)
+        {
+            chunks.Add(Chunk(file, position, length, UniqueSignature(file, position, length, 12)));
+            return chunks;
+        }
+
+        // with subchunks, the chunk is signed by theirs, unique as they are: its bytes are hashed once, not twice
+        var subChunks = SubChunks(file, position, length);
+        chunks.Add(new(position, length, UniqueSignature(position, subChunks), subChunks));
         return chunks;
     }
 
@@ -353,7 +357,7 @@ static class FileChunker
     static List<FileChunk> SimpleChunks(ReadOnlySpan<byte> file)
     {
         var chunks = new List<FileChunk>();
-        for (var position = 0; position < file.Length; position += megabyte)
+        for (var position = 0; position < file.Length; position += Math.Min(megabyte, file.Length - position))
         {
             var length = Math.Min(megabyte, file.Length - position);
             byte[] signature;
@@ -382,14 +386,42 @@ static class FileChunker
             return new(start, length, signature, []);
         }
 
+        return new(start, length, signature, SubChunks(file, start, length));
+    }
+
+    /// <summary>
+    /// The subchunks of 3 megabytes of a chunk, each with a unique signature of 8 bytes. Positions step by the length of
+    /// each, which ends at the end of the chunk: a step of 3 megabytes past it would overflow near 2 GB.
+    /// </summary>
+    static List<FileChunk> SubChunks(ReadOnlySpan<byte> file, int start, int length)
+    {
         var subChunks = new List<FileChunk>();
-        for (var position = start; position < start + length; position += subChunkSize)
+        var end = start + length;
+        for (var position = start; position < end;)
         {
-            var subLength = Math.Min(subChunkSize, start + length - position);
+            var subLength = Math.Min(subChunkSize, end - position);
             subChunks.Add(new(position, subLength, UniqueSignature(file, position, subLength, 8), []));
+            position += subLength;
         }
 
-        return new(start, length, signature, subChunks);
+        return subChunks;
+    }
+
+    /// <summary>
+    /// The unique signature of 12 bytes of a chunk with subchunks: of its position and their signatures.
+    /// </summary>
+    static byte[] UniqueSignature(int start, List<FileChunk> subChunks)
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA1);
+        Span<byte> position = stackalloc byte[8];
+        BinaryPrimitives.WriteInt64LittleEndian(position, start);
+        hash.AppendData(position);
+        foreach (var subChunk in subChunks)
+        {
+            hash.AppendData(subChunk.Signature.Span);
+        }
+
+        return hash.GetHashAndReset()[..12];
     }
 
     /// <summary>
