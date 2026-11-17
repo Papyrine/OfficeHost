@@ -528,7 +528,9 @@ sealed class WopiHandler(
     }
 
     /// <summary>
-    /// The X-WOPI-Lock of a request, or a 400 when it is missing or too long.
+    /// The X-WOPI-Lock of a request, or a 400 when it is missing, too long, or not ASCII ([MS-WOPI] 2.2.1): a lock is
+    /// sent back in the X-WOPI-Lock of the responses, whose values Kestrel writes in ASCII only, so that one of other
+    /// characters would fail every response that names it, until it expires.
     /// </summary>
     static (string? Lock, WopiResult? Error) RequestedLock(HttpContext context)
     {
@@ -541,6 +543,10 @@ sealed class WopiHandler(
         else if (requested.Length > maxLockLength)
         {
             reason = $"X-WOPI-Lock is longer than {maxLockLength} characters";
+        }
+        else if (requested.AsSpan().ContainsAnyExceptInRange(' ', '~'))
+        {
+            reason = "X-WOPI-Lock is not of printable ASCII characters";
         }
         else if (CoauthSessions.IsSessionLock(requested))
         {

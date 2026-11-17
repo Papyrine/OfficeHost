@@ -88,6 +88,24 @@ public class EdgeCaseTests
     }
 
     /// <summary>
+    /// Lock ids are ASCII ([MS-WOPI] 2.2.1): another character is a 400, not a lock that the X-WOPI-Lock of every response
+    /// naming it would fail to send, as Kestrel writes header values in ASCII only.
+    /// </summary>
+    [Test]
+    [Arguments("LOCK", "verrouillé")]
+    [Arguments("LOCK", "a\u0001b")]
+    [Arguments("REFRESH_LOCK", "verrouillé")]
+    [Arguments("UNLOCK", "verrouillé")]
+    public async Task Lock_IdNotAscii(string operation, string id)
+    {
+        var (host, fileId, token) = await Open();
+        await using var _ = host;
+        using var response = await host.Post(fileId, token, operation, ("X-WOPI-Lock", id));
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
+        await Assert.That(await CurrentLock(host, fileId, token)).IsEqualTo("");
+    }
+
+    /// <summary>
     /// AddLockAsync_PreservesExoticLockIdBytes_OnGet, TryUnlockAndRelockAsync_PreservesExoticLockIdBytes_OnSwap:
     /// the lock id is opaque, so it round trips whatever its content.
     /// </summary>
