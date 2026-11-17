@@ -27,7 +27,7 @@ static class ShadowIngest
         ShadowBatch batch;
         try
         {
-            batch = await Read(request, context.RequestAborted);
+            batch = await Read(request, settings.MaxBatchMegabytes * 1024L * 1024, context.RequestAborted);
         }
         catch (Exception exception) when (exception is InvalidDataException or FormatException or IOException)
         {
@@ -65,7 +65,8 @@ static class ShadowIngest
         return CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(sent)), SHA256.HashData(Encoding.UTF8.GetBytes(configured)));
     }
 
-    public static async Task<ShadowBatch> Read(HttpRequest request, Cancel cancel)
+    /// <param name="maxBytes">The most bytes of the batch, as it was made: before gzip.</param>
+    public static async Task<ShadowBatch> Read(HttpRequest request, long maxBytes, Cancel cancel)
     {
         var headers = request.Headers;
         if (!Guid.TryParse(headers[ShadowProtocol.Instance], out var instance))
@@ -85,7 +86,9 @@ static class ShadowIngest
             var body = request.Body;
             if (string.Equals(headers.ContentEncoding, "gzip", StringComparison.OrdinalIgnoreCase))
             {
-                body = new GZipStream(body, CompressionMode.Decompress);
+                // the limit of a batch is that of the batch as it was made too: a few kilobytes of gzip can stand for
+                // gigabytes
+                body = new LimitedStream(new GZipStream(body, CompressionMode.Decompress), maxBytes);
             }
 
             var boundary = HeaderUtilities.RemoveQuotes(type.Boundary).Value ??
@@ -123,7 +126,8 @@ static class ShadowIngest
 
         using var buffer = new MemoryStream();
         await section.Body.CopyToAsync(buffer, cancel);
-        var bytes = buffer.ToArray();
+        // the bytes of the part as read, without a copy: each message copies its body only
+        var bytes = buffer.GetBuffer().AsSpan(0, (int) buffer.Length);
         var length = int.Parse(Header(ShadowProtocol.RequestLength), NumberStyles.None, CultureInfo.InvariantCulture);
         if (length > bytes.Length)
         {

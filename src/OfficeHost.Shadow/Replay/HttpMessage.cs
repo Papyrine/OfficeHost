@@ -29,15 +29,18 @@ record HttpMessage(string StartLine, List<(string Name, string Value)> Headers, 
     /// </summary>
     public int Status => int.Parse(StartLine.Split(' ')[1]);
 
-    public static HttpMessage Read(byte[] bytes)
+    /// <summary>
+    /// The message of the bytes, its body a copy of theirs.
+    /// </summary>
+    public static HttpMessage Read(ReadOnlySpan<byte> bytes)
     {
-        var end = bytes.AsSpan().IndexOf(separator);
+        var end = bytes.IndexOf(separator);
         if (end < 0)
         {
             throw new InvalidDataException("No blank line after the headers");
         }
 
-        var lines = Encoding.UTF8.GetString(bytes, 0, end).Split("\r\n");
+        var lines = Encoding.UTF8.GetString(bytes[..end]).Split("\r\n");
         var headers = lines
             .Skip(1)
             .Select(_ =>
@@ -46,7 +49,7 @@ record HttpMessage(string StartLine, List<(string Name, string Value)> Headers, 
                 return (_[..colon].Trim(), _[(colon + 1)..].Trim());
             })
             .ToList();
-        return new(lines[0], headers, bytes[(end + separator.Length)..]);
+        return new(lines[0], headers, bytes[(end + separator.Length)..].ToArray());
     }
 
     public byte[] ToArray()

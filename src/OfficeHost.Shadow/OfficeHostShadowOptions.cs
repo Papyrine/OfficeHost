@@ -64,7 +64,7 @@ public class OfficeHostShadowOptions
     public int MaximumDocuments { get; set; } = 1000;
 
     /// <summary>
-    /// The largest batch the ingest reads.
+    /// The largest batch the ingest reads, as sent and once its gzip is undone.
     /// </summary>
     public int MaxBatchMegabytes { get; set; } = 256;
 

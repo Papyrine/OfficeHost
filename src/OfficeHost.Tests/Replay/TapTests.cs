@@ -445,21 +445,48 @@ public class TapTests
         var last = exchanges[^1].Time!.Value.UtcDateTime;
         items.Add(TapItem.Tombstone(100, last.AddSeconds(1), "http://other/Shared%20Documents/big.pptx", "too large"));
 
-        var boundary = Guid.NewGuid().ToString("N");
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/officehost-shadow/exchanges");
-        // as the module sends it: written as it goes, of no length known before
-        request.Content = new BatchContent(items, boundary);
-        request.Content.Headers.TryAddWithoutValidation("Content-Type", $"multipart/mixed; boundary=\"{boundary}\"");
-        request.Content.Headers.ContentEncoding.Add("gzip");
-        request.Headers.Add("X-OfficeHost-Shadow-Key", ShadowTests.Key);
-        request.Headers.Add("X-Shadow-Instance", Guid.NewGuid().ToString());
-        request.Headers.Add("X-Shadow-Server", "sharepoint");
-        request.Headers.Add("X-Shadow-Watermark", last.AddSeconds(2).ToString("o"));
+        using var request = BatchRequest(items, last.AddSeconds(2));
         using var response = await shadow.Client.SendAsync(request);
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Accepted);
 
         var findings = await ShadowTests.Findings(shadow, 11);
         await Assert.That(findings.Count(_ => _.Contains("ShadowProcessor: Same: "))).IsEqualTo(10);
         await Assert.That(findings).Contains(_ => _.Contains("TapDropped: tombstone of other/shared documents/big.pptx") && _.Contains("too large"));
+    }
+
+    /// <summary>
+    /// A batch over MaxBatchMegabytes once its gzip is undone is refused, though its gzip is within: a few kilobytes of
+    /// gzip can stand for gigabytes.
+    /// </summary>
+    [Test]
+    public async Task Batches_OverMaxBatchMegabytes()
+    {
+        await using var shadow = await ShadowTests.StartShadow([], _ => _.MaxBatchMegabytes = 1);
+        var zeros = new byte[2 * 1024 * 1024];
+        var body = new TapBuffer(new(zeros.Length), zeros.Length);
+        body.Write(zeros, 0, zeros.Length);
+        List<TapItem> items = [TapItem.Exchange(1, DateTime.UtcNow, null, "POST /x HTTP/1.1\r\n\r\n"u8.ToArray(), body, "HTTP/1.1 200 OK\r\n\r\n"u8.ToArray(), null)];
+        using var request = BatchRequest(items, DateTime.UtcNow);
+        using var response = await shadow.Client.SendAsync(request);
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
+    }
+
+    /// <summary>
+    /// A batch to the ingest as the module sends it: written as it goes, of no length known before.
+    /// </summary>
+    static HttpRequestMessage BatchRequest(List<TapItem> items, DateTime watermark)
+    {
+        var boundary = Guid.NewGuid().ToString("N");
+        var request = new HttpRequestMessage(HttpMethod.Post, "/officehost-shadow/exchanges")
+        {
+            Content = new BatchContent(items, boundary)
+        };
+        request.Content.Headers.TryAddWithoutValidation("Content-Type", $"multipart/mixed; boundary=\"{boundary}\"");
+        request.Content.Headers.ContentEncoding.Add("gzip");
+        request.Headers.Add("X-OfficeHost-Shadow-Key", ShadowTests.Key);
+        request.Headers.Add("X-Shadow-Instance", Guid.NewGuid().ToString());
+        request.Headers.Add("X-Shadow-Server", "sharepoint");
+        request.Headers.Add("X-Shadow-Watermark", watermark.ToString("o"));
+        return request;
     }
 }
