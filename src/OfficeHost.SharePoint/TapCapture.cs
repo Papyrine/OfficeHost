@@ -189,12 +189,22 @@ sealed class TapCapture
     /// <summary>
     /// Whether the document is sampled: IsOnlyClient always (it names no document, and is small), a cell storage
     /// request by its document's URL. Not sampled, it is not copied at all. Decided once, even when the body cannot be
-    /// read: then the exchange is lost to a document unknown.
+    /// read: then the exchange is lost to a document unknown. A cell storage request SharePoint answered without reading
+    /// it, as the 401 of a leg of the authentication, is not copied: its body is not read either, which would make
+    /// ASP.NET read it from the client on SharePoint's request thread, the client send it after a 100 Continue, and
+    /// the copy take it into the budget, all for an exchange that changed nothing.
     /// </summary>
     void Decide()
     {
         var sampled = true;
-        if (kind == "cellstorage")
+        if (kind == "cellstorage" &&
+            input == null &&
+            (context.Response.StatusCode == 401 ||
+             context.Request.ReadEntityBodyMode == ReadEntityBodyMode.None))
+        {
+            sampled = false;
+        }
+        else if (kind == "cellstorage")
         {
             try
             {
